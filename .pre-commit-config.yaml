@@ -12,4 +12,8 @@ repos:
   hooks:
     - id: detect-secrets
       args: ['--baseline', '.secrets.baseline']
-      exclude: .*/tests/.*
+      exclude: |
+          (?x)^(
+              .*/tests/.*|
+              \.env\.example$
+          )$
