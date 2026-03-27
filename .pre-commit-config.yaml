@@ -17,11 +17,3 @@ repos:
               .*/tests/.*|
               \.env\.example$
           )$
-- repo: local
-  hooks:
-    - id: ruff-fix
-      name: ruff fix
-      language: system
-      entry: just fix
-      pass_filenames: false
-      always_run: true

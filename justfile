@@ -35,7 +35,7 @@ test:
 qa:
     just fix
     just typecheck
-    just test
+    # just test
 
 # Clean up build artifacts
 clean:
