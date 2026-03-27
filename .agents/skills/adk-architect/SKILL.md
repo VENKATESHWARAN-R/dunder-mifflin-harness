@@ -57,13 +57,13 @@ Fixed control flow?
 │    ├── A → B → C (linear)                    → SequentialAgent
 │    ├── Repeat until condition                 → LoopAgent
 │    ├── Independent tasks, fan-out             → ParallelAgent
-│    ├── Complex branching + human checkpoints  → ADK 2.0 WorkflowGraph ⚠️ alpha
+│    ├── Complex branching + human checkpoints  → ADK 2.0 Workflow ⚠️ alpha
 │    └── Arbitrary Python logic as a node       → Custom BaseAgent
 │
 └── NO → LLM decides (non-deterministic)
      ├── Single agent, open-ended tasks         → LlmAgent (root_agent)
      ├── Multiple specialists, LLM routes       → Multi-agent (orchestrator + sub_agents)
-     └── Specialists with coordinator + graph   → ADK 2.0 Collaborative Agents ⚠️ alpha
+     └── Specialists with LLM orchestrator      → LlmAgent w/ sub_agents (ADK 2.0 has no CoordinatorNode)
 ```
 
 ### Step 3 — Agent Type Cheat Sheet
@@ -75,7 +75,7 @@ Fixed control flow?
 | Retry/eval loop | `LoopAgent` | Generate → validate → retry | `max_iterations` |
 | Fan-out | `ParallelAgent` | Independent concurrent sub-tasks | `sub_agents` |
 | LLM orchestrator | `LlmAgent` w/ `sub_agents` | Dynamic routing to specialists | `sub_agents`, `description` |
-| Deterministic graph | `WorkflowGraph` (2.0) | State machines, complex branching | nodes + edges |
+| Deterministic graph | `Workflow` (2.0) | Conditional branches, back-edge loops | `edges` tuple list |
 | Full custom logic | `BaseAgent` subclass | Pure Python control flow as node | `_run_async_impl` |
 
 ### Step 4 — Pick Supporting Components
@@ -396,27 +396,42 @@ ADK has a built-in evaluation framework for testing agent behavior.
 
 ### ADK 2.0 — GRAPH WORKFLOWS (ALPHA)
 
-> ⚠️ Alpha. Python 3.11+. `pip install google-adk --pre`. Do NOT share storage with 1.x.
+> ⚠️ Alpha. Verified: `google-adk==2.0.0a2`, Python 3.11+.
+> Module is `google.adk.workflow` (singular) — **not** `google.adk.workflows`.
 
 Replaces/extends the workflow agent family with explicit graph semantics:
-nodes + directed edges. Gives you precise control over routing logic.
+nodes + directed edges defined as tuple lists in `Workflow(edges=[...])`.
 
-**Node types:**
-- `FunctionNode` — pure Python function, reads/writes the shared state dict
-- `AgentNode` — wraps an LlmAgent
-- `HumanInputNode` — pauses the graph and waits for human input before continuing
-- `CoordinatorNode` — an LLM that orchestrates sub-agents within the graph
+**Node types (what actually exists in 2.0.0a2):**
+- `Workflow` — the root agent (replaces `WorkflowGraph`). No `compile()` — just instantiate.
+- `FunctionNode(func, *, name=None)` — wraps a Python callable (positional `func`, not `fn=`).
+- `AgentNode(agent=..., name=...)` — wraps an `LlmAgent`.
+- Bare callables / `LlmAgent` — `NodeLike`; edges accept them directly without explicit wrapping.
+- `START` — sentinel marking the graph entry in edge tuples.
+- `DEFAULT_ROUTE` — catch-all fallback route key.
 
-**Edge types:**
-- Static edge — always go from A to B
-- `ConditionalEdge` — route to different nodes based on a Python function that reads state
+**Does NOT exist (removed/renamed in 2.0.0a2):**  `WorkflowGraph`, `HumanInputNode`, `CoordinatorNode`, `ConditionalEdge` — none of these are in the package.
+
+**State — how it actually works:**
+- `LlmAgent` writes to `session.state` automatically via `output_key`.
+- `FunctionNode` **reads** params by name from `session.state` (auto-injected).
+- `FunctionNode` **writes** to `session.state` by yielding `Event(state={"key": value})`.
+- Returning a plain `dict` from a function sets `event.output`, **NOT** `session.state`.
+
+**Routing — how it actually works:**
+- Conditional edges: `(source, {"route_key": target, ...})` tuple.
+- The preceding node must yield `Event(route="route_key")` — routing comes from `event.actions.route`.
+- Returning a plain string does **NOT** set the route.
+- Combine state + routing: `yield Event(state={...}, route="key")`.
+
+**Human-in-the-loop:** Yield `RequestInput(message=..., response_schema=...)` from a FunctionNode.
+The turn pauses; on next user message, execution resumes with `node_input` set to the user's reply.
 
 **Key advantages over 1.x workflow agents:**
-- Mixed node types in one graph (Python + LLM + human)
-- Explicit, inspectable routing logic
-- Human-in-the-loop as a first-class construct
-- Dynamic loops without LoopAgent's limitations
-- Collaborative agents with coordinator pattern
+- Mixed Python + LLM nodes in one graph
+- Conditional branching via explicit route keys (no tool workarounds)
+- Back-edge loops without `LoopAgent`'s limitations
+- Human checkpoints via `RequestInput`
 
 → See `ref_adk2.md`
 

@@ -1,131 +1,140 @@
 # ref_adk2.md — ADK 2.0 Graph Workflows Reference
 
-> **Alpha release.** Install: `pip install google-adk --pre` (Python 3.11+)
+> **Alpha release.** Verified against `google-adk==2.0.0a2` (Python 3.11+)
 > **⚠️ Critical:** Never share storage (sessions, memory, artifacts) between ADK 1.x and 2.0 projects.
+> **⚠️ Module name:** `google.adk.workflow` (singular) — NOT `google.adk.workflows`.
 
 ## Core Concepts
 
 | Concept | What it is |
 |---------|-----------|
-| `WorkflowGraph` | Container for nodes + edges. Compiles to a runnable agent. |
-| `FunctionNode` | Wraps a pure Python function. Input/output = state dict. |
-| `AgentNode` | Wraps an `LlmAgent`. Reads/writes state via `output_key`. |
-| `HumanInputNode` | Pauses graph execution, waits for human input. |
-| `CoordinatorNode` | LLM that orchestrates sub-agents within the graph. |
-| Static edge | Always go from node A to node B. |
-| `ConditionalEdge` | Route to different nodes based on a function of state. |
+| `Workflow` | The root agent. Declared with `edges=[...]` tuple list — no `compile()`. |
+| `FunctionNode` | Wraps a Python function. Constructor: `FunctionNode(func, *, name=None)`. |
+| `AgentNode` | Wraps an `LlmAgent`. Constructor: `AgentNode(agent=..., name=...)`. |
+| `START` | Sentinel constant marking the graph entry point in edge tuples. |
+| Static edge | `(A, B, C)` tuple — always runs A → B → C in order. |
+| Conditional edge | `(A, {"key1": B, "key2": C})` tuple — A emits `Event(route="key1")` to branch. |
+| `DEFAULT_ROUTE` | Fallback route key when no specific route matches. |
 
-**Data model:** All nodes share one state dict. Functions read from it and return an updated copy. Use `{**state, "new_key": value}` — never mutate in-place.
+**State model:** Session state (`session.state`) is the shared scratchpad.
+- LlmAgent writes to state via `output_key` (auto).
+- FunctionNode **reads** params by name from `session.state` (auto-injected by name).
+- FunctionNode **writes** to state by yielding `Event(state={"key": value})`.
+- Routing is set by yielding `Event(route="key")` — NOT by returning a string.
+- Both can be combined: `yield Event(state={...}, route="write")`.
+
+**NodeLike:** Edges accept bare callables, `LlmAgent`, `FunctionNode`, `AgentNode`, or `"START"` — the `Workflow` auto-wraps them.
 
 ---
 
 ## Basic Graph (static edges)
 
 ```python
-from google.adk.agents import LlmAgent
-from google.adk.workflows import WorkflowGraph, FunctionNode, AgentNode
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.events.event import Event
+from google.adk.workflow import START, Workflow
 
-# Pure Python node
-def preprocess(state: dict) -> dict:
-    """Normalize and validate input before sending to LLM."""
-    text = state.get("input_text", "").strip().lower()
-    if not text:
-        return {**state, "error": "Empty input", "skip_analysis": True}
-    return {**state, "normalized_text": text, "skip_analysis": False}
+# Pure Python node — params injected from session.state by name.
+# Write to state via Event(state={...}). Return None or omit yield to write nothing.
+def preprocess(node_input: str):  # node_input = the user's message from START
+    """Normalize and seed session state before the LLM runs."""
+    text = (node_input or "").strip().lower()
+    yield Event(state={"normalized_text": text, "skip_analysis": not text})
 
-def postprocess(state: dict) -> dict:
-    """Format LLM output for downstream consumption."""
-    result = state.get("llm_output", "")
-    return {**state, "final_result": result.strip(), "processed_at": time.time()}
+def postprocess(llm_output: str):  # injected from session.state["llm_output"]
+    """Format LLM output and finalize."""
+    import time
+    yield Event(state={"final_result": llm_output.strip(), "processed_at": time.time()})
 
-# LLM node
+# LlmAgent — output_key writes result to session.state automatically
 analyzer = LlmAgent(
-    model="gemini-2.5-flash",   # or "ollama/llama3.2" for local
+    model="gemini-2.5-flash",
     name="analyzer",
     instruction="Analyze this normalized text: {normalized_text}",
-    output_key="llm_output",
+    output_key="llm_output",   # → session.state["llm_output"]
 )
 
-# Assemble graph
-graph = WorkflowGraph(name="analysis_pipeline")
-
-pre_node = FunctionNode(name="preprocess", fn=preprocess)
-analyze_node = AgentNode(name="analyze", agent=analyzer)
-post_node = FunctionNode(name="postprocess", fn=postprocess)
-
-for node in [pre_node, analyze_node, post_node]:
-    graph.add_node(node)
-
-graph.add_edge(pre_node, analyze_node)
-graph.add_edge(analyze_node, post_node)
-
-graph.set_entry_point(pre_node)
-graph.set_finish_point(post_node)
-
-root_agent = graph.compile()
+# Assemble as Workflow — edges list drives the graph, no compile() needed
+root_agent = Workflow(
+    name="root_agent",
+    rerun_on_resume=True,
+    edges=[
+        # Linear chain: START → preprocess → analyzer → postprocess
+        (START, preprocess, analyzer, postprocess),
+    ],
+)
 ```
+
+**Key FunctionNode rules:**
+- Params named `node_input` receive the upstream node's output.
+- All other params are pulled **by name** from `session.state` — so name them to match state keys.
+- Yield `Event(state={...})` to write to session state (dict return does NOT write state).
+- Bare callables in edges work — Workflow auto-wraps them in `FunctionNode`.
 
 ---
 
-## Conditional Routing (ConditionalEdge)
+## Conditional Routing
+
+No `ConditionalEdge` class exists. Routing is driven by `Event(route="key")` yielded
+from a function node. The edge tuple `(src, {"key": dest})` maps route keys to targets.
 
 ```python
-from google.adk.workflows import WorkflowGraph, FunctionNode, AgentNode, ConditionalEdge
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.events.event import Event
+from google.adk.workflow import START, Workflow
 
-def triage(state: dict) -> dict:
-    """Classify and score the incoming request."""
-    text = state.get("input_text", "")
-    urgency = compute_urgency(text)       # your scoring logic
-    category = classify_category(text)    # "billing" | "technical" | "general"
-    return {**state, "urgency": urgency, "category": category}
+# Step 1: seed state from user input
+def parse_input(node_input: str):
+    yield Event(state={"input_text": node_input.strip()})
 
-def route_decision(state: dict) -> str:
-    """Return the key of the next node to execute."""
-    if state.get("urgency", 0) > 7:
-        return "escalate"
-    return state.get("category", "general")
+# Step 2: classify and emit a route — Event(route=...) drives the branch
+def triage(input_text: str):   # injected from session.state
+    urgency = 8 if "urgent" in input_text.lower() else 3
+    category = "billing" if "invoice" in input_text.lower() else "general"
+    route = "escalate" if urgency > 7 else category
+    yield Event(state={"urgency": urgency}, route=route)
 
 escalation_agent = LlmAgent(name="escalate", model="gemini-2.5-flash",
                              instruction="Handle URGENT case: {input_text}", output_key="response")
-billing_agent   = LlmAgent(name="billing",   model="gemini-2.5-flash",
+billing_agent    = LlmAgent(name="billing",  model="gemini-2.5-flash",
                              instruction="Handle billing inquiry: {input_text}", output_key="response")
-technical_agent = LlmAgent(name="technical", model="gemini-2.5-flash",
-                             instruction="Diagnose technical issue: {input_text}", output_key="response")
-general_agent   = LlmAgent(name="general",   model="gemini-2.5-flash",
+general_agent    = LlmAgent(name="general",  model="gemini-2.5-flash",
                              instruction="Answer general question: {input_text}", output_key="response")
 
-graph = WorkflowGraph(name="smart_router")
-
-triage_node = FunctionNode(name="triage", fn=triage)
-nodes = {
-    "escalate": AgentNode(name="escalate", agent=escalation_agent),
-    "billing":  AgentNode(name="billing",  agent=billing_agent),
-    "technical":AgentNode(name="technical",agent=technical_agent),
-    "general":  AgentNode(name="general",  agent=general_agent),
-}
-
-graph.add_node(triage_node)
-for node in nodes.values():
-    graph.add_node(node)
-
-# Conditional edge: route_decision(state) returns a key → maps to a node
-graph.add_conditional_edge(triage_node, route_decision, nodes)
-
-graph.set_entry_point(triage_node)
-for node in nodes.values():
-    graph.set_finish_point(node)   # all branches are terminal
-
-root_agent = graph.compile()
+root_agent = Workflow(
+    name="root_agent",
+    rerun_on_resume=True,
+    edges=[
+        # Entry chain
+        (START, parse_input, triage),
+        # Conditional branch — triage's Event(route=...) selects the target
+        (triage, {"escalate": escalation_agent,
+                  "billing":  billing_agent,
+                  "general":  general_agent}),
+    ],
+)
 ```
+
+**Rules:**
+- The function yielding `Event(route="key")` must immediately precede the `(src, {"key": dest})` edge.
+- Route keys must be `str`, `int`, or `bool` (`RouteValue`).
+- Use `DEFAULT_ROUTE` from `google.adk.workflow` as a catch-all fallback key.
+- You can combine state write + route in one yield: `Event(state={...}, route="key")`.
 
 ---
 
-## Human Input Node (pause for human approval/input)
+## Human-in-the-Loop (RequestInput)
+
+`HumanInputNode` does **not** exist in `2.0.0a2`. Use a `FunctionNode` that yields
+`RequestInput` — this pauses the graph turn, surfaces a prompt to the user, and
+resumes on the next user message.
 
 ```python
-from google.adk.workflows import WorkflowGraph, AgentNode, FunctionNode, HumanInputNode
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.events.event import Event
+from google.adk.events.request_input import RequestInput
+from google.adk.workflow import START, Workflow
 
-# Step 1: Generate a plan
 planner = LlmAgent(
     model="gemini-2.5-flash",
     name="planner",
@@ -133,249 +142,221 @@ planner = LlmAgent(
     output_key="action_plan",
 )
 
-# Step 2: Pause for human review
-approval = HumanInputNode(
-    name="human_approval",
-    prompt="Review this action plan:\n\n{action_plan}\n\nRespond: approve / reject / modify <reason>",
-    output_key="human_decision",
-)
+# Yield RequestInput to pause and ask the human
+def ask_human_approval(action_plan: str):  # injected from session.state
+    yield RequestInput(
+        message=(
+            f"Review this plan:\n\n{action_plan}\n\n"
+            "Reply: approve / reject / modify <reason>"
+        ),
+        response_schema={"decision": str},
+    )
 
-# Step 3: Route based on decision
-def parse_decision(state: dict) -> str:
-    decision = state.get("human_decision", "").lower().strip()
+# Parse the human's reply (arrives as node_input on resume)
+def parse_decision(node_input: str):
+    decision = (node_input or "").strip().lower()
     if decision.startswith("approve"):
-        return "execute"
+        yield Event(route="execute")
     elif decision.startswith("modify"):
-        state["revision_request"] = decision.replace("modify", "").strip()
-        return "revise"
-    return "abort"
+        reason = decision.replace("modify", "").strip()
+        yield Event(state={"revision_request": reason}, route="revise")
+    else:
+        yield Event(route="abort")
 
-# Execution nodes
 executor = LlmAgent(name="executor", model="gemini-2.5-flash",
-                    instruction="Execute this approved plan: {action_plan}", output_key="result")
+                    instruction="Execute this approved plan: {action_plan}",
+                    output_key="result")
 reviser  = LlmAgent(name="reviser",  model="gemini-2.5-flash",
-                    instruction="Revise the plan per feedback: {revision_request}\nOriginal: {action_plan}",
+                    instruction="Revise plan for: {revision_request}\nOriginal: {action_plan}",
                     output_key="action_plan")
 
-def abort_fn(state: dict) -> dict:
-    return {**state, "result": "Aborted by human reviewer."}
+def abort_fn():
+    yield Event(state={"result": "Aborted by human reviewer."})
 
-graph = WorkflowGraph(name="human_approval_flow")
+def seed(node_input: str):
+    yield Event(state={"task": node_input})
 
-plan_node    = AgentNode(name="plan",    agent=planner)
-approve_node = approval
-exec_node    = AgentNode(name="execute", agent=executor)
-revise_node  = AgentNode(name="revise",  agent=reviser)
-abort_node   = FunctionNode(name="abort", fn=abort_fn)
-
-for node in [plan_node, approve_node, exec_node, revise_node, abort_node]:
-    graph.add_node(node)
-
-graph.add_edge(plan_node, approve_node)
-graph.add_conditional_edge(approve_node, parse_decision, {
-    "execute": exec_node,
-    "revise":  revise_node,
-    "abort":   abort_node,
-})
-graph.add_edge(revise_node, approve_node)   # loop back after revision
-
-graph.set_entry_point(plan_node)
-graph.set_finish_point(exec_node)
-graph.set_finish_point(abort_node)
-
-root_agent = graph.compile()
+root_agent = Workflow(
+    name="root_agent",
+    rerun_on_resume=True,
+    edges=[
+        (START, seed, planner, ask_human_approval, parse_decision),
+        (parse_decision, {"execute": executor,
+                          "revise":  reviser,
+                          "abort":   abort_fn}),
+        (reviser, ask_human_approval),  # loop back for re-review
+    ],
+)
 ```
 
-### Running graphs with human input
+### Running a Workflow programmatically
 ```python
 import asyncio
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai.types import Content, Part
 
-async def run_with_human_in_loop():
+async def run():
     svc = InMemorySessionService()
     runner = Runner(agent=root_agent, session_service=svc, app_name="app")
-    session = await svc.create_session(
-        app_name="app", user_id="u1",
-        state={"task": "Deploy service X to production cluster"},
-    )
+    session = await svc.create_session(app_name="app", user_id="u1")
 
-    async def run_turn(message: str):
+    async def run_turn(message: str) -> tuple[str, str]:
         async for event in runner.run_async(
             user_id="u1",
             session_id=session.id,
             new_message=Content(parts=[Part(text=message)]),
         ):
-            if event.event_type == "human_input_request":
-                # Graph is paused — get input from actual human
-                prompt_text = event.content.parts[0].text
-                return "PAUSED", prompt_text
-            if event.is_final_response():
+            if event.is_final_response() and event.content:
                 return "DONE", event.content.parts[0].text
         return "DONE", ""
 
-    # Start the workflow
-    status, output = await run_turn("start")
+    await run_turn("Deploy service X to production")
 
-    while status == "PAUSED":
-        print(f"\n[Human input needed]:\n{output}\n")
-        human_input = input("> ")             # in a real app: webhook, UI, Slack, etc.
-        status, output = await run_turn(human_input)
-
-    print(f"\n[Final result]: {output}")
-
-asyncio.run(run_with_human_in_loop())
+asyncio.run(run())
 ```
 
 ---
 
 ## Dynamic Workflows (code-controlled loops)
 
+Back-edges create loops. A function node emits `Event(route=...)` to exit or continue.
+
 ```python
-from google.adk.workflows import WorkflowGraph, FunctionNode, AgentNode
+import json, re
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.events.event import Event
+from google.adk.workflow import START, Workflow
 
-def check_quality(state: dict) -> str:
-    """Dynamic routing: continue loop or exit based on quality score."""
-    score = state.get("quality_score", 0)
-    iteration = state.get("iteration", 0)
-    if score >= 8.0 or iteration >= 5:
-        return "done"
-    return "continue"
+# Seed state on entry
+def seed(node_input: str):
+    yield Event(state={"topic": node_input, "iteration": 0,
+                       "feedback": "", "quality_score": 0.0})
 
-def increment(state: dict) -> dict:
-    return {**state, "iteration": state.get("iteration", 0) + 1}
-
-def parse_score(state: dict) -> dict:
-    """Extract numeric score from LLM's JSON output."""
-    import json, re
-    raw = state.get("score_output", '{"score": 5}')
+# Parse LLM score output + decide route (combine into one node)
+def parse_and_route(score_output: str, iteration: int):
     try:
-        data = json.loads(re.search(r'\{.*\}', raw, re.DOTALL).group())
-        return {**state, "quality_score": float(data.get("score", 5))}
+        data = json.loads(re.search(r'\{.*\}', score_output, re.DOTALL).group())
+        score = float(data.get("score", 5))
+        feedback = data.get("feedback", "")
     except Exception:
-        return {**state, "quality_score": 5.0}
+        score, feedback = 5.0, ""
+    route = "done" if (score >= 8.0 or iteration >= 5) else "continue"
+    yield Event(state={"quality_score": score, "feedback": feedback}, route=route)
+
+def increment(iteration: int):
+    yield Event(state={"iteration": iteration + 1})
+
+def done(content: str):
+    yield Event(state={"final_content": content})
 
 generator = LlmAgent(
-    model="gemini-2.5-flash",
-    name="generator",
-    instruction="""Generate content for topic: {topic}
-    Iteration: {iteration}
-    Previous feedback: {feedback}""",
+    model="gemini-2.5-flash", name="generator",
+    instruction="Generate content for: {topic}\nIteration: {iteration}\nFeedback: {feedback}",
     output_key="content",
 )
-
 scorer = LlmAgent(
-    model="gemini-2.5-flash",
-    name="scorer",
-    instruction="""Score this content 1-10 and give feedback.
-    Content: {content}
-    Respond ONLY with valid JSON: {"score": <number>, "feedback": "<text>"}""",
+    model="gemini-2.5-flash", name="scorer",
+    instruction='Score 1-10. Content: {content}\nJSON only: {"score": N, "feedback": "..."}',
     output_key="score_output",
 )
 
-graph = WorkflowGraph(name="iterative_refinement")
-
-gen_node   = AgentNode(  name="generate",  agent=generator)
-score_node = AgentNode(  name="score",     agent=scorer)
-parse_node = FunctionNode(name="parse",    fn=parse_score)
-inc_node   = FunctionNode(name="increment",fn=increment)
-done_node  = FunctionNode(name="done",     fn=lambda s: {**s, "final_content": s.get("content")})
-
-for n in [gen_node, score_node, parse_node, inc_node, done_node]:
-    graph.add_node(n)
-
-graph.add_edge(gen_node, score_node)
-graph.add_edge(score_node, parse_node)
-graph.add_conditional_edge(parse_node, check_quality, {
-    "done":     done_node,
-    "continue": inc_node,
-})
-graph.add_edge(inc_node, gen_node)   # loop back
-
-graph.set_entry_point(gen_node)
-graph.set_finish_point(done_node)
-
-root_agent = graph.compile()
+root_agent = Workflow(
+    name="root_agent",
+    rerun_on_resume=True,
+    edges=[
+        (START, seed, generator, scorer, parse_and_route),
+        # Conditional exit or continue
+        (parse_and_route, {"done": done, "continue": increment}),
+        # Back-edge: increment → generator (loop)
+        (increment, generator),
+    ],
+)
 ```
 
 ---
 
-## Collaborative Agents (Coordinator Pattern)
+## Collaborative / Orchestrator Pattern
+
+`CoordinatorNode` does **not** exist in `2.0.0a2`. The collaborative pattern is achieved
+with an `LlmAgent` orchestrator that has `sub_agents` — same as ADK 1.x. Wrap it in a
+`Workflow` if you need explicit graph edges around it.
 
 ```python
-from google.adk.agents import LlmAgent
-from google.adk.workflows import WorkflowGraph, CoordinatorNode
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.workflow import START, Workflow
 
-# Specialist agents — narrow, focused
+# Specialists — the orchestrator routes to them by description
 researcher = LlmAgent(
-    name="researcher",
-    model="gemini-2.5-flash",
+    name="researcher", model="gemini-2.5-flash",
     description="Researches topics, finds facts, and retrieves source material.",
-    tools=[web_search, fetch_url],
     output_key="research",
 )
-
 analyst = LlmAgent(
-    name="analyst",
-    model="gemini-2.5-flash",
-    description="Analyzes data, identifies patterns, and draws conclusions.",
-    tools=[run_sql, compute_stats],
+    name="analyst", model="gemini-2.5-flash",
+    description="Analyzes data, identifies patterns, draws conclusions.",
     output_key="analysis",
 )
-
 writer = LlmAgent(
-    name="writer",
-    model="gemini-2.5-flash",
-    description="Writes clear, structured prose from research and analysis notes.",
+    name="writer", model="gemini-2.5-flash",
+    description="Writes clear, structured prose from research and analysis.",
     output_key="draft",
 )
 
-reviewer = LlmAgent(
-    name="reviewer",
+# Orchestrator — LLM decides which specialist to call
+orchestrator = LlmAgent(
+    name="orchestrator",
     model="gemini-2.5-flash",
-    description="Reviews drafts for accuracy, clarity, and completeness.",
-    output_key="review",
+    instruction="""You coordinate a research and writing team. For each task:
+    1. Use researcher to gather facts.
+    2. Use analyst if data needs processing.
+    3. Use writer to produce the final draft.
+    Return the completed draft.""",
+    sub_agents=[researcher, analyst, writer],
 )
 
-# Coordinator orchestrates the specialists
-coordinator = CoordinatorNode(
-    name="coordinator",
-    model="gemini-2.5-flash",
-    instruction="""You coordinate a research and writing team.
-    For each task:
-    1. Use researcher to gather facts
-    2. Use analyst if data needs processing
-    3. Use writer to create the draft
-    4. Use reviewer to check quality
-    Return the final reviewed content.""",
-    sub_agents=[researcher, analyst, writer, reviewer],
+# Wrap in Workflow if you need explicit graph control around the orchestrator
+root_agent = Workflow(
+    name="root_agent",
+    rerun_on_resume=True,
+    edges=[(START, orchestrator)],
 )
-
-graph = WorkflowGraph(name="content_team")
-graph.add_node(coordinator)
-graph.set_entry_point(coordinator)
-graph.set_finish_point(coordinator)
-
-root_agent = graph.compile()
+# — or just set root_agent = orchestrator directly for a pure LLM-orchestrated run
 ```
 
 ---
 
 ## ADK 2.0 vs 1.x — When to Choose Which
 
-| Need | ADK 1.x | ADK 2.0 |
-|------|---------|---------|
-| Simple A→B→C pipeline | `SequentialAgent` ✅ | `WorkflowGraph` (overkill) |
-| Retry until quality met | `LoopAgent` ✅ | Dynamic graph with back-edge |
-| Independent parallel tasks | `ParallelAgent` ✅ | `WorkflowGraph` fan-out |
-| Conditional branching | Workaround via tools | `ConditionalEdge` ✅ |
-| Human approval checkpoint | Custom tool + pause | `HumanInputNode` ✅ |
-| Mixed Python + LLM nodes | Custom `BaseAgent` | `FunctionNode` + `AgentNode` ✅ |
-| Explicit routing visibility | Not built-in | Graph structure ✅ |
+| Need | ADK 1.x | ADK 2.0 (`Workflow`) |
+|------|---------|---------------------|
+| Simple A→B→C pipeline | `SequentialAgent` ✅ | `Workflow` with linear edge (overkill) |
+| Retry until condition | `LoopAgent` ✅ | `Workflow` with back-edge loop |
+| Independent parallel tasks | `ParallelAgent` ✅ | `Workflow` fan-out (experimental) |
+| Conditional branching | Workaround via tools | `Event(route=...)` + dict edge ✅ |
+| Human pause/approval | Custom tool + pause | `RequestInput` in FunctionNode ✅ |
+| Mixed Python + LLM nodes | Custom `BaseAgent` | `FunctionNode` + `LlmAgent` in edges ✅ |
+| Explicit routing visibility | Not built-in | Edge tuple graph ✅ |
 | Production stability | ✅ | ⚠️ Alpha |
 | Python version | 3.10+ | 3.11+ |
 | Install | `pip install google-adk` | `pip install google-adk --pre` |
 
+## Quick Import Reference (2.0.0a2 verified)
+
+```python
+# Core workflow
+from google.adk.workflow import START, Workflow          # main entry points
+from google.adk.workflow import FunctionNode             # wrap a Python function explicitly
+from google.adk.workflow._agent_node import AgentNode   # wrap an LlmAgent explicitly
+from google.adk.workflow import DEFAULT_ROUTE            # catch-all fallback route key
+
+# State + routing from FunctionNode
+from google.adk.events.event import Event                # Event(state={}, route="key")
+from google.adk.events.request_input import RequestInput # pause for human input
+
+# Agents
+from google.adk.agents.llm_agent import LlmAgent
+```
+
 **Bottom line:** Use ADK 1.x for production. Use ADK 2.0 for greenfield projects where
-you need complex conditional routing, human-in-the-loop, or mixed node type graphs.
+you need conditional routing, back-edge loops, or mixed Python + LLM node graphs.
