@@ -19,6 +19,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
+    "pytest>=9.0.2",
 ]
 experimental = [
     "pydantic-ai-slim[openrouter]>=1.72.0",
