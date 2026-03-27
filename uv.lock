@@ -513,7 +513,7 @@ experimental = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
-    { name = "google-adk", specifier = "==2.0.0a1" },
+    { name = "google-adk", specifier = "==2.0.0a2" },
     { name = "langfuse", specifier = ">=4.0.1" },
     { name = "litellm", specifier = ">=1.82.6" },
     { name = "openinference-instrumentation-google-adk", specifier = ">=0.1.10" },
@@ -665,7 +665,7 @@ wheels = [
 
 [[package]]
 name = "google-adk"
-version = "2.0.0a1"
+version = "2.0.0a2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -714,9 +714,9 @@ dependencies = [
     { name = "watchdog" },
     { name = "websockets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d0/fe/c509dd08c2748a5c64939aaf89ac5de9d99aa7232dd854c3400502a9514a/google_adk-2.0.0a1.tar.gz", hash = "sha256:f84f920fce4134c0ba116a87ccc2499a9de702ff564dae6906939663abf2e2f5", size = 2349938, upload-time = "2026-03-18T16:21:29.975Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fc/06/2e98a00c288162e464b9be2a722a5414004239483ea0c38dba1d5206b60a/google_adk-2.0.0a2.tar.gz", hash = "sha256:f562fc45298703eb086b33e89e651154a979395231ebb0e845efce11f8551c7e", size = 2352290, upload-time = "2026-03-27T00:47:04.501Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7c/0d/a528a9184dd8ab35fd3ac6fcc5b72f3d2935c8d8a03883587981ba44ee24/google_adk-2.0.0a1-py3-none-any.whl", hash = "sha256:0c3d882dd1219ad54d0ba0d8be5074653a4a98853504e9887cf4e79de90cf1d4", size = 2775213, upload-time = "2026-03-18T16:21:31.813Z" },
+    { url = "https://files.pythonhosted.org/packages/94/95/13dde4695a9df66a20e3122d408d654d1a5270214c1092b20e0cf3cf38e8/google_adk-2.0.0a2-py3-none-any.whl", hash = "sha256:b6c79c47fa32ab7e605c1dd57677122ce750a8942019017c4facab5cc680d467", size = 2777533, upload-time = "2026-03-27T00:47:02.793Z" },
 ]
 
 [[package]]
