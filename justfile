@@ -31,6 +31,12 @@ run:
 test:
     uv run pytest
 
+# Run all quality checks (fix, typecheck, test)
+qa:
+    just fix
+    just typecheck
+    just test
+
 # Clean up build artifacts
 clean:
     rm -rf dist/
