@@ -1,3 +1,5 @@
+set positional-arguments := true
+
 # Set default recipe to list all available commands
 default:
     @just --list
@@ -23,9 +25,9 @@ fix:
 typecheck:
     uvx ty check
 
-# Run the main application
-run:
-    uv run python main.py
+# Run the application with optional arguments
+run *args:
+    uv run --env-file .env {{args}}
 
 # Run tests using pytest
 test:
