@@ -14,7 +14,8 @@ This project uses `uv` for package management and `just` as the task runner.
 
 ```bash
 just sync        # Install all dependencies (--all-groups --all-extras)
-just run         # Run main.py
+just run [args]  # Run any command via `uv run --env-file .env` (e.g. `just run pygemini --yolo`)
+                 # Args with spaces must use nested quotes: just run pygemini -p "'say hello'"
 just test        # Run pytest
 just lint        # Lint with ruff
 just format      # Format with ruff
