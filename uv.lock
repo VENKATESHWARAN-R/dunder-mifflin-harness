@@ -599,6 +599,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langgraph" },
     { name = "litellm" },
+    { name = "liteparse" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extra = ["a2a", "duckduckgo", "evals", "fastmcp", "logfire"] },
     { name = "pydantic-settings" },
@@ -633,6 +634,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=1.1.12" },
     { name = "langgraph", specifier = ">=1.1.3" },
     { name = "litellm", specifier = ">=1.82.6" },
+    { name = "liteparse", specifier = ">=1.2.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-ai-slim", extras = ["a2a", "duckduckgo", "evals", "fastmcp", "logfire"], specifier = ">=1.73.0" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
@@ -2091,6 +2093,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/29/75/1c537aa458426a9127a92bc2273787b2f987f4e5044e21f01f2eed5244fd/litellm-1.82.6.tar.gz", hash = "sha256:2aa1c2da21fe940c33613aa447119674a3ad4d2ad5eb064e4d5ce5ee42420136", size = 17414147, upload-time = "2026-03-22T06:36:00.452Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/02/6c/5327667e6dbe9e98cbfbd4261c8e91386a52e38f41419575854248bbab6a/litellm-1.82.6-py3-none-any.whl", hash = "sha256:164a3ef3e19f309e3cabc199bef3d2045212712fefdfa25fc7f75884a5b5b205", size = 15591595, upload-time = "2026-03-22T06:35:56.795Z" },
+]
+
+[[package]]
+name = "liteparse"
+version = "1.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/24/08bf22b40fffb231074ad413d136e25f34515ba3f552bb148ad125bd1f2c/liteparse-1.2.1.tar.gz", hash = "sha256:6528cd6ceb2a9bdac342c52dde0df19204b82e185ff4919bb3225f2ffe132e3b", size = 29819, upload-time = "2026-03-28T14:50:44.867Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/fb/91f20a67c3c2784a543a6a6627173363f622fb4a5158fa412dc20080c94d/liteparse-1.2.1-py3-none-any.whl", hash = "sha256:4036277ffef70e5dfbbcf95f46fafb11114f4a6aaebf1c6b5b17b5afba5b1247", size = 9084, upload-time = "2026-03-28T14:50:44.069Z" },
 ]
 
 [[package]]

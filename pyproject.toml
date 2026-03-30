@@ -12,6 +12,7 @@ dependencies = [
     "langchain-openai>=1.1.12",
     "langgraph>=1.1.3",
     "litellm>=1.82.6",
+    "liteparse>=1.2.1",
     "pydantic>=2.12.5",
     "pydantic-ai-slim[a2a,duckduckgo,evals,fastmcp,logfire]>=1.73.0",
     "pydantic-settings>=2.13.1",
