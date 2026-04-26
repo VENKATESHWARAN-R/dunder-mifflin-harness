@@ -43,7 +43,7 @@ pygemini = [
 
 harness = [
     "pydantic>=2.12.5",
-    "pydantic-ai-slim[a2a,duckduckgo,evals,fastmcp,logfire]>=1.73.0",
+    "pydantic-ai-slim[a2a,duckduckgo,evals,fastmcp,logfire,cli]>=1.73.0",
     "pydantic-monty>=0.0.17",
     "pydantic-settings>=2.13.1",
 ]

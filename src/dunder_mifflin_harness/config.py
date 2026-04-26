@@ -1,5 +1,6 @@
 """Configuration for the dunder-mifflin-harness."""
-from pydantic import Field, SecretStr
+
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,18 +18,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    gemini_api_key: SecretStr | None = Field(
-        default=None,
-        validation_alias="GEMINI_API_KEY",
-    )
     model: str = Field(
         default="google-gla:gemini-2.5-flash",
         validation_alias="HARNESS_MODEL",
     )
-
-    def require_gemini_api_key(self) -> str:
-        """Require the Gemini API key."""
-        key: SecretStr | None = self.gemini_api_key
-        if key is None:
-            raise ConfigurationError("GEMINI_API_KEY is required to call Gemini.")
-        return key.get_secret_value() # pylint: disable=no-member
