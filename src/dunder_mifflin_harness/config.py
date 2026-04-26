@@ -1,3 +1,4 @@
+"""Configuration for the dunder-mifflin-harness."""
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,6 +8,8 @@ class ConfigurationError(RuntimeError):
 
 
 class Settings(BaseSettings):
+    """Settings for the dunder-mifflin-harness."""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -24,6 +27,8 @@ class Settings(BaseSettings):
     )
 
     def require_gemini_api_key(self) -> str:
-        if self.gemini_api_key is None:
+        """Require the Gemini API key."""
+        key: SecretStr | None = self.gemini_api_key
+        if key is None:
             raise ConfigurationError("GEMINI_API_KEY is required to call Gemini.")
-        return self.gemini_api_key.get_secret_value()
+        return key.get_secret_value()

@@ -1,10 +1,26 @@
+"""CLI for the dunder-mifflin-harness."""
 import argparse
 import asyncio
 import sys
 from collections.abc import Sequence
 
-from dunder_mifflin_harness.agents.chat import run_prompt
+from pydantic_ai import Agent
+import logfire
+
 from dunder_mifflin_harness.config import ConfigurationError
+from dunder_mifflin_harness.config import Settings
+
+logfire.configure()
+logfire.instrument_pydantic_ai()
+
+settings = Settings()
+
+agent = Agent(
+    settings.model,
+    instructions="You are a helpful assistant that can answer questions and help with tasks.",
+    output_type=str,
+    model_settings={"temperature": 0},
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -17,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 async def _run(prompt: str) -> str:
-    return await run_prompt(prompt)
+    return await agent.run(prompt)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
