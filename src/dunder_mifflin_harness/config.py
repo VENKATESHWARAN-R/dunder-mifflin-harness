@@ -31,4 +31,4 @@ class Settings(BaseSettings):
         key: SecretStr | None = self.gemini_api_key
         if key is None:
             raise ConfigurationError("GEMINI_API_KEY is required to call Gemini.")
-        return key.get_secret_value()
+        return key.get_secret_value() # pylint: disable=no-member
