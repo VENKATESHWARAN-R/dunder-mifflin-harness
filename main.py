@@ -1,6 +1,5 @@
-def main():
-    print("Hello from dunder-mifflin-harness!")
+from dunder_mifflin_harness.cli import main
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

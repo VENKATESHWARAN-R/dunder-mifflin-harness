@@ -10,28 +10,28 @@ sync:
 
 # Lint the code using ruff
 lint:
-    uvx ruff check .
+    uvx ruff check main.py src tests
 
 # Format the code using ruff
 format:
-    uvx ruff format .
+    uvx ruff format main.py src tests
 
 # Lints and formats the code with fixes
 fix:
-    uvx ruff check --fix .
-    uvx ruff format .
+    uvx ruff check --fix main.py src tests
+    uvx ruff format main.py src tests
 
 # Type check the code using ty
 typecheck:
-    uvx ty check
+    uvx ty check main.py src tests
 
 # Run the application with optional arguments
 run *args:
-    uv run --env-file .env {{args}}
+    uv run --group harness --env-file .env {{args}}
 
 # Run tests using pytest
 test:
-    uv run pytest
+    uv run pytest tests
 
 # Clean up build artifacts
 clean:

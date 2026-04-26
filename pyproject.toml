@@ -9,6 +9,7 @@ dependencies = [
     "deepagents>=0.4.12",
     "fastmcp>=3.1.1",
     "google-adk>=1.14.1",
+    "google-genai>=1.69.0",
     "langchain-openai>=1.1.12",
     "langfuse>=4.0.4",
     "langgraph>=1.1.3",
@@ -20,11 +21,11 @@ dependencies = [
     "pydantic-settings>=2.13.1",
 ]
 
+[project.scripts]
+harness = "dunder_mifflin_harness.cli:main"
+
 [dependency-groups]
-dev = [
-    "ipykernel>=7.2.0",
-    "pytest>=9.0.2",
-]
+dev = ["ipykernel>=7.2.0", "pytest>=9.0.2"]
 pygemini = [
     "click>=8.3.1",
     "gitpython>=3.1.46",
@@ -40,5 +41,15 @@ pygemini = [
     "watchfiles>=1.1.1",
 ]
 
+harness = [
+    "pydantic>=2.12.5",
+    "pydantic-ai-slim[a2a,duckduckgo,evals,fastmcp,logfire]>=1.73.0",
+    "pydantic-settings>=2.13.1",
+]
+
 [tool.uv.workspace]
 members = ["specimens/pygemini"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
