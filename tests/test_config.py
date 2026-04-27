@@ -11,14 +11,16 @@ def test_settings_use_w0_defaults(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("PYDANTIC_AI_GATEWAY_API_KEY", raising=False)
     monkeypatch.delenv("HARNESS_MODEL", raising=False)
 
     settings = Settings()
 
-    assert settings.model == "google-gla:gemini-2.5-flash"
+    assert settings.model == "gateway/google-vertex:gemini-3.1-flash-lite-preview"
 
 
 def test_require_gemini_api_key_returns_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYDANTIC_AI_GATEWAY_API_KEY", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
 
     settings = Settings()
@@ -32,8 +34,19 @@ def test_require_gemini_api_key_fails_when_missing(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("PYDANTIC_AI_GATEWAY_API_KEY", raising=False)
 
     settings = Settings()
 
     with pytest.raises(ConfigurationError, match="GEMINI_API_KEY"):
         settings.require_gemini_api_key()
+
+
+def test_cli_settings_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HARNESS_MAX_ATTACHMENT_BYTES", "100")
+    monkeypatch.setenv("HARNESS_SHELL_TIMEOUT_SECONDS", "2.5")
+
+    settings = Settings()
+
+    assert settings.max_attachment_bytes == 100
+    assert settings.shell_timeout_seconds == 2.5

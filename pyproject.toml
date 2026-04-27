@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "aiosqlite>=0.22.1",
+    "click>=8.3.1",
     "deepagents>=0.4.12",
     "fastmcp>=3.1.1",
     "google-adk>=1.14.1",
@@ -16,9 +17,11 @@ dependencies = [
     "litellm>=1.82.6",
     "liteparse>=1.2.1",
     "logfire>=4.31.0",
+    "prompt-toolkit>=3.0.52",
     "pydantic>=2.12.5",
     "pydantic-ai-slim[a2a,duckduckgo,evals,fastmcp,logfire]>=1.73.0",
     "pydantic-settings>=2.13.1",
+    "rich>=14.3.3",
 ]
 
 [project.scripts]
@@ -50,10 +53,13 @@ pygemini = [
 ]
 
 harness = [
+    "prompt-toolkit>=3.0.52",
     "pydantic>=2.12.5",
     "pydantic-ai-slim[a2a,duckduckgo,evals,fastmcp,logfire,cli]>=1.73.0",
     "pydantic-monty>=0.0.17",
     "pydantic-settings>=2.13.1",
+    "rich>=14.3.3",
+    "textual>=8.2.4",
 ]
 
 [tool.uv.workspace]

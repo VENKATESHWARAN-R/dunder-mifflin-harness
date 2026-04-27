@@ -611,6 +611,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
+    { name = "click" },
     { name = "deepagents" },
     { name = "fastmcp" },
     { name = "google-adk" },
@@ -621,9 +622,11 @@ dependencies = [
     { name = "litellm" },
     { name = "liteparse" },
     { name = "logfire" },
+    { name = "prompt-toolkit" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extra = ["a2a", "duckduckgo", "evals", "fastmcp", "logfire"] },
     { name = "pydantic-settings" },
+    { name = "rich" },
 ]
 
 [package.dev-dependencies]
@@ -637,10 +640,13 @@ dev = [
     { name = "typer" },
 ]
 harness = [
+    { name = "prompt-toolkit" },
     { name = "pydantic" },
     { name = "pydantic-ai-slim", extra = ["a2a", "cli", "duckduckgo", "evals", "fastmcp", "logfire"] },
     { name = "pydantic-monty" },
     { name = "pydantic-settings" },
+    { name = "rich" },
+    { name = "textual" },
 ]
 pygemini = [
     { name = "click" },
@@ -660,6 +666,7 @@ pygemini = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
+    { name = "click", specifier = ">=8.3.1" },
     { name = "deepagents", specifier = ">=0.4.12" },
     { name = "fastmcp", specifier = ">=3.1.1" },
     { name = "google-adk", specifier = ">=1.14.1" },
@@ -670,9 +677,11 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.82.6" },
     { name = "liteparse", specifier = ">=1.2.1" },
     { name = "logfire", specifier = ">=4.31.0" },
+    { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-ai-slim", extras = ["a2a", "duckduckgo", "evals", "fastmcp", "logfire"], specifier = ">=1.73.0" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
+    { name = "rich", specifier = ">=14.3.3" },
 ]
 
 [package.metadata.requires-dev]
@@ -686,10 +695,13 @@ dev = [
     { name = "typer", specifier = ">=0.24.1" },
 ]
 harness = [
+    { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-ai-slim", extras = ["a2a", "duckduckgo", "evals", "fastmcp", "logfire", "cli"], specifier = ">=1.73.0" },
     { name = "pydantic-monty", specifier = ">=0.0.17" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
+    { name = "rich", specifier = ">=14.3.3" },
+    { name = "textual", specifier = ">=8.2.4" },
 ]
 pygemini = [
     { name = "click", specifier = ">=8.3.1" },
