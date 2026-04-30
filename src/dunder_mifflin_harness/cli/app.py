@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from dunder_mifflin_harness.cli.commands import SlashCommandRegistry
 from dunder_mifflin_harness.cli.input import InputSession
 from dunder_mifflin_harness.cli.parser import ParsedInputKind, parse_input
@@ -22,7 +24,7 @@ from dunder_mifflin_harness.runtime.events import (
 )
 from dunder_mifflin_harness.runtime.coordinator import RunCoordinator, UserMessage
 from dunder_mifflin_harness.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
-from dunder_mifflin_harness.tools.shell import run_shell_command
+from dunder_mifflin_harness.tools.shell import run_shell
 
 
 class ChatApp:
@@ -218,16 +220,16 @@ class ChatApp:
                 timeout_seconds=self.session.config.shell_timeout_seconds,
             )
         )
-        result = await run_shell_command(
+        result = await run_shell(
             command=command,
-            cwd=self.session.config.cwd,
+            cwd=str(self.session.config.cwd),
             timeout_seconds=self.session.config.shell_timeout_seconds,
             max_output_chars=self.session.config.shell_max_output_chars,
         )
         await self.events.emit(
             ShellCommandCompleted(
                 command=result.command,
-                cwd=result.cwd,
+                cwd=Path(result.cwd),
                 exit_code=result.exit_code,
                 stdout=result.stdout,
                 stderr=result.stderr,

@@ -1,22 +1,39 @@
 import asyncio
 from pathlib import Path
 
-from dunder_mifflin_harness.tools.shell import run_shell_command, truncate_output
+from dunder_mifflin_harness.tools.shell import run_shell, truncate_output
+from dunder_mifflin_harness.tools.types import ToolStatus
 
 
-def test_run_shell_command_captures_output(tmp_path: Path) -> None:
+def test_run_shell_captures_output(tmp_path: Path) -> None:
     result = asyncio.run(
-        run_shell_command(
-            command="printf hello",
-            cwd=tmp_path,
-            timeout_seconds=2,
-            max_output_chars=1000,
-        )
+        run_shell(command="printf hello", cwd=str(tmp_path))
     )
 
-    assert result.exit_code == 0
+    assert result.status == ToolStatus.OK
     assert result.stdout == "hello"
     assert result.stderr == ""
+    assert result.exit_code == 0
+    assert result.succeeded
+
+
+def test_run_shell_nonzero_exit_sets_error_status(tmp_path: Path) -> None:
+    result = asyncio.run(
+        run_shell(command="exit 1", cwd=str(tmp_path))
+    )
+
+    assert result.status == ToolStatus.ERROR
+    assert result.exit_code == 1
+    assert not result.succeeded
+
+
+def test_run_shell_timeout(tmp_path: Path) -> None:
+    result = asyncio.run(
+        run_shell(command="sleep 10", cwd=str(tmp_path), timeout_seconds=0.1)
+    )
+
+    assert result.status == ToolStatus.TIMEOUT
+    assert result.timed_out
 
 
 def test_truncate_output_preserves_head_and_tail() -> None:
