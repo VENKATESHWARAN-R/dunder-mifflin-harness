@@ -42,6 +42,10 @@ uv run harness chat
 - `brainstrom/00-IDEA.md` - original architecture and research direction.
 - `docs/PROJECT_PHILOSOPHY.md` - where code belongs, dependency boundaries, and extension rules.
 - `docs/CLI_DESIGN.md` - CLI/event/input/rendering design.
+- `docs/STATE_SCHEMA.md` - SQLite state schema contract. Authoritative reference for all persistent tables; update this before touching the database layer.
+- `docs/V0_BENCHMARK.md` - the locked V0 test case (Notes CLI). Contains the exact harness prompt, expected task decomposition with tier assignments, acceptance criteria shell tests, and success thresholds.
+- `docs/MCP_INTEGRATION.md` - how MCP servers and skills are loaded from DB and wired into Pydantic AI agents. The `config_loader` node contract.
+- `docs/EVENT_CONTRACT.md` - all typed events, approval/question requests, and UI→runtime commands. The stable integration boundary between the agent layer and any UI surface (CLI, browser, A2A).
 - `ROADMAP.md` - current implementation slices.
 
 Read `docs/PROJECT_PHILOSOPHY.md` before adding new subsystems such as custom agents, MCP servers, A2A servers, sandboxing, workflow runners, or new UI surfaces.
@@ -88,12 +92,17 @@ plan → task_router → context_loader → config_loader → build → evaluate
 - Runtime communication uses typed events and explicit request/response handshakes.
 - Approvals and user questions are separate primitives.
 - Slash commands mutate local session/runtime config and are not sent to the model.
-- Orchestration is graph-based with conditional branching (not a linear pipeline)
-- Agent configs (model tier, prompts, tools) are stored in the persistent state store and loaded at instantiation time — enabling mid-run updates (v1+)
-- Context reads are scoped per agent role: agents see only what's relevant to their task
-- V0 ships one workflow only (feature-by-feature) but node interfaces are designed for reuse from day one
-- HITL and Autopilot are **separate workflow compositions** sharing the same node library, not a single workflow with conditional checkpoints
-- The CLI/runtime event contract is the stable integration point for terminal UI now and browser/A2A surfaces later
+- Orchestration is graph-based with conditional branching (not a linear pipeline).
+- **Orchestration library: Pydantic AI throughout.** Agents for roles, `pydantic_graph` for the workflow graph (introduced at W8), `pydantic_evals` for evaluation. No LangGraph, no ADK.
+- **State store: SQLite.** Single file, local-first, crash-safe. Schema defined in `docs/STATE_SCHEMA.md`.
+- Agent configs (model tier, prompts, tools) are stored in the persistent state store and loaded at instantiation time — enabling mid-run updates (v1+).
+- Context reads are scoped per agent role: agents see only what's relevant to their task.
+- V0 ships one workflow only (feature-by-feature) but node interfaces are designed for reuse from day one.
+- HITL and Autopilot are **separate workflow compositions** sharing the same node library, not a single workflow with conditional checkpoints.
+- The CLI/runtime event contract is the stable integration point for terminal UI now and browser/A2A surfaces later.
+- **Not everything is an agent.** Simple one-off tasks use direct LLM calls (`pydantic_ai.direct`). These are still recorded in the `attempts` table with `call_type = 'direct_llm'` for cost tracking.
+- **Tools are MCP-first.** Agent tool access is configured via `allowed_tools` in `agent_configs` as a JSON array of tool names and MCP server IDs (`mcp:playwright`, etc.). V0 uses local tools only; MCP servers are added without changing agent code.
+- **Agent teams (v1+).** Multiple agent instances can run in parallel within a run and coordinate via the `agent_messages` queue (e.g., a builder and tester running concurrently, tester posting bugs to the builder's queue). Schema is defined but not wired in v0.
 
 ## Working Rules
 

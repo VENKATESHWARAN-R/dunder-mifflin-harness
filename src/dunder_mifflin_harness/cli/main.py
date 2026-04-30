@@ -10,7 +10,7 @@ import click
 from dunder_mifflin_harness.cli.app import ChatApp
 from dunder_mifflin_harness.config import ConfigurationError, Settings
 from dunder_mifflin_harness.runtime.approvals import ApprovalMode
-from dunder_mifflin_harness.runtime.runner import RunCoordinator, UserMessage
+from dunder_mifflin_harness.runtime.coordinator import RunCoordinator, UserMessage
 from dunder_mifflin_harness.runtime.session import RunMode, SessionConfig, SessionState
 
 

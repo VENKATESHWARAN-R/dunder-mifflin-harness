@@ -342,16 +342,21 @@ Beat the solo baseline: better than $9 / 20 min / broken output.
 - Strategy auto-selection (v1+)
 
 ### V0 Test Case
-Same type of task as Anthropic's benchmark — a fullstack web app from a single prompt.
-Suggested: something simpler than a DAW, to validate the harness mechanics first.
-Example: "Build a task management app with boards, cards, and drag-and-drop."
+**Locked: Notes CLI** — a Python command-line note-taking app.
+
+Full spec, acceptance criteria, and expected task decomposition: `docs/V0_BENCHMARK.md`.
+
+Chosen over browser-based apps because every feature is evaluatable with shell commands and
+file checks — no Playwright, no mocking. Directory-based markdown storage exercises filesystem
+tools realistically. Search and tag filtering provide Worker-tier logic alongside simpler
+Scout-tier CRUD. 8–9 planned tasks give the tier router meaningful signal.
 
 ### Success Criteria for V0
-1. App runs without crashing
-2. Core feature works end-to-end
+1. App runs without crashing (all commands exit 0)
+2. At least 5/7 features pass acceptance tests (7/7 is the goal)
 3. Total cost < $15
 4. Harness completes autonomously (no human intervention)
-5. Clear logs showing which model handled which task
+5. Cost log shows at least 2 model tiers used
 
 ---
 

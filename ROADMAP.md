@@ -13,7 +13,8 @@ One slice per weekend. Each slice ends with something runnable and demoable. Sun
 ## Slices
 
 ### W1 — "It remembers"
-- [ ] Persist chat sessions and message history (sqlite or json — pick boring)
+- [ ] Create `state/` package with SQLite backend (schema from `docs/STATE_SCHEMA.md`)
+- [ ] Persist chat sessions and message history (`runs` + `messages` tables)
 - [ ] `harness resume <run-id>` restores a prior session
 - [ ] `/context` shows persisted session context, not just in-memory attachments
 - [ ] Headless and chat mode share the same session store
@@ -35,9 +36,9 @@ One slice per weekend. Each slice ends with something runnable and demoable. Sun
 - [ ] Demo posted
 
 ### W4 — "It plans before it acts"
-- [ ] Planner node returns a small structured task plan
-- [ ] Builder node executes one planned task using tools
-- [ ] HITL question flow supports plan clarification or approval
+- [ ] Create `agents/` package with `base.py` (config_loader — the only Agent() factory)
+- [ ] Planner agent returns a small structured task plan (Pydantic AI agent delegation, no graph yet)
+- [ ] Builder agent executes one planned task using tools
 - [ ] Small task runs end-to-end (e.g. fibonacci script)
 - [ ] Demo posted
 
@@ -64,17 +65,18 @@ One slice per weekend. Each slice ends with something runnable and demoable. Sun
 - [ ] Demo posted
 
 ### W8 — "It's a graph"
-- [ ] Graph abstraction picked (LangGraph or homegrown)
-- [ ] Uniform node state interface
-- [ ] W7 functionality refactored onto the graph
-- [ ] `RunCoordinator` delegates to workflow runners without changing CLI event contracts
+- [ ] Create `nodes/` package with uniform `BaseNode` state-in/state-out interface (via `pydantic_graph`)
+- [ ] Create `workflows/feature_by_feature.py` wiring existing planner/builder/evaluator onto the graph
+- [ ] W7 functionality refactored onto the graph — no behaviour change, just new wiring
+- [ ] `RunCoordinator` delegates to the `pydantic_graph` Graph runner without changing CLI event contracts
 - [ ] Demo posted
 
 ### W9+ — "It picks up tasks"
-- [ ] `task_router` node
-- [ ] Reads a TASKS.md file
-- [ ] Multi-task runs work
-- [ ] Full V0 cycle: plan → router → loader → build → evaluate
+- [ ] `task_router` node reads pending tasks from the SQLite `tasks` table
+- [ ] `context_loader` node builds scoped context per agent role from `context_store`
+- [ ] Multi-task runs work end-to-end
+- [ ] Full V0 cycle: plan → router → loader → build → evaluate (V0 benchmark: Notes CLI)
+- [ ] See `docs/V0_BENCHMARK.md` for acceptance criteria
 - [ ] Demo posted
 
 ---
@@ -88,6 +90,9 @@ Stuff to fix/improve found along the way. Pull from here when a slice finishes e
 - [ ] Add A2A server adapter after sessions and persistent state are real
 - [ ] Add richer prompt_toolkit completions for slash commands and file paths
 - [ ] Consider sandboxed shell execution after local shell behavior is proven
+- [ ] Remove `cli.py` root compat shim (clean up at W6 refactor)
+- [ ] Fix `just typecheck` justfile — `main.py` does not exist, check `src tests` only
+- [ ] Add `/disable mcp:<name>` and `/disable skill:<name>` slash commands (v1+ mid-run toggle)
 
 ---
 
@@ -114,3 +119,8 @@ Anything worth remembering — a decision, a dead end, a trick that worked. Keep
 - CLI is now an adapter over `runtime/`, not the orchestrator.
 - Keep approvals and questions separate; do not reuse approval prompts for clarification questions.
 - Future browser UI and A2A server should consume the runtime event/request contract, not CLI modules.
+- Orchestration library locked: Pydantic AI throughout. `pydantic_graph` for graph layer (W8+).
+- State store locked: SQLite. Schema contract in `docs/STATE_SCHEMA.md` — update that doc before touching DB code.
+- V0 benchmark locked: Notes CLI. Full spec in `docs/V0_BENCHMARK.md`.
+- HITL mode is v1+. Do not add HITL checkpoints to any v0 slice.
+- `agents/base.py` (config_loader) is the sole factory for live Pydantic AI agents. Nothing else calls `Agent(...)` directly.

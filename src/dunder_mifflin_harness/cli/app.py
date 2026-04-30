@@ -20,7 +20,7 @@ from dunder_mifflin_harness.runtime.events import (
     ShellCommandStarted,
     WarningRaised,
 )
-from dunder_mifflin_harness.runtime.runner import RunCoordinator, UserMessage
+from dunder_mifflin_harness.runtime.coordinator import RunCoordinator, UserMessage
 from dunder_mifflin_harness.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
 from dunder_mifflin_harness.tools.shell import run_shell_command
 
