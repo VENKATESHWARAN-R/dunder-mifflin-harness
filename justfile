@@ -33,7 +33,11 @@ run *args:
 test:
     uv run pytest tests
 
-# Clean up build artifacts
+# Clean up build artifacts and tool caches (ruff, pytest, mypy, coverage, etc.)
 clean:
-    rm -rf dist/
-    find . -type d -name "__pycache__" -exec rm -rf {} +
+    rm -rf dist/ build/ \
+        .ruff_cache/ .pytest_cache/ .mypy_cache/ .pytype/ .hypothesis/ \
+        htmlcov/ .cache/
+    rm -f .coverage .coverage.* .dmypy.json dmypy.json
+    find . -depth -type d -name "__pycache__" -exec rm -rf {} +
+    find . -depth -type d -name "*.egg-info" -exec rm -rf {} +
