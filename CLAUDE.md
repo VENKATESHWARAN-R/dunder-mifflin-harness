@@ -46,6 +46,7 @@ uv run harness chat
 - `docs/V0_BENCHMARK.md` - the locked V0 test case (Notes CLI). Contains the exact harness prompt, expected task decomposition with tier assignments, acceptance criteria shell tests, and success thresholds.
 - `docs/MCP_INTEGRATION.md` - how MCP servers and skills are loaded from DB and wired into Pydantic AI agents. The `config_loader` node contract.
 - `docs/EVENT_CONTRACT.md` - all typed events, approval/question requests, and UI→runtime commands. The stable integration boundary between the agent layer and any UI surface (CLI, browser, A2A).
+- `lab/scripts/README.md` - searchable index of exploratory lab scripts. Check this before adding or promoting experiments from `lab/scripts/`.
 - `ROADMAP.md` - current implementation slices.
 
 Read `docs/PROJECT_PHILOSOPHY.md` before adding new subsystems such as custom agents, MCP servers, A2A servers, sandboxing, workflow runners, or new UI surfaces.
@@ -58,7 +59,7 @@ Read `docs/PROJECT_PHILOSOPHY.md` before adding new subsystems such as custom ag
 - `src/dunder_mifflin_harness/config.py` - environment-backed settings.
 - `tests/` - focused coverage for entrypoints, parsers, renderer behavior, runtime contracts, config, and local helpers.
 - `specimens/` - standalone reference projects. Treat these as inspiration only; do not import from them or conflate them with main code.
-- `lab/` - experiments and notebooks.
+- `lab/` - experiments and notebooks. Use `lab/scripts/README.md` as the index for runnable exploratory scripts.
 
 ## Architecture Direction
 
