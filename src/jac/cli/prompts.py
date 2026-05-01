@@ -5,12 +5,12 @@ from __future__ import annotations
 from rich.console import Console
 from rich.panel import Panel
 
-from dunder_mifflin_harness.runtime.approvals import (
+from jac.runtime.approvals import (
     ApprovalDecision,
     ApprovalRequest,
     ApprovalResponse,
 )
-from dunder_mifflin_harness.runtime.questions import (
+from jac.runtime.questions import (
     QuestionKind,
     QuestionRequest,
     QuestionResponse,

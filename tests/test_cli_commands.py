@@ -1,6 +1,6 @@
 import asyncio
 
-from dunder_mifflin_harness.cli.commands import SlashCommandRegistry
+from jac.cli.commands import SlashCommandRegistry
 
 
 def test_slash_command_registry_dispatches_handler() -> None:

@@ -8,11 +8,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, TypeVar
 
-from dunder_mifflin_harness.runtime.approvals import (
+from jac.runtime.approvals import (
     ApprovalRequest,
     ApprovalResponse,
 )
-from dunder_mifflin_harness.runtime.questions import (
+from jac.runtime.questions import (
     QuestionRequest,
     QuestionResponse,
 )

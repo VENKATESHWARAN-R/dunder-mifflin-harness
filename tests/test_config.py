@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from dunder_mifflin_harness.config import ConfigurationError, Settings
+from jac.config import ConfigurationError, Settings
 
 
 def test_settings_use_w0_defaults(
@@ -12,7 +12,7 @@ def test_settings_use_w0_defaults(
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("PYDANTIC_AI_GATEWAY_API_KEY", raising=False)
-    monkeypatch.delenv("HARNESS_MODEL", raising=False)
+    monkeypatch.delenv("JAC_MODEL", raising=False)
 
     settings = Settings()
 
@@ -43,8 +43,8 @@ def test_require_gemini_api_key_fails_when_missing(
 
 
 def test_cli_settings_can_be_overridden(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HARNESS_MAX_ATTACHMENT_BYTES", "100")
-    monkeypatch.setenv("HARNESS_SHELL_TIMEOUT_SECONDS", "2.5")
+    monkeypatch.setenv("JAC_MAX_ATTACHMENT_BYTES", "100")
+    monkeypatch.setenv("JAC_SHELL_TIMEOUT_SECONDS", "2.5")
 
     settings = Settings()
 

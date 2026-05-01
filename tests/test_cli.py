@@ -2,9 +2,9 @@ import importlib
 
 import pytest
 
-from dunder_mifflin_harness.cli import main as cli_main
-from dunder_mifflin_harness.cli import main as cli_public_main
-from dunder_mifflin_harness.config import ConfigurationError
+from jac.cli import main as cli_main
+from jac.cli import main as cli_public_main
+from jac.config import ConfigurationError
 
 
 def test_cli_prints_agent_response(
@@ -17,7 +17,7 @@ def test_cli_prints_agent_response(
         seen["prompt"] = prompt
         return "hi from the model"
 
-    cli_module = importlib.import_module("dunder_mifflin_harness.cli.main")
+    cli_module = importlib.import_module("jac.cli.main")
 
     monkeypatch.setattr(cli_module, "run_prompt", fake_run_prompt)
 
@@ -37,7 +37,7 @@ def test_cli_reports_missing_configuration(
     async def fake_run_prompt(prompt: str, **_kwargs: object) -> str:
         raise ConfigurationError("GEMINI_API_KEY is required to call Gemini.")
 
-    cli_module = importlib.import_module("dunder_mifflin_harness.cli.main")
+    cli_module = importlib.import_module("jac.cli.main")
 
     monkeypatch.setattr(cli_module, "run_prompt", fake_run_prompt)
 
@@ -59,7 +59,7 @@ def test_run_accepts_mode_after_subcommand(
         seen["prompt"] = prompt
         return "ok"
 
-    cli_module = importlib.import_module("dunder_mifflin_harness.cli.main")
+    cli_module = importlib.import_module("jac.cli.main")
     monkeypatch.setattr(cli_module, "run_prompt", fake_run_prompt)
 
     exit_code = cli_main(["run", "--mode", "autopilot", "say", "hi"])

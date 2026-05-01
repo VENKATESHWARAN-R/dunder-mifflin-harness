@@ -1,17 +1,17 @@
 import asyncio
 
-from dunder_mifflin_harness.runtime.approvals import (
+from jac.runtime.approvals import (
     ApprovalDecision,
     ApprovalMode,
     ApprovalPolicy,
     ApprovalRequest,
     ApprovalResponse,
 )
-from dunder_mifflin_harness.runtime.events import (
+from jac.runtime.events import (
     ApprovalRequested,
     EventBus,
 )
-from dunder_mifflin_harness.runtime.questions import (
+from jac.runtime.questions import (
     ChoiceOption,
     QuestionKind,
     QuestionRequest,

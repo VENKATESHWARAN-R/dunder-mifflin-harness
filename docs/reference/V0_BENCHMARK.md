@@ -1,8 +1,10 @@
 # V0 Benchmark — Notes CLI
 
+> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** test case spec
+
 ## Purpose
 
-This is the test case for the V0 harness run. The harness receives the prompt below and must
+This is the test case for the V0 JAC run. The harness receives the prompt below and must
 autonomously produce a working Python CLI app. Success is measured against the acceptance
 criteria in this document.
 

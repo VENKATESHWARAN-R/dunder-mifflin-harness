@@ -1,4 +1,6 @@
-# dunder-mifflin-harness — IDEA.md
+# JAC — IDEA
+
+> **Status:** Reference · **Last revised:** 2026-05-02 · **Type:** project genesis
 
 > A research & development project exploring whether a multi-agent system with smart model routing
 > can match or exceed the performance of Anthropic's long-running agentic coding harness,
@@ -196,7 +198,7 @@ Skills are domain-specific knowledge bundles (prompt templates, tool sets, best 
 
 ### Where Our Approach Differs
 
-| Aspect              | Anthropic                                | dunder-mifflin-harness                                                            |
+| Aspect              | Anthropic                                | JAC                                                                               |
 | ------------------- | ---------------------------------------- | --------------------------------------------------------------------------------- |
 | **Orchestration**   | Linear pipeline                          | Graph-based with conditional branching                                            |
 | **Models**          | Single model (Opus) for everything       | Tiered model buckets with intelligent routing                                     |

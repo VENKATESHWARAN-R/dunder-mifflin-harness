@@ -1,8 +1,10 @@
 # Project Philosophy
 
+> **Status:** Reference · **Last revised:** 2026-05-02 · **Type:** principles
+
 ## Purpose
 
-This project is a harness for long-running agentic software development. The core product is not the terminal UI, a single agent, or a specific provider. The core product is the runtime system that can plan, route, execute, evaluate, persist state, and explain what happened.
+JAC is a harness for long-running agentic software development. The core product is not the terminal UI, a single agent, or a specific provider. The core product is the runtime system that can plan, route, execute, evaluate, persist state, and explain what happened.
 
 Everything else is an adapter, tool, or workflow around that runtime.
 
@@ -55,13 +57,13 @@ Do not use terminal prompts, Rich objects, Click contexts, or prompt_toolkit ses
 
 ### New CLI Feature
 
-Put terminal-only behavior in `src/dunder_mifflin_harness/cli/`.
+Put terminal-only behavior in `src/jac/cli/`.
 
 Use this for Click commands, slash commands, prompt_toolkit input, Rich rendering, and human prompt views. If the feature needs backend state or behavior, define that in `runtime/` first and let the CLI call it.
 
 ### New Runtime Behavior
 
-Put UI-agnostic session behavior in `src/dunder_mifflin_harness/runtime/`.
+Put UI-agnostic session behavior in `src/jac/runtime/`.
 
 Use this for event types, request/response contracts, session configuration, approval policy, human questions, and the facade that coordinates runs.
 

@@ -1,4 +1,4 @@
-"""Configuration for the dunder-mifflin-harness."""
+"""Configuration for JAC."""
 
 import os
 from pathlib import Path
@@ -12,7 +12,7 @@ class ConfigurationError(RuntimeError):
 
 
 class Settings(BaseSettings):
-    """Settings for the dunder-mifflin-harness."""
+    """Settings for JAC."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -22,9 +22,9 @@ class Settings(BaseSettings):
     )
 
     model: str = Field(
-        description="The model to use for the harness.",
+        description="The model to use for JAC.",
         default="gateway/google-vertex:gemini-3.1-flash-lite-preview",
-        validation_alias="HARNESS_MODEL",
+        validation_alias="JAC_MODEL",
     )
 
     api_key: SecretStr | None = Field(
@@ -38,26 +38,26 @@ class Settings(BaseSettings):
 
     config_dir: Path = Field(
         description="Directory for CLI-local state such as prompt history.",
-        default=Path.home() / ".dunder-mifflin-harness",
-        validation_alias="HARNESS_CONFIG_DIR",
+        default=Path.home() / ".jac",
+        validation_alias="JAC_CONFIG_DIR",
     )
 
     max_attachment_bytes: int = Field(
         description="Maximum size for a single @ file attachment.",
         default=200_000,
-        validation_alias="HARNESS_MAX_ATTACHMENT_BYTES",
+        validation_alias="JAC_MAX_ATTACHMENT_BYTES",
     )
 
     shell_timeout_seconds: float = Field(
         description="Timeout for user-triggered shell commands.",
         default=10.0,
-        validation_alias="HARNESS_SHELL_TIMEOUT_SECONDS",
+        validation_alias="JAC_SHELL_TIMEOUT_SECONDS",
     )
 
     shell_max_output_chars: int = Field(
         description="Maximum captured stdout/stderr characters shown per stream.",
         default=20_000,
-        validation_alias="HARNESS_SHELL_MAX_OUTPUT_CHARS",
+        validation_alias="JAC_SHELL_MAX_OUTPUT_CHARS",
     )
 
     def require_api_key(self, name: str = "PYDANTIC_AI_GATEWAY_API_KEY") -> str:
@@ -71,4 +71,3 @@ class Settings(BaseSettings):
         if key := os.getenv("GEMINI_API_KEY"):
             return key
         return self.require_api_key("GEMINI_API_KEY")
-

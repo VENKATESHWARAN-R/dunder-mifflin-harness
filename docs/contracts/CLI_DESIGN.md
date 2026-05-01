@@ -1,8 +1,10 @@
 # CLI Design
 
+> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+
 ## Purpose
 
-The harness CLI is a terminal adapter over the agent runtime. It should make local development runs observable and controllable without letting terminal concerns leak into the backend.
+The JAC CLI is a terminal adapter over the agent runtime. It should make local development runs observable and controllable without letting terminal concerns leak into the backend.
 
 The backend owns agent behavior, workflow routing, tool execution, model selection, state persistence, and future A2A/browser integrations. The CLI owns process arguments, interactive input, rendering, and collecting human responses.
 
@@ -31,11 +33,11 @@ These should not share a yes/no primitive.
 
 Initial command surface:
 
-- `harness "say hi"` runs a one-shot prompt.
-- `harness chat` starts the interactive REPL.
-- `harness run --mode autopilot|hitl "task"` is the future workflow-oriented shape.
-- `harness resume <run-id>` is reserved for persistent runs.
-- `harness config` is reserved for resolved non-secret settings.
+- `jac "say hi"` runs a one-shot prompt.
+- `jac chat` starts the interactive REPL.
+- `jac run --mode autopilot|hitl "task"` is the future workflow-oriented shape.
+- `jac resume <run-id>` is reserved for persistent runs.
+- `jac config` is reserved for resolved non-secret settings.
 
 Until graph workflows exist, one-shot and chat mode use the same runtime coordinator around the current Pydantic AI agent.
 

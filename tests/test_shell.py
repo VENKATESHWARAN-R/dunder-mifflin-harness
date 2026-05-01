@@ -1,8 +1,8 @@
 import asyncio
 from pathlib import Path
 
-from dunder_mifflin_harness.tools.shell import run_shell, truncate_output
-from dunder_mifflin_harness.tools.types import ToolStatus
+from jac.tools.shell import run_shell, truncate_output
+from jac.tools.types import ToolStatus
 
 
 def test_run_shell_captures_output(tmp_path: Path) -> None:

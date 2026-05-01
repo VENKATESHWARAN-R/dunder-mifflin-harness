@@ -1,6 +1,6 @@
 """Agent tool registry and local tool helpers."""
 
-from dunder_mifflin_harness.tools.filesystem import (
+from jac.tools.filesystem import (
     edit_file,
     grep_files,
     list_directory,
@@ -8,13 +8,13 @@ from dunder_mifflin_harness.tools.filesystem import (
     search_files,
     write_file,
 )
-from dunder_mifflin_harness.tools.shell import (
+from jac.tools.shell import (
     list_processes,
     read_process_output,
     run_shell,
     run_shell_background,
 )
-from dunder_mifflin_harness.tools.types import ToolFn
+from jac.tools.types import ToolFn
 
 # Maps allowed_tools entry names (from agent_configs) to their tool functions.
 # config_loader resolves these when building an agent.

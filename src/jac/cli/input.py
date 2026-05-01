@@ -38,7 +38,7 @@ class InputSession:
         """Read one input line, returning None for EOF or interruption."""
         try:
             value = await self._session.prompt_async(
-                [("class:prompt", "harness › ")]
+                [("class:prompt", "jac › ")]
             )
         except (EOFError, KeyboardInterrupt):
             return None

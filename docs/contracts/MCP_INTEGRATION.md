@@ -1,5 +1,7 @@
 # MCP Integration
 
+> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+
 ## Purpose
 
 This document defines how MCP servers and skills are loaded from the state store and

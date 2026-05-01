@@ -4,30 +4,30 @@ set positional-arguments := true
 default:
     @just --list
 
-# Initialize or sync the virtual environment
+# Initialize or sync the virtual environment (core + dev + lab)
 sync:
     uv sync --all-groups --all-extras
 
 # Lint the code using ruff
 lint:
-    uvx ruff check main.py src tests
+    uvx ruff check src tests
 
 # Format the code using ruff
 format:
-    uvx ruff format main.py src tests
+    uvx ruff format src tests
 
 # Lints and formats the code with fixes
 fix:
-    uvx ruff check --fix main.py src tests
-    uvx ruff format main.py src tests
+    uvx ruff check --fix src tests
+    uvx ruff format src tests
 
 # Type check the code using ty
 typecheck:
-    uvx ty check main.py src tests
+    uvx ty check src tests
 
 # Run the application with optional arguments
 run *args:
-    uv run --group harness --env-file .env {{args}}
+    uv run --env-file .env {{args}}
 
 # Run tests using pytest
 test:

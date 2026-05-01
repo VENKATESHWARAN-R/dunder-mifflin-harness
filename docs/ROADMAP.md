@@ -1,4 +1,6 @@
-# Roadmap — dunder-mifflin-harness
+# Roadmap — JAC
+
+> **Status:** Living · **Last revised:** 2026-05-02 · **Type:** weekly slice plan
 
 One slice per weekend. Each slice ends with something runnable and demoable. Sunday night = ship + post a 30-second demo somewhere (even one friend counts).
 

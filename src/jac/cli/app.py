@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dunder_mifflin_harness.cli.commands import SlashCommandRegistry
-from dunder_mifflin_harness.cli.input import InputSession
-from dunder_mifflin_harness.cli.parser import ParsedInputKind, parse_input
-from dunder_mifflin_harness.cli.prompts import PromptViews
-from dunder_mifflin_harness.cli.renderer import Renderer
-from dunder_mifflin_harness.config import Settings
-from dunder_mifflin_harness.runtime.approvals import (
+from jac.cli.commands import SlashCommandRegistry
+from jac.cli.input import InputSession
+from jac.cli.parser import ParsedInputKind, parse_input
+from jac.cli.prompts import PromptViews
+from jac.cli.renderer import Renderer
+from jac.config import Settings
+from jac.runtime.approvals import (
     ApprovalMode,
     ApprovalPolicy,
 )
-from dunder_mifflin_harness.runtime.events import (
+from jac.runtime.events import (
     ApprovalRequested,
     EventBus,
     QuestionRequested,
@@ -22,13 +22,13 @@ from dunder_mifflin_harness.runtime.events import (
     ShellCommandStarted,
     WarningRaised,
 )
-from dunder_mifflin_harness.runtime.coordinator import RunCoordinator, UserMessage
-from dunder_mifflin_harness.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
-from dunder_mifflin_harness.tools.shell import run_shell
+from jac.runtime.coordinator import RunCoordinator, UserMessage
+from jac.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
+from jac.tools.shell import run_shell
 
 
 class ChatApp:
-    """Interactive harness chat application."""
+    """Interactive JAC chat application."""
 
     def __init__(
         self,

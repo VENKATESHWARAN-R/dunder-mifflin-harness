@@ -1,8 +1,8 @@
 # Tools Contract
 
-**Last updated:** 2026-04-30
+> **Status:** Locked · **Last revised:** 2026-04-30 · **Type:** contract
 
-This document is the authoritative reference for writing agent tools in this harness.
+This document is the authoritative reference for writing agent tools in JAC.
 Read it before adding a new tool. Any tool that doesn't follow this contract will be
 rejected at code review.
 
@@ -11,7 +11,7 @@ rejected at code review.
 ## What Is a Tool?
 
 A tool is a plain async Python function that gives an agent a capability (read a file,
-run a shell command, search code). Tools live in `src/dunder_mifflin_harness/tools/`.
+run a shell command, search code). Tools live in `src/jac/tools/`.
 
 Tools are **not** agents. They do not call LLMs, loop, or make decisions. They perform
 one well-defined operation and return a structured result.
@@ -88,7 +88,7 @@ Every tool function **must** have a `.approval` attribute of type `ToolApprovalM
 This is how the approval wrapper knows what to show the user and what to auto-approve.
 
 ```python
-from dunder_mifflin_harness.tools.types import ToolApprovalMeta, RiskLevel
+from jac.tools.types import ToolApprovalMeta, RiskLevel
 
 async def my_tool(path: str, content: str) -> MyToolResult:
     ...
@@ -180,7 +180,7 @@ Before merging, verify all of the following:
 
 from pathlib import Path
 
-from dunder_mifflin_harness.tools.types import (
+from jac.tools.types import (
     RiskLevel,
     ToolApprovalMeta,
     ToolResult,
@@ -218,7 +218,7 @@ Then register it:
 
 ```python
 # tools/__init__.py
-from dunder_mifflin_harness.tools.example import count_lines
+from jac.tools.example import count_lines
 
 TOOL_REGISTRY = {
     ...,

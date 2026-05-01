@@ -1,4 +1,4 @@
-"""Minimal W0 package for dunder-mifflin-harness."""
+"""JAC — Just Another CLI. Minimal W0 package."""
 
 __all__ = ["__version__"]
 

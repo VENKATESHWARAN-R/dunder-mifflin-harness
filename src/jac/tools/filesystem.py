@@ -7,7 +7,7 @@ import re as _re
 from dataclasses import dataclass
 from pathlib import Path
 
-from dunder_mifflin_harness.tools.types import (
+from jac.tools.types import (
     DirectoryListResult,
     DirEntry,
     FileEditResult,

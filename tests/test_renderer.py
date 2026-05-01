@@ -2,8 +2,8 @@ import asyncio
 
 from rich.console import Console
 
-from dunder_mifflin_harness.cli.renderer import Renderer
-from dunder_mifflin_harness.runtime.events import (
+from jac.cli.renderer import Renderer
+from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
     EventBus,

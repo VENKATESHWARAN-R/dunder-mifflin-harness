@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from dunder_mifflin_harness.cli.parser import (
+from jac.cli.parser import (
     ParsedInputKind,
     extract_file_references,
     parse_input,

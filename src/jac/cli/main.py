@@ -1,4 +1,4 @@
-"""Click entrypoints for the harness CLI."""
+"""Click entrypoints for the JAC CLI."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from collections.abc import Sequence
 
 import click
 
-from dunder_mifflin_harness.cli.app import ChatApp
-from dunder_mifflin_harness.config import ConfigurationError, Settings
-from dunder_mifflin_harness.runtime.approvals import ApprovalMode
-from dunder_mifflin_harness.runtime.coordinator import RunCoordinator, UserMessage
-from dunder_mifflin_harness.runtime.session import RunMode, SessionConfig, SessionState
+from jac.cli.app import ChatApp
+from jac.config import ConfigurationError, Settings
+from jac.runtime.approvals import ApprovalMode
+from jac.runtime.coordinator import RunCoordinator, UserMessage
+from jac.runtime.session import RunMode, SessionConfig, SessionState
 
 
 async def run_prompt(
@@ -158,7 +158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         _command.main(
             args=list(argv) if argv is not None else None,
-            prog_name="harness",
+            prog_name="jac",
             standalone_mode=False,
         )
     except ConfigurationError as exc:

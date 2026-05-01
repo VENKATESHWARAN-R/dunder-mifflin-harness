@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dunder_mifflin_harness.tools.types import (
+from jac.tools.types import (
     BackgroundProcessResult,
     ProcessEntry,
     ProcessListResult,
@@ -46,7 +46,7 @@ class _ProcessInfo:
     started_at: str
 
 
-# In-memory registry of background processes — lives for the duration of the harness session.
+# In-memory registry of background processes — lives for the duration of the JAC session.
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 

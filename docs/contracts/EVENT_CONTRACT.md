@@ -1,5 +1,7 @@
 # Event Contract
 
+> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+
 ## Purpose
 
 This document is the authoritative contract for all typed communication between the runtime

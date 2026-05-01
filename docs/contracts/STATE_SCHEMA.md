@@ -1,7 +1,8 @@
 # State Schema Contract
 
+> **Status:** Locked · **Last revised:** 2026-04-30 · **Type:** contract
+
 **Schema version:** 1.1  
-**Last updated:** 2026-04-30  
 **Storage:** SQLite (single file, local-first, crash-safe)
 
 This document is the authoritative contract for the persistent state store.

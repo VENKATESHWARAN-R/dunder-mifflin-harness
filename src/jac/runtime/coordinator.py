@@ -8,8 +8,8 @@ from uuid import uuid4
 import logfire
 from pydantic_ai import Agent
 
-from dunder_mifflin_harness.config import Settings
-from dunder_mifflin_harness.runtime.events import (
+from jac.config import Settings
+from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
     EventBus,
@@ -17,8 +17,8 @@ from dunder_mifflin_harness.runtime.events import (
     RunFailed,
     RunStarted,
 )
-from dunder_mifflin_harness.runtime.session import SessionState
-from dunder_mifflin_harness.tools.filesystem import (
+from jac.runtime.session import SessionState
+from jac.tools.filesystem import (
     FileAttachment,
     format_attachments_for_prompt,
 )
@@ -63,8 +63,8 @@ class RunCoordinator:
         return Agent(
             model,
             instructions=(
-                "You are a helpful assistant inside the dunder-mifflin-harness "
-                "research CLI. Answer clearly and keep implementation details "
+                "You are a helpful assistant inside JAC, a research CLI. "
+                "Answer clearly and keep implementation details "
                 "grounded in the user's workspace."
             ),
             output_type=str,

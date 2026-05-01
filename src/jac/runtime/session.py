@@ -7,7 +7,7 @@ from enum import StrEnum
 from pathlib import Path
 from uuid import uuid4
 
-from dunder_mifflin_harness.runtime.approvals import ApprovalMode
+from jac.runtime.approvals import ApprovalMode
 
 
 class RunMode(StrEnum):
