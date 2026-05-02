@@ -4,14 +4,23 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Sequence
+from pathlib import Path
 
 import click
 
+from jac import __version__
 from jac.cli.app import ChatApp
 from jac.config import ConfigurationError, Settings
+from jac.onboarder import (
+    DEFAULT_MODEL,
+    doctor_report,
+    init_global_workspace,
+    init_project_workspace,
+)
 from jac.runtime.approvals import ApprovalMode
 from jac.runtime.coordinator import RunCoordinator, UserMessage
 from jac.runtime.session import RunMode, SessionConfig, SessionState
+from jac.workspace import default_user_dir
 
 
 async def run_prompt(
@@ -41,6 +50,7 @@ async def run_prompt(
     }
 )
 @click.option("--model", "-m", default=None, help="Override the model name.")
+@click.version_option(version=__version__, prog_name="jac")
 @click.option(
     "--mode",
     type=click.Choice([item.value for item in RunMode]),
@@ -73,6 +83,14 @@ def _command(
             approval_mode=approval_mode,
         )
         command_args = [command_name, *remaining]
+
+    if command_args and command_args[0] == "init":
+        _run_init(command_args[1:], settings=settings)
+        return
+
+    if command_args and command_args[0] in {"doctor", "config"}:
+        click.echo(doctor_report(settings))
+        return
 
     if command_args and command_args[0] == "chat":
         app = ChatApp(settings=settings)
@@ -151,6 +169,54 @@ def _extract_inline_options(
         remaining.append(item)
         index += 1
     return remaining, model, mode, approval_mode
+
+
+def _run_init(args: list[str], *, settings: Settings) -> None:
+    global_scope = "--global" in args
+    yes = "--yes" in args or "-y" in args
+    create_env_local = "--env-local" in args
+
+    if global_scope:
+        model = settings.model or DEFAULT_MODEL
+        gateway_key: str | None = None
+        if not yes:
+            model = click.prompt("Default model", default=model)
+            gateway_key = click.prompt(
+                "PYDANTIC_AI_GATEWAY_API_KEY",
+                default="",
+                hide_input=True,
+                show_default=False,
+            )
+        result = init_global_workspace(
+            user_dir=default_user_dir(),
+            model=model,
+            gateway_api_key=gateway_key,
+        )
+        _print_init_result("Initialized user workspace", result.created, result.updated)
+        return
+
+    if not yes:
+        create_env_local = click.confirm(
+            "Create project-local .agents/.env.local?",
+            default=create_env_local,
+        )
+
+    result = init_project_workspace(
+        cwd=Path.cwd(),
+        create_env_local=create_env_local,
+        model=settings.model or DEFAULT_MODEL,
+    )
+    _print_init_result("Initialized project workspace", result.created, result.updated)
+
+
+def _print_init_result(title: str, created: list[Path], updated: list[Path]) -> None:
+    click.echo(title)
+    for path in created:
+        click.echo(f"created: {path}")
+    for path in updated:
+        click.echo(f"updated: {path}")
+    if not created and not updated:
+        click.echo("already up to date")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

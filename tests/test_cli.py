@@ -1,4 +1,5 @@
 import importlib
+from pathlib import Path
 
 import pytest
 
@@ -9,9 +10,12 @@ from jac.config import ConfigurationError
 
 def test_cli_prints_agent_response(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     seen: dict[str, str] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
 
     async def fake_run_prompt(prompt: str, **_kwargs: object) -> str:
         seen["prompt"] = prompt
@@ -51,9 +55,12 @@ def test_cli_reports_missing_configuration(
 
 def test_run_accepts_mode_after_subcommand(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     seen: dict[str, str] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
 
     async def fake_run_prompt(prompt: str, **_kwargs: object) -> str:
         seen["prompt"] = prompt
@@ -72,3 +79,71 @@ def test_run_accepts_mode_after_subcommand(
 
 def test_public_cli_exports_main() -> None:
     assert cli_public_main is cli_main
+
+
+def test_cli_prints_version(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = cli_main(["--version"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out.startswith("jac, version ")
+
+
+def test_init_global_creates_user_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_dir = tmp_path / ".jac"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv("PYDANTIC_AI_GATEWAY_API_KEY", raising=False)
+    monkeypatch.delenv("JAC_MODEL", raising=False)
+
+    exit_code = cli_main(["init", "--global", "--yes"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Initialized user workspace" in captured.out
+    assert (config_dir / "settings.json").is_file()
+    assert (config_dir / ".env").is_file()
+    assert "PYDANTIC_AI_GATEWAY_API_KEY=" in (
+        config_dir / ".env"
+    ).read_text(encoding="utf-8")
+    assert (config_dir / "history").is_dir()
+
+
+def test_init_project_creates_agents_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
+
+    exit_code = cli_main(["init", "--yes", "--env-local"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Initialized project workspace" in captured.out
+    assert (tmp_path / ".agents" / "settings.json").is_file()
+    assert (tmp_path / ".agents" / ".env.local").is_file()
+    assert ".agents/state.db" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_doctor_reports_missing_credentials_without_calling_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
+    monkeypatch.setenv("JAC_MODEL", "gateway/google-vertex:gemini")
+    monkeypatch.delenv("PYDANTIC_AI_GATEWAY_API_KEY", raising=False)
+
+    exit_code = cli_main(["doctor"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "JAC Doctor" in captured.out
+    assert "credential PYDANTIC_AI_GATEWAY_API_KEY: missing" in captured.out

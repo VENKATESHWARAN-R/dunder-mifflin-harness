@@ -173,6 +173,16 @@ plan → task_router → context_loader → config_loader → build → evaluate
 - **Tools are MCP-first.** Agent tool access is configured via `allowed_tools` in `agent_configs` as a JSON array of tool names and MCP server IDs. Local tools only until remote MCP transports come online at C17.
 - **Agent teams (C15).** Multiple agent instances can run in parallel within a run and coordinate via the `agent_messages` queue. Schema is defined now; wiring lands at C15.
 
+## Versioning (alpha)
+
+JAC is still in alpha; breaking changes are expected. Even so, **bump the package version whenever you ship a meaningful change in `src/jac/`** so installed CLIs (`uv tool install`, `jac --version`) and support/debugging stay honest.
+
+- **Canonical version:** `[project].version` in `pyproject.toml`. That is what `jac --version` and `importlib.metadata.version("jac")` report after install.
+- **In-tree fallback:** `src/jac/__init__.py` defines `__version__` from installed metadata, with a fallback string only for editable/uninstalled edge cases. If you bump `pyproject.toml`, update that fallback to the same value so dev checkouts without a proper install stay consistent.
+- **When to bump:** user-visible behavior (new CLI commands, config/env semantics, default model or deps), fixes that matter for released installs, or **breaking** changes (removed flags, changed defaults, contract-level behavior). For tiny internal-only refactors with no observable effect, a bump is optional.
+- **How to bump:** use [SemVer](https://semver.org/) shape while on `0.x.y` — e.g. `0.1.0` → `0.1.1` for fixes/small additions, `0.2.0` when you intentionally break compatibility or ship a larger surface change. Document breaking changes in the commit/PR body either way.
+- **Dependencies:** if `pyproject.toml` dependencies change, run `uv lock` and commit `uv.lock` so global installs resolve the same graph.
+
 ## Working Rules
 
 - Keep dependencies pointing inward: UI/server adapters depend on runtime; runtime depends on domain/tool abstractions; domain logic must not import adapters.

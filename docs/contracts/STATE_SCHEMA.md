@@ -2,7 +2,7 @@
 
 > **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
 
-**Schema version:** 1.1  
+**Schema version:** 1.2  
 **Storage:** SQLite (single file, local-first, crash-safe)
 
 This document is the authoritative contract for the persistent state store.
@@ -181,10 +181,17 @@ CREATE TABLE mcp_servers (
     transport       TEXT NOT NULL,       -- stdio | sse | http
     config          TEXT NOT NULL,       -- JSON: {command, args, env} for stdio, {url} for sse/http
     is_enabled      INTEGER NOT NULL DEFAULT 1,  -- global kill-switch
+    source_scope    TEXT NOT NULL DEFAULT 'seeded',
+    -- user | project | seeded
+    source_path     TEXT,                -- nullable; absolute path for file-seeded rows
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
 );
 ```
+
+`source_scope` and `source_path` let the workspace seeding pass reconcile
+file-backed rows deterministically. `seeded` is reserved for built-in or
+test fixtures that do not come from disk.
 
 ---
 
@@ -204,10 +211,17 @@ CREATE TABLE skills (
     content     TEXT NOT NULL,       -- injected into agent system prompt when active
     version     TEXT NOT NULL DEFAULT '1.0',
     is_enabled  INTEGER NOT NULL DEFAULT 1,
+    source_scope TEXT NOT NULL DEFAULT 'seeded',
+    -- user | project | seeded
+    source_path  TEXT,               -- nullable; absolute path for file-seeded rows
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
 ```
+
+`source_scope` and `source_path` follow the same rules as `mcp_servers`.
+Project-scope rows override user-scope rows with the same `name` during
+seeding; duplicate names within one scope are configuration errors.
 
 ---
 
@@ -368,5 +382,5 @@ CREATE TABLE schema_meta (
     key     TEXT PRIMARY KEY,
     value   TEXT NOT NULL
 );
--- Seed: INSERT INTO schema_meta VALUES ('version', '1.1');
+-- Seed: INSERT INTO schema_meta VALUES ('version', '1.2');
 ```

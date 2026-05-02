@@ -167,19 +167,21 @@ flowchart LR
 **Layer:** state
 **Status:** planned
 **Depends on:** C1
-**Brainstorm/contract:** [`WORKSPACE.md`](contracts/WORKSPACE.md) (Draft)
+**Brainstorm/contract:** [`WORKSPACE.md`](contracts/WORKSPACE.md)
 
-Anchors JAC to a project workspace. Adds `~/.jac/` for user globals and `<repo>/.agents/` for project state, with `AGENTS.md` instruction files. A deterministic seeding pass walks both scopes on harness boot and upserts skills/MCP/agent rows so they're visible to later components.
+Anchors JAC to a project workspace. Adds `~/.jac/` for user globals and `<repo>/.agents/` for project state, with dotenv onboarding, `AGENTS.md` instruction files, and no-project fallback. A deterministic seeding pass walks both scopes on harness boot and upserts skills/MCP/agent rows so they're visible to later components.
 
 **Ships:**
 - Project discovery (upward walk for `.agents/` or `AGENTS.md`)
-- Layered settings/instructions resolution
+- Layered settings, dotenv, and instruction resolution
+- `jac init`, `jac init --global`, and `jac doctor` onboarding/diagnostic commands
 - Seeding node: file → `mcp_servers` / `skills` / `agent_configs` upsert
-- Promote `WORKSPACE.md` from Draft → Locked
+- Source metadata for seeded `skills` and `mcp_servers`
 
 **Evaluation:**
 - Add `<repo>/.agents/skills/foo.md` → row appears in `skills`
 - Delete the file, reboot → row garbage-collected (no open run referencing it)
+- Installed `jac` launched outside this checkout reads `~/.jac/.env` and reports missing credentials clearly
 
 ```mermaid
 flowchart LR

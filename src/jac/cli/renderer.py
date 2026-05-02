@@ -9,6 +9,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 
+from jac import __version__
 from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
@@ -136,7 +137,9 @@ class Renderer:
     def render_welcome(self) -> None:
         """Display the chat welcome text."""
         self.console.print()
-        self.console.print("[bold cyan]JAC[/bold cyan] [dim]— Just Another CLI[/dim]")
+        self.console.print(
+            f"[bold cyan]JAC[/bold cyan] [dim]v{__version__} — Just Another CLI[/dim]"
+        )
         self.console.print("[dim]Type /help for commands, /quit to exit.[/dim]")
         self.console.print()
 
