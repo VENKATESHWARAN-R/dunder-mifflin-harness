@@ -1,6 +1,6 @@
 [project]
 name = "jac"
-version = "0.1.0"
+version = "0.1.2"
 description = "JAC — Just Another CLI. A multi-agent dev harness with tier-routed model selection."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -10,7 +10,7 @@ dependencies = [
     "logfire>=4.31.0",
     "prompt-toolkit>=3.0.52",
     "pydantic>=2.12.5",
-    "pydantic-ai-slim[a2a,cli,duckduckgo,evals,fastmcp,google,logfire]>=1.73.0",
+    "pydantic-ai-slim[a2a,anthropic,cli,duckduckgo,evals,fastmcp,google,logfire,openai,openrouter]>=1.73.0",
     "pydantic-settings>=2.13.1",
     "rich>=14.3.3",
 ]

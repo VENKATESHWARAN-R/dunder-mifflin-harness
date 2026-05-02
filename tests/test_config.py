@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from jac.config import ConfigurationError, Settings
+from jac.config import default_model_tiers
 
 
 def test_settings_use_w0_defaults(
@@ -146,3 +147,161 @@ def test_ollama_model_requires_no_credentials(
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     Settings().require_model_credentials()
+
+
+def test_settings_load_tier_models_from_user_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / ".jac"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text(
+        """
+{
+  "default_provider": "openai",
+  "default_tier": "architect",
+  "model_tiers": {
+    "scout": ["openai:gpt-5.4-nano"],
+    "worker": ["openai:gpt-5.4-mini"],
+    "architect": ["openai:gpt-5.4"]
+  }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(config_dir))
+
+    selection = Settings().resolve_model_selection()
+
+    assert selection.model_ref == "openai:gpt-5.4"
+    assert selection.provider == "openai"
+    assert selection.source == "tier:architect"
+
+
+def test_legacy_model_overrides_are_read_as_tier_lists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / ".jac"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text(
+        """
+{
+  "default_provider": "anthropic",
+  "model_overrides": {
+    "scout": "anthropic:claude-haiku-4-5",
+    "worker": "anthropic:claude-sonnet-4-6",
+    "architect": "anthropic:claude-opus-4-6"
+  }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(config_dir))
+
+    settings = Settings()
+
+    assert settings.model_tiers == {
+        "scout": ["anthropic:claude-haiku-4-5"],
+        "worker": ["anthropic:claude-sonnet-4-6"],
+        "architect": ["anthropic:claude-opus-4-6"],
+    }
+
+
+def test_litellm_requires_api_key_and_base(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
+    monkeypatch.setenv("LITELLM_API_KEY", "test-key")
+    monkeypatch.delenv("LITELLM_API_BASE", raising=False)
+
+    with pytest.raises(ConfigurationError, match="LITELLM_API_BASE"):
+        Settings().require_model_credentials(
+            "litellm:openai/gpt-5.4",
+            provider="litellm",
+        )
+
+
+def test_explicit_model_override_wins_over_tier_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
+    settings = Settings(
+        default_provider="gateway",
+        model_tiers=default_model_tiers("gateway"),
+    )
+
+    selection = settings.resolve_model_selection(
+        model_override="anthropic:claude-haiku-4-5",
+        tier="architect",
+    )
+
+    assert selection.model_ref == "anthropic:claude-haiku-4-5"
+    assert selection.provider == "anthropic"
+    assert selection.source == "model_override"
+
+
+def test_active_profile_overlays_model_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / ".jac"
+    config_dir.mkdir()
+    (config_dir / "settings.json").write_text(
+        """
+{
+  "active_profile": "home",
+  "default_provider": "litellm",
+  "default_tier": "worker",
+  "profiles": {
+    "office": {
+      "default_provider": "litellm",
+      "default_tier": "worker",
+      "model_tiers": {
+        "worker": ["litellm:openai/gpt-5.4-mini"]
+      }
+    },
+    "home": {
+      "default_provider": "ollama",
+      "default_tier": "worker",
+      "model_tiers": {
+        "worker": ["ollama:kimi-k2.6:cloud"]
+      }
+    }
+  }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(config_dir))
+
+    settings = Settings()
+    selection = settings.resolve_model_selection()
+
+    assert settings.active_profile == "home"
+    assert settings.default_provider == "ollama"
+    assert selection.model_ref == "ollama:kimi-k2.6:cloud"
+    assert selection.provider == "ollama"
+
+
+def test_profile_env_var_wins_over_global_provider_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
+    monkeypatch.setenv("LITELLM_API_KEY", "global-key")
+    monkeypatch.setenv("JAC_PROFILE_OFFICE_LITELLM_API_KEY", "office-key")
+    settings = Settings(active_profile="office")
+
+    assert settings.require_env_var("LITELLM_API_KEY") == "office-key"

@@ -1371,7 +1371,7 @@ wheels = [
 
 [[package]]
 name = "jac"
-version = "0.1.0"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -1379,7 +1379,7 @@ dependencies = [
     { name = "logfire" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
-    { name = "pydantic-ai-slim", extra = ["a2a", "cli", "duckduckgo", "evals", "fastmcp", "google", "logfire"] },
+    { name = "pydantic-ai-slim", extra = ["a2a", "anthropic", "cli", "duckduckgo", "evals", "fastmcp", "google", "logfire", "openai", "openrouter"] },
     { name = "pydantic-settings" },
     { name = "rich" },
 ]
@@ -1405,7 +1405,7 @@ requires-dist = [
     { name = "logfire", specifier = ">=4.31.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pydantic-ai-slim", extras = ["a2a", "cli", "duckduckgo", "evals", "fastmcp", "google", "logfire"], specifier = ">=1.73.0" },
+    { name = "pydantic-ai-slim", extras = ["a2a", "anthropic", "cli", "duckduckgo", "evals", "fastmcp", "google", "logfire", "openai", "openrouter"], specifier = ">=1.73.0" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "rich", specifier = ">=14.3.3" },
 ]
@@ -2710,6 +2710,9 @@ wheels = [
 a2a = [
     { name = "fasta2a" },
 ]
+anthropic = [
+    { name = "anthropic" },
+]
 cli = [
     { name = "argcomplete" },
     { name = "prompt-toolkit" },
@@ -2731,6 +2734,13 @@ google = [
 ]
 logfire = [
     { name = "logfire", extra = ["httpx"] },
+]
+openai = [
+    { name = "openai" },
+    { name = "tiktoken" },
+]
+openrouter = [
+    { name = "openai" },
 ]
 
 [[package]]

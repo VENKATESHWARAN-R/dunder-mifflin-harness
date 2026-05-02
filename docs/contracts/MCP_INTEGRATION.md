@@ -1,6 +1,6 @@
 # MCP Integration
 
-> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-03 · **Type:** contract
 
 ## Purpose
 
@@ -130,18 +130,26 @@ The returned agent is used inside `async with agent:` so MCP connections open/cl
 ## Model Tier Resolution
 
 `agent_configs.model_tier` is the default; `model_override` takes precedence if set.
-Tier → model mapping is defined in `config.py` and can be changed without touching agent code.
+Tier → model mapping is loaded from workspace settings and normalized by `config.py`.
+Each tier maps to a list of model references; the first entry is used until a
+later router chooses among multiple same-tier candidates.
 
 ```python
-TIER_DEFAULTS = {
-    "scout":     "anthropic:claude-haiku-4-5",
-    "worker":    "anthropic:claude-sonnet-4-6",
-    "architect": "anthropic:claude-opus-4-7",
+MODEL_TIERS = {
+    "scout": ["gateway/google-vertex:gemini-3.1-flash-lite-preview"],
+    "worker": ["gateway/anthropic:claude-sonnet-4-6"],
+    "architect": ["gateway/anthropic:claude-opus-4-6"],
 }
 
 def resolve_model(tier: str, override: str | None) -> str:
-    return override if override else TIER_DEFAULTS[tier]
+    return override if override else MODEL_TIERS[tier][0]
 ```
+
+Provider-specific model construction is centralized in the model factory used
+by `config_loader`. Gateway model references can be passed to Pydantic AI as
+strings. OpenAI, Anthropic, Google, Ollama, OpenRouter, and LiteLLM selections
+are converted into provider-specific Pydantic AI model instances so API keys,
+base URLs, and OpenAI-compatible providers stay out of agent code.
 
 ---
 

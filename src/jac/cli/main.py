@@ -11,8 +11,17 @@ import click
 from jac import __version__
 from jac.cli.app import ChatApp
 from jac.config import ConfigurationError, Settings
+from jac.config import (
+    DEFAULT_PROVIDER,
+    PROVIDER_DEFINITIONS,
+    TIER_NAMES,
+    default_model_tiers,
+    provider_definition,
+)
 from jac.onboarder import (
     DEFAULT_MODEL,
+    activate_global_profile,
+    configure_global_profile,
     doctor_report,
     init_global_workspace,
     init_project_workspace,
@@ -33,7 +42,7 @@ async def run_prompt(
     resolved_settings = settings or Settings()
     session = SessionState(
         config=SessionConfig(
-            model=model or resolved_settings.model,
+            model=model,
             max_attachment_bytes=resolved_settings.max_attachment_bytes,
             shell_timeout_seconds=resolved_settings.shell_timeout_seconds,
             shell_max_output_chars=resolved_settings.shell_max_output_chars,
@@ -86,6 +95,10 @@ def _command(
 
     if command_args and command_args[0] == "init":
         _run_init(command_args[1:], settings=settings)
+        return
+
+    if command_args and command_args[0] == "profile":
+        _run_profile(command_args[1:], settings=settings)
         return
 
     if command_args and command_args[0] in {"doctor", "config"}:
@@ -177,20 +190,23 @@ def _run_init(args: list[str], *, settings: Settings) -> None:
     create_env_local = "--env-local" in args
 
     if global_scope:
-        model = settings.model or DEFAULT_MODEL
-        gateway_key: str | None = None
+        provider = DEFAULT_PROVIDER
+        model_tiers = default_model_tiers(provider)
+        env_values: dict[str, str] | None = None
         if not yes:
-            model = click.prompt("Default model", default=model)
-            gateway_key = click.prompt(
-                "PYDANTIC_AI_GATEWAY_API_KEY",
-                default="",
-                hide_input=True,
-                show_default=False,
+            provider = click.prompt(
+                "Provider",
+                default=settings.default_provider or DEFAULT_PROVIDER,
+                type=click.Choice(list(PROVIDER_DEFINITIONS)),
             )
+            model_tiers = _prompt_model_tiers(provider)
+            env_values = _prompt_provider_env(provider)
         result = init_global_workspace(
             user_dir=default_user_dir(),
-            model=model,
-            gateway_api_key=gateway_key,
+            provider=provider,
+            model_tiers=model_tiers,
+            env_values=env_values,
+            model=settings.model or DEFAULT_MODEL,
         )
         _print_init_result("Initialized user workspace", result.created, result.updated)
         return
@@ -204,9 +220,86 @@ def _run_init(args: list[str], *, settings: Settings) -> None:
     result = init_project_workspace(
         cwd=Path.cwd(),
         create_env_local=create_env_local,
+        provider=settings.default_provider or DEFAULT_PROVIDER,
+        model_tiers=settings.model_tiers
+        or default_model_tiers(settings.default_provider or DEFAULT_PROVIDER),
         model=settings.model or DEFAULT_MODEL,
     )
     _print_init_result("Initialized project workspace", result.created, result.updated)
+
+
+def _run_profile(args: list[str], *, settings: Settings) -> None:
+    subcommand = args[0] if args else "current"
+    if subcommand in {"current", "show"}:
+        active = settings.active_profile or "(none)"
+        click.echo(f"Active profile: {active}")
+        click.echo(f"Provider: {settings.default_provider}")
+        click.echo(f"Default tier: {settings.default_tier}")
+        return
+
+    if subcommand == "list":
+        if not settings.profiles:
+            click.echo("No profiles configured. Run `jac profile add <name>`.")
+            return
+        for name, profile in settings.profiles.items():
+            marker = "*" if name == settings.active_profile else " "
+            provider = profile.get("default_provider", "(unknown)")
+            tier = profile.get("default_tier", "(unknown)")
+            click.echo(f"{marker} {name}: provider={provider} tier={tier}")
+        return
+
+    if subcommand == "use":
+        if len(args) < 2:
+            raise click.ClickException("Usage: jac profile use <name>")
+        try:
+            result = activate_global_profile(
+                user_dir=default_user_dir(),
+                profile=args[1],
+            )
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        _print_init_result(
+            f"Activated profile: {args[1]}", result.created, result.updated
+        )
+        return
+
+    if subcommand == "add":
+        if len(args) < 2:
+            raise click.ClickException(
+                "Usage: jac profile add <name> [--provider <id>]"
+            )
+        profile = args[1]
+        remaining = args[2:]
+        provider = _option_value(remaining, "--provider") or DEFAULT_PROVIDER
+        activate = "--activate" in remaining
+        yes = "--yes" in remaining or "-y" in remaining
+        if not yes:
+            provider = click.prompt(
+                "Provider",
+                default=provider,
+                type=click.Choice(list(PROVIDER_DEFINITIONS)),
+            )
+            activate = click.confirm("Activate this profile now?", default=activate)
+        model_tiers = (
+            default_model_tiers(provider) if yes else _prompt_model_tiers(provider)
+        )
+        env_values = None if yes else _prompt_provider_env(provider)
+        result = configure_global_profile(
+            user_dir=default_user_dir(),
+            profile=profile,
+            provider=provider,
+            model_tiers=model_tiers,
+            env_values=env_values,
+            activate=activate,
+        )
+        _print_init_result(
+            f"Configured profile: {profile}", result.created, result.updated
+        )
+        return
+
+    raise click.ClickException(
+        "Usage: jac profile [current|list|use <name>|add <name>]"
+    )
 
 
 def _print_init_result(title: str, created: list[Path], updated: list[Path]) -> None:
@@ -217,6 +310,52 @@ def _print_init_result(title: str, created: list[Path], updated: list[Path]) -> 
         click.echo(f"updated: {path}")
     if not created and not updated:
         click.echo("already up to date")
+
+
+def _prompt_model_tiers(provider: str) -> dict[str, list[str]]:
+    definition = provider_definition(provider)
+    click.echo(f"Suggested tier models for {definition.label}:")
+    tiers: dict[str, list[str]] = {}
+    defaults = default_model_tiers(provider)
+    for tier in TIER_NAMES:
+        default = ", ".join(defaults[tier])
+        click.echo(f"- {tier}: {default}")
+        raw_value = click.prompt(
+            f"{tier.capitalize()} models (comma-separated)",
+            default=default,
+            show_default=False,
+        )
+        tiers[tier] = _split_model_list(raw_value)
+    return tiers
+
+
+def _prompt_provider_env(provider: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    definition = provider_definition(provider)
+    for item in definition.env:
+        values[item.name] = click.prompt(
+            item.prompt,
+            default=item.default,
+            hide_input=item.secret,
+            show_default=bool(item.default and not item.secret),
+        )
+    return values
+
+
+def _split_model_list(raw_value: str) -> list[str]:
+    models = [item.strip() for item in raw_value.split(",") if item.strip()]
+    if not models:
+        raise click.ClickException("Each tier must include at least one model.")
+    return models
+
+
+def _option_value(args: list[str], name: str) -> str | None:
+    for index, item in enumerate(args):
+        if item == name and index + 1 < len(args):
+            return args[index + 1]
+        if item.startswith(f"{name}="):
+            return item.split("=", 1)[1]
+    return None
 
 
 def main(argv: Sequence[str] | None = None) -> int:

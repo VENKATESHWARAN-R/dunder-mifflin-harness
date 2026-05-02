@@ -9,6 +9,7 @@ import logfire
 from pydantic_ai import Agent
 
 from jac.config import Settings
+from jac.runtime.models import build_pydantic_model
 from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
@@ -58,8 +59,11 @@ class RunCoordinator:
 
     def build_agent(self) -> Agent:
         """Build the current single-agent backend."""
-        model = self.session.config.model or self.settings.model
-        self.settings.require_model_credentials(model)
+        selection = self.settings.resolve_model_selection(
+            model_override=self.session.config.model,
+            tier=self.session.config.tier,
+        )
+        model = build_pydantic_model(selection, self.settings)
         temperature = float(self.session.config.model_params.get("temperature", "0"))
         return Agent(
             model,

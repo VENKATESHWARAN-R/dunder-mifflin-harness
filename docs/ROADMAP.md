@@ -1,6 +1,6 @@
 # Roadmap — JAC
 
-> **Status:** Living · **Last revised:** 2026-05-02 · **Type:** component plan, in dependency order
+> **Status:** Living · **Last revised:** 2026-05-03 · **Type:** component plan, in dependency order
 
 JAC is built component by component, not slice by slice. Each entry below is a self-contained module with a stable ID (`C0`..`Cn`). Order reflects **dependency**, not calendar — `Cn+1` assumes `Cn` is in place.
 
@@ -205,7 +205,7 @@ flowchart LR
 ### C3 — File Tools with Approval
 
 **Layer:** tools
-**Status:** planned
+**Status:** shipped (2026-05-03)
 **Depends on:** C0
 **Brainstorm/contract:** [`TOOLS_CONTRACT.md`](contracts/TOOLS_CONTRACT.md)
 
@@ -242,7 +242,7 @@ flowchart LR
 ### C4 — Shell Tool with Approval
 
 **Layer:** tools
-**Status:** planned
+**Status:** shipped (2026-05-03)
 **Depends on:** C3
 **Brainstorm/contract:** [`TOOLS_CONTRACT.md`](contracts/TOOLS_CONTRACT.md)
 
@@ -1210,3 +1210,24 @@ Move components here when shipped, with the date.
 - [x] `@` file references become structured attachments
 - [x] User `!` shell commands use a shared shell executor
 - [x] Focused tests cover CLI entrypoints, parser, renderer, runtime contracts, config, shell helpers
+
+---
+
+### C3 — File Tools with Approval (2026-05-03)
+
+- [x] `tools/types.py`: `ToolResult`, `ToolStatus`, `RiskLevel`, `ToolApprovalMeta`; all filesystem and shell result types
+- [x] `tools/filesystem.py`: `read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`, `grep_files` — each with `ToolApprovalMeta` attached
+- [x] `TOOL_REGISTRY` entries for `filesystem` (full) and `filesystem:read` (read-only subset)
+- [x] `FileEditResult.diff` carries a unified diff so the C5 approval middleware can emit `FileEditPreviewed` without recomputing
+- [x] `FileEditPreviewed` / `FileEditApplied` event types defined; renderer subscribed
+- [x] Tests: 28 cases across all 6 tools including approval metadata, error paths, and edge cases
+
+---
+
+### C4 — Shell Tool with Approval (2026-05-03)
+
+- [x] `tools/shell.py`: `run_shell`, `run_shell_background`, `list_processes`, `read_process_output` — each with `ToolApprovalMeta` attached
+- [x] `TOOL_REGISTRY["shell"]` (full) and `TOOL_REGISTRY["shell:read"]` (inspection only)
+- [x] `ChatApp._handle_shell` emits `ShellCommandStarted` / `ShellCommandCompleted` around `run_shell` — shared rendering path for user `!` commands and future agent tool calls
+- [x] `ShellCommandStarted` / `ShellCommandCompleted` event types defined; renderer subscribed
+- [x] Tests: background process lifecycle (start, list, read output), approval metadata for all 4 functions

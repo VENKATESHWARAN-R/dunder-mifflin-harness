@@ -38,7 +38,6 @@ class ChatApp:
     ) -> None:
         self.settings = settings or Settings()
         config = SessionConfig(
-            model=self.settings.model,
             max_attachment_bytes=self.settings.max_attachment_bytes,
             shell_timeout_seconds=self.settings.shell_timeout_seconds,
             shell_max_output_chars=self.settings.shell_max_output_chars,
@@ -102,6 +101,7 @@ class ChatApp:
             except ValueError:
                 self.renderer.print_error("Tier must be scout, worker, or architect.")
                 return
+            self.coordinator.reset_agent()
             self.renderer.print_info(f"Preferred tier set to: {value}")
 
         async def mode_command(args: str) -> None:
@@ -119,12 +119,16 @@ class ChatApp:
         async def approval_command(args: str) -> None:
             value = args.strip()
             if not value:
-                self.renderer.print_info(f"Current approval mode: {self.approvals.mode}")
+                self.renderer.print_info(
+                    f"Current approval mode: {self.approvals.mode}"
+                )
                 return
             try:
                 mode = ApprovalMode(value)
             except ValueError:
-                self.renderer.print_error("Approval mode must be interactive, auto-edit, or yolo.")
+                self.renderer.print_error(
+                    "Approval mode must be interactive, auto-edit, or yolo."
+                )
                 return
             self.session.config.approval_mode = mode
             self.approvals.mode = mode
@@ -133,7 +137,9 @@ class ChatApp:
         async def params_command(args: str) -> None:
             parts = args.split(maxsplit=1)
             if not parts:
-                self.renderer.print_value("Model Params", self.session.config.model_params)
+                self.renderer.print_value(
+                    "Model Params", self.session.config.model_params
+                )
                 return
             if len(parts) != 2:
                 self.renderer.print_error("Usage: /params <key> <value>")
@@ -162,7 +168,9 @@ class ChatApp:
         self.commands.register("model", model_command, "Show or set the active model")
         self.commands.register("tier", tier_command, "Show or set preferred model tier")
         self.commands.register("mode", mode_command, "Show or set run mode")
-        self.commands.register("approval", approval_command, "Show or set approval mode")
+        self.commands.register(
+            "approval", approval_command, "Show or set approval mode"
+        )
         self.commands.register("params", params_command, "Show or set model parameters")
         self.commands.register("context", context_command, "Show session context")
         self.commands.register("cost", cost_command, "Show current cost summary")

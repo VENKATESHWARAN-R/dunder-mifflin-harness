@@ -18,7 +18,122 @@ just run jac chat               # interactive REPL
 just test                       # run pytest
 ```
 
-Set up `.env` from `.env.template` first — `JAC_MODEL` and one of `PYDANTIC_AI_GATEWAY_API_KEY` / `GEMINI_API_KEY` are the minimum needed for live calls.
+For an installed CLI, run:
+
+```bash
+uv tool install .
+jac --version
+```
+
+## CLI Setup
+
+Create your user-global JAC workspace:
+
+```bash
+jac init --global
+```
+
+This creates `~/.jac/settings.json` for non-secret settings and `~/.jac/.env`
+for provider credentials. The default provider is Pydantic AI Gateway, but the
+interactive setup can configure Gateway, Anthropic, OpenAI, Google AI Studio,
+Ollama, OpenRouter, or LiteLLM.
+
+For a project-local workspace, run from the repo root:
+
+```bash
+jac init
+jac init --env-local   # also create .agents/.env.local placeholders
+```
+
+Project files live under `.agents/`. Secrets stay in `.agents/.env.local`,
+which JAC adds to `.gitignore`.
+
+## Model Configuration
+
+JAC uses three model tiers: `scout`, `worker`, and `architect`. Each tier can
+hold one or more model ids; today JAC uses the first model in the selected tier.
+
+Example `~/.jac/settings.json`:
+
+```json
+{
+  "active_profile": "default",
+  "default_provider": "gateway",
+  "default_tier": "worker",
+  "model_tiers": {
+    "scout": ["gateway/google-vertex:gemini-3.1-flash-lite-preview"],
+    "worker": ["gateway/anthropic:claude-sonnet-4-6"],
+    "architect": ["gateway/anthropic:claude-opus-4-6"]
+  }
+}
+```
+
+Credentials are stored in dotenv files, not JSON:
+
+```dotenv
+PYDANTIC_AI_GATEWAY_API_KEY=...
+ANTHROPIC_API_KEY=...
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...
+OPENROUTER_API_KEY=...
+LITELLM_API_BASE=https://litellm.example/v1
+LITELLM_API_KEY=...
+OLLAMA_BASE_URL=http://localhost:11434/v1
+```
+
+## Profiles
+
+Profiles let you keep multiple provider setups and switch between them. For
+example, use LiteLLM at work and Ollama at home:
+
+```bash
+jac profile add office --provider litellm
+jac profile add home --provider ollama
+jac profile list
+jac profile use office
+jac profile use home
+```
+
+Profile secrets use profile-scoped env names and are checked before the global
+provider env names:
+
+```dotenv
+JAC_PROFILE_OFFICE_LITELLM_API_BASE=https://company-litellm.example/v1
+JAC_PROFILE_OFFICE_LITELLM_API_KEY=...
+JAC_PROFILE_HOME_OLLAMA_BASE_URL=http://localhost:11434/v1
+```
+
+## Common Commands
+
+```bash
+jac "say hello"                  # one-shot prompt
+jac run "summarize @README.md"   # explicit one-shot form
+jac chat                         # interactive REPL
+jac --model openai:gpt-5.4 "hi"  # one-call model override
+jac doctor                       # non-secret setup diagnostics
+jac config                       # alias for current diagnostics
+jac profile current              # show active profile
+jac profile list                 # list configured profiles
+jac profile use <name>           # switch active profile
+jac profile add <name>           # configure a new profile
+```
+
+Interactive slash commands:
+
+```text
+/help
+/model [model-id]
+/tier [scout|worker|architect]
+/mode [autopilot|hitl]
+/approval [interactive|auto-edit|yolo]
+/params [temperature|max_tokens] <value>
+/context
+/cost
+/quit
+```
+
+Use `@path` to attach files and `!command` to run local shell commands from
+chat. Shell commands are routed through the approval policy.
 
 ## Where things live
 

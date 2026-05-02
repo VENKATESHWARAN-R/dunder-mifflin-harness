@@ -1,6 +1,6 @@
 # Workspace Layout
 
-> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-03 · **Type:** contract
 
 ## Purpose
 
@@ -132,14 +132,15 @@ project `.agents/.env.local` exists only for per-repo overrides.
 Current minimum live-call configuration:
 
 ```dotenv
-JAC_MODEL=gateway/google-vertex:gemini-3.1-flash-lite-preview
+JAC_MODEL=gateway/anthropic:claude-sonnet-4-6
 PYDANTIC_AI_GATEWAY_API_KEY=...
 ```
 
-Future providers use the same resolution path. Examples include
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`,
-`OPENROUTER_API_KEY`, LiteLLM gateway keys, and local model settings such as
-`OLLAMA_BASE_URL`.
+Provider-specific credentials use the same resolution path:
+`PYDANTIC_AI_GATEWAY_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `LITELLM_API_KEY`,
+`LITELLM_API_BASE`, optional `OLLAMA_API_KEY`, and local model settings such
+as `OLLAMA_BASE_URL`.
 
 Only operations that make an LLM call require provider credentials. `jac --help`,
 `jac init`, `jac doctor`, `jac config`, project discovery, and
@@ -213,13 +214,40 @@ JSON-serialised into the `config` column (matches `STATE_SCHEMA.md`).
 
 ```json
 {
+  "default_provider": "gateway",
+  "active_profile": "default",
   "default_tier": "worker",
   "default_approval_mode": "interactive",
   "default_workflow_mode": "feature_by_feature",
+  "profiles": {
+    "default": {
+      "default_provider": "gateway",
+      "default_tier": "worker",
+      "model_tiers": {
+        "scout": ["gateway/google-vertex:gemini-3.1-flash-lite-preview"],
+        "worker": ["gateway/anthropic:claude-sonnet-4-6"],
+        "architect": ["gateway/anthropic:claude-opus-4-6"]
+      }
+    }
+  },
+  "model_tiers": {
+    "scout": [
+      "gateway/google-vertex:gemini-3.1-flash-lite-preview",
+      "gateway/openai:gpt-5.4-nano"
+    ],
+    "worker": [
+      "gateway/anthropic:claude-sonnet-4-6",
+      "gateway/openai:gpt-5.4-mini"
+    ],
+    "architect": [
+      "gateway/anthropic:claude-opus-4-6",
+      "gateway/openai:gpt-5.4"
+    ]
+  },
   "model_overrides": {
-    "scout":     "anthropic:claude-haiku-4-5",
-    "worker":    "anthropic:claude-sonnet-4-6",
-    "architect": "anthropic:claude-opus-4-7"
+    "scout": "gateway/google-vertex:gemini-3.1-flash-lite-preview",
+    "worker": "gateway/anthropic:claude-sonnet-4-6",
+    "architect": "gateway/anthropic:claude-opus-4-6"
   },
   "telemetry": { "enabled": false }
 }
@@ -229,6 +257,18 @@ JSON-serialised into the `config` column (matches `STATE_SCHEMA.md`).
 `settings.json`. Both files are optional. Secrets (API keys) never live
 here — they come from environment variables.
 
+`model_tiers` is the current model selection shape. Each tier is a list so the
+router can later choose among multiple models in the same bucket. The first
+entry is used until routing policy lands. `model_overrides` is kept as a
+legacy single-model mirror for older configs; new writes must include
+`model_tiers`.
+
+`profiles` stores named non-secret provider/tier configurations. The selected
+profile is `active_profile`; its values overlay the top-level provider and tier
+keys at runtime. This lets one user keep profiles such as `office` for LiteLLM
+and `home` for Ollama without re-running setup. Top-level provider/tier keys
+remain as the active profile mirror for older installs and simple configs.
+
 ### `.env` / `.env.local`
 
 Dotenv files contain provider credentials and provider-specific endpoints:
@@ -237,11 +277,18 @@ Dotenv files contain provider credentials and provider-specific endpoints:
 JAC_MODEL=gateway/google-vertex:gemini-3.1-flash-lite-preview
 PYDANTIC_AI_GATEWAY_API_KEY=...
 OLLAMA_BASE_URL=http://localhost:11434/v1
+JAC_PROFILE_OFFICE_LITELLM_API_BASE=https://company-litellm.example/v1
+JAC_PROFILE_OFFICE_LITELLM_API_KEY=...
+JAC_PROFILE_HOME_OLLAMA_BASE_URL=http://localhost:11434/v1
 ```
 
 `~/.jac/.env` is user-global and created by `jac init --global`.
 `<repo>/.agents/.env.local` is project-local and overrides user-global values
 for that project. Both files are machine-local and must be gitignored.
+
+Profile-scoped env vars use `JAC_PROFILE_<PROFILE>_<ENV_NAME>`. When a profile
+is active, JAC checks the profile-scoped name first and falls back to the base
+provider env name.
 
 ---
 
@@ -262,10 +309,11 @@ Creates or updates the user-global workspace:
 - `~/.jac/history/`
 
 The flow asks for the default provider/model and the required credential for
-that provider. For the initial product shape, the default provider is
-Pydantic AI's Logfire gateway. Later providers (LiteLLM, OpenAI, Anthropic,
-Gemini, OpenRouter, Ollama) plug into the same prompt flow by declaring
-which env vars they need.
+that provider. The default provider is Pydantic AI Gateway. Supported
+providers are Gateway, Anthropic, OpenAI, Google AI Studio (`google-gla`),
+Ollama, OpenRouter, and LiteLLM. The onboarding flow shows the suggested
+Scout/Worker/Architect model buckets and lets the user replace any tier list
+before writing config.
 
 ### `jac init`
 
@@ -289,7 +337,7 @@ It also offers to add local-only entries to `.gitignore`:
 
 Reports resolved non-secret configuration and validates setup:
 
-- selected model and provider
+- selected provider, default tier, and first selected model for that tier
 - which env source satisfied each required credential (without printing values)
 - workspace discovery result
 - duplicate skill/MCP/agent names within the same scope

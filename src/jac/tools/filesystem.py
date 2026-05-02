@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib as _difflib
 import mimetypes
 import re as _re
 from dataclasses import dataclass
@@ -258,11 +259,17 @@ async def edit_file(path: str, old_string: str, new_string: str, replace_all: bo
 
     new_content = content.replace(old_string, new_string) if replace_all else content.replace(old_string, new_string, 1)
     made = count if replace_all else 1
+    diff = "".join(_difflib.unified_diff(
+        content.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        fromfile=f"a/{p.name}",
+        tofile=f"b/{p.name}",
+    ))
     try:
         p.write_text(new_content, encoding="utf-8")
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
-    return FileEditResult(path=path, replacements_made=made)
+    return FileEditResult(path=path, replacements_made=made, diff=diff)
 
 
 setattr(edit_file, "approval", ToolApprovalMeta(

@@ -1,6 +1,6 @@
 # CLI Design
 
-> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-03 · **Type:** contract
 
 ## Purpose
 
@@ -38,6 +38,7 @@ Initial command surface:
 - `jac run --mode autopilot|hitl "task"` is the future workflow-oriented shape.
 - `jac resume <run-id>` is reserved for persistent runs.
 - `jac config` is reserved for resolved non-secret settings.
+- `jac profile list|current|use|add` manages named provider/model profiles.
 
 Until graph workflows exist, one-shot and chat mode use the same runtime coordinator around the current Pydantic AI agent.
 

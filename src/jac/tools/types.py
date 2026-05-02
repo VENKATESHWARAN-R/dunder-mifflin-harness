@@ -95,6 +95,7 @@ class FileWriteResult(ToolResult):
 class FileEditResult(ToolResult):
     path: str = ""
     replacements_made: int = 0
+    diff: str = ""  # unified diff (old → new); populated on success so callers can emit FileEditPreviewed
 
 
 class DirectoryListResult(ToolResult):
