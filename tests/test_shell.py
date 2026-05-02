@@ -1,4 +1,5 @@
 import asyncio
+import time
 from pathlib import Path
 
 from dunder_mifflin_harness.tools.shell import run_shell, truncate_output
@@ -32,6 +33,18 @@ def test_run_shell_timeout(tmp_path: Path) -> None:
         run_shell(command="sleep 10", cwd=str(tmp_path), timeout_seconds=0.1)
     )
 
+    assert result.status == ToolStatus.TIMEOUT
+    assert result.timed_out
+
+
+def test_run_shell_timeout_kills_child_processes(tmp_path: Path) -> None:
+    started_at = time.monotonic()
+
+    result = asyncio.run(
+        run_shell(command="sleep 5", cwd=str(tmp_path), timeout_seconds=0.1)
+    )
+
+    assert time.monotonic() - started_at < 2
     assert result.status == ToolStatus.TIMEOUT
     assert result.timed_out
 
