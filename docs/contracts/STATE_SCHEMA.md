@@ -1,6 +1,6 @@
 # State Schema Contract
 
-> **Status:** Locked · **Last revised:** 2026-04-30 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
 
 **Schema version:** 1.1  
 **Storage:** SQLite (single file, local-first, crash-safe)
@@ -63,7 +63,7 @@ CREATE TABLE tasks (
     -- scout | worker | architect
     attempt_count       INTEGER NOT NULL DEFAULT 0,
     order_index         INTEGER NOT NULL,
-    parent_task_id      TEXT REFERENCES tasks(task_id)  -- nullable, subtasks v1+
+    parent_task_id      TEXT REFERENCES tasks(task_id)  -- nullable; populated by sub-workflow nesting (C23)
 );
 ```
 
@@ -255,7 +255,7 @@ CREATE TABLE run_skills (
 
 ---
 
-### `agent_instances` (v1+)
+### `agent_instances` (activated by C15)
 
 Tracks dynamically spawned agent instances within a run. Used when multiple agents run in
 parallel (e.g., a builder agent and a tester agent running concurrently within the same run).
@@ -278,7 +278,7 @@ CREATE TABLE agent_instances (
 
 ---
 
-### `agent_teams` (v1+)
+### `agent_teams` (activated by C15)
 
 Groups agent instances into teams with a coordination strategy. A team is a set of agents
 that collaborate on a run — e.g., a developer team (builder + tester) running in parallel
@@ -297,7 +297,7 @@ CREATE TABLE agent_teams (
 
 ---
 
-### `agent_messages` (v1+)
+### `agent_messages` (activated by C15)
 
 Inter-agent coordination queue. Acts as a lightweight shared message board between agent
 instances — similar to a Jira board where a tester posts a bug and the builder picks it up
@@ -329,29 +329,29 @@ CREATE TABLE agent_messages (
 
 ---
 
-## V0 Scope
+## Activation Sequence
 
-For V0, only these tables are active:
+The schema is fully defined here so direction is locked, but tables come online as the
+roadmap components that need them ship. Component IDs reference [`docs/ROADMAP.md`](../ROADMAP.md).
 
-| Table | V0 status |
-|---|---|
-| `runs` | Active |
-| `tasks` | Active |
-| `attempts` | Active |
-| `agent_configs` | Active (single-agent configs) |
-| `context_store` | Active |
-| `messages` | Active |
-| `mcp_servers` | Active (registry only; local tools only in v0) |
-| `skills` | Active (registry only; no dynamic injection in v0) |
-| `run_mcp_servers` | Active (run-start config; no mid-run toggle UI in v0) |
-| `run_skills` | Active (run-start config; no mid-run toggle UI in v0) |
-| `agent_instances` | v1+ (schema exists, not used) |
-| `agent_teams` | v1+ (schema exists, not used) |
-| `agent_messages` | v1+ (schema exists, not used) |
+| Table | First populated by | Notes |
+|---|---|---|
+| `runs` | C1 | Active from the SQLite cut-over. |
+| `messages` | C1 | Active from the SQLite cut-over. |
+| `tasks` | C6 | Active when the planner emits a structured plan. |
+| `attempts` | C7 | Active when cost tracking lands; `call_type` distinguishes agent vs direct LLM. |
+| `agent_configs` | C5 | Active from the agent factory; gains hot-reload semantics at C20. |
+| `context_store` | C11 | Populated by `context_loader` per agent role. |
+| `mcp_servers` | C2 | Registry seeded from disk; live transports added at C17. |
+| `skills` | C2 | Registry seeded from disk; dynamic injection added at C16. |
+| `run_mcp_servers` | C5 | Run-start config; mid-run toggle command added at C18. |
+| `run_skills` | C5 | Run-start config; mid-run toggle command added at C18. |
+| `agent_instances` | C15 | Reserved until multi-agent runs land. |
+| `agent_teams` | C15 | Reserved until multi-agent runs land. |
+| `agent_messages` | C15 | Reserved until multi-agent runs land. |
 
-The v1+ tables are defined here to lock down the schema direction but not wired in v0.
-The MCP/skills tables are active in v0 for run-start configuration; mid-run toggle via slash
-commands is a v1 feature (the DB supports it, the CLI command doesn't exist yet).
+Reserved tables exist in the schema from the first migration so foreign keys and join shapes
+don't churn when later components arrive.
 
 ---
 
@@ -360,7 +360,7 @@ commands is a v1 feature (the DB supports it, the CLI command doesn't exist yet)
 1. New column → add with a DEFAULT, document here, write a migration file.
 2. Renamed column → write migration, update all query sites, update this doc.
 3. New table → define here first, then create the migration.
-4. Never DROP a column in v0/v1 without explicit deprecation period.
+4. Never DROP a column without an explicit deprecation period documented in this file.
 5. Schema version lives in a `schema_meta` table (key/value) and is checked on startup.
 
 ```sql

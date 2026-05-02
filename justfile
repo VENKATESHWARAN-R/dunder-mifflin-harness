@@ -8,6 +8,14 @@ default:
 sync:
     uv sync --all-groups --all-extras
 
+# Install JAC as a global uv tool from this checkout
+install:
+    uv tool install .
+
+# Reinstall the global JAC tool from this checkout after local changes
+upgrade:
+    uv tool install --reinstall .
+
 # Lint the code using ruff
 lint:
     uvx ruff check src tests

@@ -145,10 +145,11 @@ A run scoring 5/7 features and under $15 is a passing V0. 7/7 is the goal.
 
 ---
 
-## Future Extensions (V1+)
+## Out-of-Scope Extensions
 
-Ideas noted during benchmark selection — not in scope for V0 but the data model should not
-actively prevent them:
+Ideas noted during benchmark selection — not part of this checkpoint, but the data model
+should not actively prevent them. These would be added by later roadmap components if and
+when the project picks them up; see [`docs/ROADMAP.md`](../ROADMAP.md):
 
 - **Topic grouping** — organise notes into named collections or folders
 - **Connected notes** — graph-based linking between notes (Obsidian-style `[[note title]]`

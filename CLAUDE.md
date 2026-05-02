@@ -6,7 +6,7 @@ This file provides guidance to AI Agents when working with code in this reposito
 
 JAC ("Just Another CLI") is an R&D harness exploring whether a multi-agent system with tiered model routing can match Anthropic's long-running coding harness at 3–5× lower cost. The repo directory is `dunder-mifflin-harness` (a nod to the predecessor project), but the product is **JAC**.
 
-The project is in **early implementation**. W0 shipped a Click/prompt_toolkit/Rich CLI over a UI-agnostic runtime boundary with typed events. The current runtime wraps a simple Pydantic AI agent; future slices replace coordinator internals with graph workflows without changing the CLI/event boundary.
+The project is in **early implementation**. C0 shipped a Click/prompt_toolkit/Rich CLI over a UI-agnostic runtime boundary with typed events. The current runtime wraps a simple Pydantic AI agent; later components replace coordinator internals with graph workflows without changing the CLI/event boundary. The roadmap is now component-wise (C0..Cn) — see `docs/ROADMAP.md`.
 
 ## Commands
 
@@ -84,7 +84,7 @@ Index: [`docs/README.md`](docs/README.md). Every entry lists status.
 - [`docs/reference/V0_BENCHMARK.md`](docs/reference/V0_BENCHMARK.md) — Notes CLI test case with acceptance criteria.
 
 **Living**:
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — weekly slice plan.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — component plan in dependency order (C0..Cn).
 
 **Lab**:
 - [`lab/README.md`](lab/README.md) — index of all experiments, scripts, notebooks, brainstorms, and specimens.
@@ -122,12 +122,12 @@ Don't silently accept an idea that contradicts a `Locked` contract. Either revis
 
 ## Pre-Database Scope
 
-JAC is **pre-database**. `docs/contracts/STATE_SCHEMA.md` describes the *future* shape of persistent state, not a current requirement. Until SQLite is wired (planned slice — see `docs/ROADMAP.md`), v0 code can use plain `dict`, `dataclass`, or module-level structures for state. The schema is binding as a *target*, not as an *implementation*.
+JAC is **pre-database**. `docs/contracts/STATE_SCHEMA.md` describes the *future* shape of persistent state, not a current requirement. Until SQLite is wired (component **C1** — see `docs/ROADMAP.md`), code can use plain `dict`, `dataclass`, or module-level structures for state. The schema is binding as a *target*, not as an *implementation*.
 
 When proposing state-related changes:
 - If the change is about how state is *represented* (fields, relationships, lifecycle), update `STATE_SCHEMA.md` and let the in-memory implementation follow.
-- If the change is about *persistence* (when/how to write to disk), don't introduce SQLite ahead of the roadmap slice — note the intent in the schema and keep the runtime in-memory.
-- Be skeptical of any idea that adds persistence, async I/O, or migration machinery before the database slice lands. That's almost always overkill for the current week.
+- If the change is about *persistence* (when/how to write to disk), don't introduce SQLite ahead of C1 — note the intent in the schema and keep the runtime in-memory.
+- Be skeptical of any idea that adds persistence, async I/O, or migration machinery before C1 lands. That's almost always overkill at this point.
 
 ## Architecture Direction
 
@@ -139,7 +139,7 @@ The planned harness has three compositional layers:
 
 Every node follows a uniform interface: receive state `(run_id, task_id, context, config)`, return updated state plus status. Workflows compose nodes. Modes choose workflow compositions.
 
-**V0 workflow** (feature-by-feature, the only one shipping initially):
+**First workflow** (feature-by-feature, ships through C11; alternatives at C22):
 ```
 plan → task_router → context_loader → config_loader → build → evaluate → pass_check
                                                                               ├── Pass → state_writer → task_router (next task or DONE)
@@ -162,16 +162,16 @@ plan → task_router → context_loader → config_loader → build → evaluate
 - Approvals and user questions are separate primitives.
 - Slash commands mutate local session/runtime config and are not sent to the model.
 - Orchestration is graph-based with conditional branching (not a linear pipeline).
-- **Orchestration library: Pydantic AI throughout.** Agents for roles, `pydantic_graph` for the workflow graph (introduced at W8), `pydantic_evals` for evaluation. No LangGraph, no ADK in core (LangGraph lives only in `lab/` for research).
+- **Orchestration library: Pydantic AI throughout.** Agents for roles, `pydantic_graph` for the workflow graph (introduced at C10), `pydantic_evals` for evaluation. No LangGraph, no ADK in core (LangGraph lives only in `lab/` for research).
 - **State store: SQLite.** Single file, local-first, crash-safe. Schema in `docs/contracts/STATE_SCHEMA.md`.
-- Agent configs (model tier, prompts, tools) are stored in the state store and loaded at instantiation time — enabling mid-run updates (v1+).
+- Agent configs (model tier, prompts, tools) are stored in the state store and loaded at instantiation time — enabling mid-run updates (hot-reload at C20).
 - Context reads are scoped per agent role: agents see only what's relevant to their task.
-- V0 ships one workflow only (feature-by-feature) but node interfaces are designed for reuse from day one.
+- Only one workflow ships before C22 (feature-by-feature) but node interfaces are designed for reuse from day one.
 - HITL and Autopilot are **separate workflow compositions** sharing the same node library.
 - The CLI/runtime event contract is the stable integration point for terminal UI now and browser/A2A surfaces later.
 - **Not everything is an agent.** Simple one-off tasks use direct LLM calls (`pydantic_ai.direct`). These are still recorded in the `attempts` table with `call_type = 'direct_llm'` for cost tracking.
-- **Tools are MCP-first.** Agent tool access is configured via `allowed_tools` in `agent_configs` as a JSON array of tool names and MCP server IDs. V0 uses local tools only.
-- **Agent teams (v1+).** Multiple agent instances can run in parallel within a run and coordinate via the `agent_messages` queue. Schema is defined but not wired in v0.
+- **Tools are MCP-first.** Agent tool access is configured via `allowed_tools` in `agent_configs` as a JSON array of tool names and MCP server IDs. Local tools only until remote MCP transports come online at C17.
+- **Agent teams (C15).** Multiple agent instances can run in parallel within a run and coordinate via the `agent_messages` queue. Schema is defined now; wiring lands at C15.
 
 ## Working Rules
 

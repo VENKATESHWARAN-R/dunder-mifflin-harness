@@ -105,9 +105,9 @@ The harness doesn't lock into one development approach. Instead, development str
 
 **Key design principle**: Workflows are compositions of shared nodes. A node library provides the building blocks; each workflow mode is a different wiring diagram.
 
-**V0**: Ship ONE workflow only (feature-by-feature — proven by Anthropic). But design node interfaces for reusability from day one.
+**Sequencing**: One workflow ships first (feature-by-feature — proven by Anthropic) so the node library can stabilise against a real run. Alternative strategies (POC-swarm, TDD, agile, spec-driven) arrive at C22; sub-workflow nesting at C23; strategy auto-selection at C24. Node interfaces are designed for reuse from day one regardless.
 
-**Future**: A strategy-selector step can intelligently choose which workflow mode to use based on task characteristics — simple apps get POC-swarm (faster), complex apps get feature-by-feature (safer). Workflows can also nest: a feature-by-feature workflow might dispatch a TDD sub-workflow for a particularly critical feature.
+**Strategy auto-selection (C24)**: A `strategy_selector` step can intelligently choose which workflow mode to use based on task characteristics — simple apps get POC-swarm (faster), complex apps get feature-by-feature (safer). Workflows can also nest: a feature-by-feature workflow might dispatch a TDD sub-workflow for a particularly critical feature.
 
 **POC-then-swarm specifics (for when this mode is implemented):**
 - Phase 1: Tier 3 model builds a functional prototype/skeleton
@@ -146,14 +146,17 @@ What changes per domain:
 - **File/artifact patterns**: source code vs. Terraform vs. config files
 
 Example domains (future):
-- Full-stack web app development (v0 benchmark target)
+- Full-stack web app development (Notes CLI is the first benchmark target — C11 checkpoint)
 - Infrastructure design and provisioning
 - Codebase migration (e.g., Java version upgrades)
 - Git repo refactoring / modernization
 - Documentation generation
 - Vulnerability remediation
 
-### 3.6 Dynamic Skills Attachment (v1+)
+### 3.6 Dynamic Skills Attachment
+
+> Implemented as roadmap component **C16** — see [`docs/ROADMAP.md`](../ROADMAP.md).
+
 Skills are domain-specific knowledge bundles (prompt templates, tool sets, best practices) that can be dynamically attached to agents based on the task domain.
 
 **Mechanism** (builds on stored agent configs):
@@ -167,7 +170,7 @@ Skills are domain-specific knowledge bundles (prompt templates, tool sets, best 
 - Frontend task → attach React/CSS/accessibility skills
 - Migration task → attach version-specific migration guides and patterns
 
-**Not in v0**: Direct tool calls with well-crafted prompts are sufficient for the initial implementation. Skills add value once patterns emerge from real runs across multiple domains.
+**Sequencing**: Skills land at C16, after the agent factory (C5) and the workspace seeding pass (C2) make the necessary plumbing available. Until then, direct tool calls with well-crafted prompts are sufficient.
 
 ---
 
@@ -204,7 +207,7 @@ Skills are domain-specific knowledge bundles (prompt templates, tool sets, best 
 | **Models**          | Single model (Opus) for everything       | Tiered model buckets with intelligent routing                                     |
 | **Communication**   | Flat files (progress.txt, features.json) | Structured persistent store with scoped reads                                     |
 | **Model selection** | Static                                   | Dynamic escalation (HR agent)                                                     |
-| **Build strategy**  | Feature-by-feature (linear)              | Configurable: feature-by-feature, POC-swarm, TDD, agile (v0: feature-by-feature)  |
+| **Build strategy**  | Feature-by-feature (linear)              | Configurable: feature-by-feature, POC-swarm, TDD, agile (feature-by-feature first; alternatives at C22) |
 | **Tool management** | Direct tool access                       | Abstracted tool interface (environment-independent)                               |
 | **Evaluation**      | Browser automation (Playwright)          | TBD — browser automation likely, plus structured scoring                          |
 | **Cost target**     | $124 (DAW)                               | $30-50 (similar quality)                                                          |
@@ -314,46 +317,59 @@ This uniform interface is what makes nodes composable across workflows.
 
 ---
 
-## 6. V0 Scope — Solo Baseline
+## 6. Notes CLI Acceptance Checkpoint — Solo Baseline
 
 ### Goal
 Build the minimal harness that can autonomously produce a working application from a single prompt.
-Beat the solo baseline: better than $9 / 20 min / broken output.
+Beat the solo baseline: better than $9 / 20 min / broken output. The Notes CLI benchmark is the
+**first end-to-end acceptance checkpoint** in the component roadmap (reached after **C11**), not a
+binary version gate. Components beyond C11 continue to be designed and built in parallel — see
+[`docs/ROADMAP.md`](../ROADMAP.md).
 
-### What V0 Includes
+### What the Checkpoint Requires (components C0..C11)
 - [ ] Feature-by-feature workflow: Plan → Build → Evaluate → (loop or done)
-- [ ] Node interfaces designed for reuse (uniform input/output contract) even though only one workflow ships
-- [ ] At least 2 model tiers wired up
-- [ ] Structured persistent state for run tracking, tasks, and agent context
-- [ ] Tool interface for basic operations (file read/write, bash execution, git)
-- [ ] Simple evaluation (does it run? does the basic feature work?)
-- [ ] Single mode: Autopilot
+- [ ] Node interfaces designed for reuse (uniform input/output contract) even though only one workflow ships at this point
+- [ ] At least 2 model tiers wired up (C8)
+- [ ] Structured persistent state for run tracking, tasks, and agent context (C1)
+- [ ] Tool interface for basic operations (file read/write, bash execution, git) (C3, C4)
+- [ ] Simple evaluation (does it run? does the basic feature work?) (C9)
 - [ ] Local execution only
-- [ ] Basic logging and cost tracking
+- [ ] Basic logging and cost tracking (C7)
 
-### What V0 Does NOT Include
-- HITL mode (v1)
-- Dynamic model escalation / HR agent (v1)
-- Alternative workflow strategies: POC-swarm, TDD, agile (v1)
-- Sub-workflow nesting (v1)
-- Dynamic skills attachment (v1+)
-- Cloud/sandbox execution (v1+)
-- Multi-domain support (v1+)
-- Advanced evaluation using browser automation (v1)
-- Agent config hot-reloading mid-run (v1)
-- Strategy auto-selection (v1+)
+### Pointers to Later Components
+Capabilities deferred *past* the Notes CLI checkpoint (not removed from the project — just sequenced later):
 
-### V0 Test Case
+| Capability | Component |
+|---|---|
+| Context management / compaction | C12 |
+| Hooks / callbacks | C13 |
+| Dynamic agent summoning (`spawn_agent`) | C14 |
+| Agent teams + inter-agent messaging | C15 |
+| Dynamic skills attachment | C16 |
+| Remote MCP server integration | C17 |
+| Mid-run config toggles | C18 |
+| Dynamic model escalation (HR agent) | C19 |
+| Agent config hot-reloading mid-run | C20 |
+| HITL mode | C21 |
+| Alternative workflow strategies (POC-swarm, TDD, agile, spec-driven) | C22 |
+| Sub-workflow nesting | C23 |
+| Strategy auto-selection | C24 |
+| Browser-based evaluation | C25 |
+| Sandboxed/container execution | C26 |
+| Cloud headless execution | C27 |
+| Browser UI / A2A / multi-repo A2A surfaces | C28, C29, C30 |
+
+### Test Case
 **Locked: Notes CLI** — a Python command-line note-taking app.
 
-Full spec, acceptance criteria, and expected task decomposition: `docs/V0_BENCHMARK.md`.
+Full spec, acceptance criteria, and expected task decomposition: `docs/reference/V0_BENCHMARK.md`.
 
 Chosen over browser-based apps because every feature is evaluatable with shell commands and
 file checks — no Playwright, no mocking. Directory-based markdown storage exercises filesystem
 tools realistically. Search and tag filtering provide Worker-tier logic alongside simpler
 Scout-tier CRUD. 8–9 planned tasks give the tier router meaningful signal.
 
-### Success Criteria for V0
+### Success Criteria for the Checkpoint
 1. App runs without crashing (all commands exit 0)
 2. At least 5/7 features pass acceptance tests (7/7 is the goal)
 3. Total cost < $15
@@ -457,11 +473,11 @@ The state store needs to capture at minimum:
 - [x] Context storage: structured persistent store with scoped reads
 - [x] Tools: abstracted interface (environment-independent)
 - [x] Execution: local first
-- [x] V0 scope: solo baseline
+- [x] First acceptance checkpoint: Notes CLI solo baseline (after C11)
 - [x] Workflow architecture: composable nodes → workflows → modes
 - [x] Operation modes: separate workflow compositions sharing a node library (not conditional checkpoints in one graph)
-- [x] Dev strategies: configurable workflow modes (v0: feature-by-feature only)
-- [x] Skills: out of v0, dynamic attachment via stored configs in v1+
+- [x] Dev strategies: configurable workflow modes (feature-by-feature first; alternatives at C22)
+- [x] Skills: dynamic attachment via stored configs (C16)
 - [x] Node design: uniform interface contract for reusability
 
 ### Open
@@ -526,9 +542,9 @@ These are the things we want to learn from running the harness:
 - Evolved "POC-first" into **configurable workflow strategies** — multiple dev modes (feature-by-feature, POC-swarm, TDD, agile, spec-driven) as composable graph workflows
 - Redesigned Autopilot/HITL as **separate workflow compositions sharing a node library** (cleaner than conditional checkpoints in one graph)
 - Defined **three-layer node taxonomy**: core nodes, strategy nodes, infrastructure nodes
-- Added **dynamic skills attachment** concept (v1+): domain skills stored in config store and injected into agent config based on task classification
+- Added **dynamic skills attachment** concept (now C16): domain skills stored in config store and injected into agent config based on task classification
 - Established **node interface contract**: uniform input/output (state object + status) for all nodes regardless of type
-- Key design decision: v0 ships ONE workflow but designs nodes for reuse from day one
+- Key design decision: feature-by-feature ships first (alternatives at C22) but nodes are designed for reuse from day one
 - Added **sub-workflow nesting** concept: workflows can invoke other workflows (e.g., feature-by-feature dispatching TDD for critical features)
 - Updated IDEA.md with all refinements
 

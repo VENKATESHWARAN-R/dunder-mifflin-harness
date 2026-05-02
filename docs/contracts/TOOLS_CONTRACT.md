@@ -1,6 +1,6 @@
 # Tools Contract
 
-> **Status:** Locked · **Last revised:** 2026-04-30 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
 
 This document is the authoritative reference for writing agent tools in JAC.
 Read it before adding a new tool. Any tool that doesn't follow this contract will be
@@ -255,26 +255,28 @@ output, not just new bytes since the last read.
 
 ---
 
-## Future: Sub-Agent Toolgroup
+## Sub-Agent Toolgroup (C14)
 
-The harness will eventually support spawning custom sub-agents from within an agent tool
-call. This is distinct from workflow-level delegation (which goes through `pydantic_graph`
-edges). Sub-agents are used for:
+The `spawn_agent` toolgroup lands at component **C14** in [`docs/ROADMAP.md`](../ROADMAP.md).
+It supports spawning custom sub-agents from within an agent tool call. This is distinct
+from workflow-level delegation (which goes through `pydantic_graph` edges). Sub-agents
+are used for:
 
 - **Context isolation**: a sub-agent starts with a clean message history, preventing the
   parent's long history from bleeding into a focused sub-task.
 - **Parallel sub-tasks**: multiple sub-agents run concurrently on independent tasks and
   return structured results to the parent.
 
-When implemented, this will be a future `agents` toolgroup in `TOOL_REGISTRY`:
+The toolgroup registers as:
 
 ```python
-"agents": [spawn_agent],  # spawn_agent(role, task, context_scope) -> AgentResult
+"agents": [spawn_agent],  # spawn_agent(role, task, context_scope, hooks=...) -> AgentResult
 ```
 
-The `spawn_agent` tool will go through the same `config_loader` factory as workflow agents
-and will be tracked in the `attempts` table. Do **not** add ad-hoc agent instantiation
-anywhere else in anticipation of this.
+The `spawn_agent` tool goes through the same `config_loader` factory as workflow agents and
+is tracked in the `attempts` table. Hooks attached at spawn time are run by the HookManager
+(C13). Do **not** add ad-hoc agent instantiation anywhere else in anticipation of this — the
+factory remains the only construction site.
 
 ---
 

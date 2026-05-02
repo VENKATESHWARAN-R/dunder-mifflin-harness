@@ -18,8 +18,9 @@ live agent instances.
 - Skills are injected into the system prompt as a composed block, not as separate instructions.
 - Changing which MCP servers or skills are active means rebuilding the agent for the next turn.
   Message history carries over; the tool definition block and system prompt change.
-- V0 uses local tools only. The registry and wiring code exist from day one; remote MCP servers
-  are added by registering new rows in `mcp_servers` without touching agent code.
+- The registry and wiring code exist from day one; remote MCP transports come online at C17
+  by registering rows in `mcp_servers` without touching agent code. Until then, only local
+  tools are resolved through `allowed_tools`.
 
 ---
 
@@ -144,7 +145,7 @@ def resolve_model(tier: str, override: str | None) -> str:
 
 ---
 
-## Mid-Run Toggle (v1+)
+## Mid-Run Toggle (C18)
 
 When a user runs `/disable mcp:playwright` mid-conversation:
 
@@ -155,22 +156,36 @@ When a user runs `/disable mcp:playwright` mid-conversation:
 5. The tool definition block changes → partial prompt-cache miss on this turn
 
 This is a deliberate user action, not automatic. The harness never auto-disables MCP servers
-based on token pressure in v0/v1.
+based on token pressure — that policy choice is intentional and not on the roadmap.
 
 ---
 
-## V0 Tool Set
+## Source of Truth: File → DB
 
-In V0, the following local tools are available (no remote MCP servers):
+MCP server rows in the `mcp_servers` table are populated from JSON files in
+`~/.jac/mcp/` (user globals) and `<repo>/.agents/mcp/` (project scope).
+Files are the source of truth; the DB is the resolved index. See
+`docs/contracts/WORKSPACE.md` for the file format and seeding policy.
 
-| Tool name | Description |
-|---|---|
-| `filesystem` | Read, write, edit files within the project sandbox |
-| `shell` | Run shell commands (subject to approval policy) |
-| `git` | Git operations: commit, status, diff, log |
+Adding an MCP server is therefore: write `~/.jac/mcp/<name>.json` (or the
+project equivalent), restart the harness, reference it as `mcp:<name>` in
+`agent_configs.allowed_tools`. No code change required.
+
+---
+
+## Initial Tool Set (through C11)
+
+Until remote MCP integration lands at C17, only local tools are resolved through
+`allowed_tools`:
+
+| Tool name | First shipped by | Description |
+|---|---|---|
+| `filesystem` | C3 | Read, write, edit files within the project sandbox |
+| `shell` | C4 | Run shell commands (subject to approval policy) |
+| `git` | C4 | Git operations: commit, status, diff, log |
 
 These are registered as Python `Tool(fn)` objects in a local tool registry. They satisfy
 `allowed_tools` entries without any MCP overhead.
 
-Remote MCP servers (playwright, browser DevTools, etc.) are introduced in V1 by registering
-rows in `mcp_servers` — no code change needed in agent logic.
+Remote MCP servers (Playwright, browser DevTools, etc.) come online at C17 by registering
+rows in `mcp_servers` — no change to agent logic.

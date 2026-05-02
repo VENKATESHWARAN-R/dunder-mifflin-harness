@@ -70,7 +70,7 @@ class RunFailed(RuntimeEvent):
 ```
 
 > **Current state:** `RunStarted` and `RunCompleted` exist but lack cost/token/workflow fields.
-> These fields should be added when the state store is wired (W5).
+> These fields should be added when cost tracking lands (C7).
 
 ---
 
@@ -107,7 +107,7 @@ class TaskEscalated(RuntimeEvent):
     reason: str               # 'max_attempts_reached' | 'eval_score_below_threshold'
 ```
 
-> **Current state:** Not yet defined. Add to `runtime/events.py` when task routing is built (W9).
+> **Current state:** Not yet defined. Add to `runtime/events.py` when multi-task routing lands (C11).
 
 ---
 
@@ -137,7 +137,7 @@ class NodeFailed(RuntimeEvent):      # already exists
 ```
 
 > **Current state:** `NodeStarted`, `NodeCompleted`, `NodeFailed` exist but lack `run_id`,
-> `task_id`, and `duration_ms`. Add these fields when graph nodes are introduced (W8).
+> `task_id`, and `duration_ms`. Add these fields when graph nodes are introduced (C10).
 
 ---
 
@@ -179,7 +179,7 @@ class ModelCallCompleted(RuntimeEvent):
 ```
 
 > **Current state:** `AgentTextDelta` and `AgentMessageCompleted` exist without context fields.
-> `ModelCallStarted` and `ModelCallCompleted` are new — add when model tier wiring is done (W6).
+> `ModelCallStarted` and `ModelCallCompleted` are new — add when model tier wiring is done (C8).
 
 ---
 
@@ -273,7 +273,7 @@ class EvaluationCompleted(RuntimeEvent):
     feedback: str
 ```
 
-> **Current state:** Not yet defined. Add when the evaluate node is built (W7).
+> **Current state:** Not yet defined. Add when the evaluate node is built (C9).
 
 ---
 
@@ -292,7 +292,7 @@ class CostUpdated(RuntimeEvent):   # exists but only carries a summary string
 ```
 
 > **Current state:** `CostUpdated` exists with only a `summary: str` field. Replace with
-> structured fields when the state store is wired (W5).
+> structured fields when cost tracking lands (C7).
 
 ---
 
@@ -318,7 +318,7 @@ class MCPServerToggled(RuntimeEvent):
     enabled: bool              # True = re-enabled, False = disabled
 ```
 
-> **Current state:** Not yet defined. Add when MCP wiring is introduced.
+> **Current state:** Not yet defined. Add when remote MCP wiring is introduced (C17).
 
 ---
 
@@ -394,8 +394,8 @@ serialized and dispatched.
 | `set_params(key, value)` | `/params <key> <value>` | `SessionState.model_params` |
 | `resolve_approval(response)` | User responds to approval prompt | `EventBus.resolve_approval()` |
 | `answer_question(response)` | User answers a question | `EventBus.answer_question()` |
-| `toggle_mcp(server_id, enabled)` | `/disable mcp:<name>` (v1+) | DB + `config_loader` rebuild |
-| `toggle_skill(skill_id, enabled)` | `/disable skill:<name>` (v1+) | DB + `config_loader` rebuild |
+| `toggle_mcp(server_id, enabled)` | `/disable mcp:<name>` (C18) | DB + `config_loader` rebuild |
+| `toggle_skill(skill_id, enabled)` | `/disable skill:<name>` (C18) | DB + `config_loader` rebuild |
 
 ---
 
@@ -426,8 +426,8 @@ A surface that does NOT implement approval/question handling cannot be used in i
 | Tool call events | Partial | Missing run_id, task_id, server_id, duration_ms |
 | File / shell events | Partial | Missing run_id, task_id |
 | CostUpdated | Partial | Summary string only; needs structured fields |
-| Task lifecycle events | Not started | Add at W9 |
-| Model call events | Not started | Add at W6 |
-| Evaluation events | Not started | Add at W7 |
-| MCP lifecycle events | Not started | Add when MCP wiring is introduced |
+| Task lifecycle events | Not started | Add at C11 |
+| Model call events | Not started | Add at C8 |
+| Evaluation events | Not started | Add at C9 |
+| MCP lifecycle events | Not started | Add at C17 |
 | SessionConfigChanged | Not started | Replaces generic StateUpdated |

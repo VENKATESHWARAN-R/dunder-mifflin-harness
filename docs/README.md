@@ -29,6 +29,7 @@ Every doc starts with a status header so you can tell at a glance where it sits:
 | [contracts/CLI_DESIGN.md](contracts/CLI_DESIGN.md) | Terminal adapter design — input grammar, rendering, slash commands. |
 | [contracts/MCP_INTEGRATION.md](contracts/MCP_INTEGRATION.md) | How MCP servers and skills load from the DB into Pydantic AI agents. |
 | [contracts/TOOLS_CONTRACT.md](contracts/TOOLS_CONTRACT.md) | Standardized agent tool interface. Required reading before adding a tool. |
+| [contracts/WORKSPACE.md](contracts/WORKSPACE.md) | Workspace layout — `~/.jac/`, `<repo>/.agents/`, AGENTS.md, file→DB seeding. **Status: Draft.** |
 
 ## Reference
 
@@ -42,7 +43,7 @@ Every doc starts with a status header so you can tell at a glance where it sits:
 
 | Doc | Purpose |
 |---|---|
-| [ROADMAP.md](ROADMAP.md) | Weekly slice plan. W0 done; W1+ in progress. |
+| [ROADMAP.md](ROADMAP.md) | Component plan in dependency order (C0..Cn). C0 done; C1 next. |
 
 ## Promotion path
 

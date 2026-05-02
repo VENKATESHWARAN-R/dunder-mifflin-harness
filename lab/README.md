@@ -35,7 +35,13 @@ lab/
 
 ### Brainstorm
 
-Currently empty — drop ideas here as `.md` files. Use date prefixes (`2026-05-02-routing-heuristics.md`) so chronology is recoverable.
+Use date prefixes (`2026-05-02-routing-heuristics.md`) so chronology is recoverable.
+
+| File | What it captures |
+|---|---|
+| [brainstorm/2026-05-02-context-management-module.md](brainstorm/2026-05-02-context-management-module.md) | Decision space for compaction / `history_processor` module. Roadmap **C12**. |
+| [brainstorm/2026-05-02-hooks-and-callbacks-module.md](brainstorm/2026-05-02-hooks-and-callbacks-module.md) | Hooks taxonomy mapped from ADK callbacks to Pydantic AI graph seams. Roadmap **C13**. |
+| [brainstorm/2026-05-02-multi-repo-a2a-runs.md](brainstorm/2026-05-02-multi-repo-a2a-runs.md) | Per-repo agents communicating via A2A. Roadmap **C30**. |
 
 ### Specimens
 
