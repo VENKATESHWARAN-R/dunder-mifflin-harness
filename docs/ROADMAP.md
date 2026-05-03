@@ -280,7 +280,7 @@ flowchart LR
 ### C5 — Agent Factory & Config Loader
 
 **Layer:** agents
-**Status:** planned
+**Status:** done (2026-05-03)
 **Depends on:** C1, C2, C3, C4
 **Brainstorm/contract:** [`MCP_INTEGRATION.md`](contracts/MCP_INTEGRATION.md)
 
@@ -1223,6 +1223,21 @@ Move components here when shipped, with the date.
 - [x] `FileEditResult.diff` carries a unified diff so the C5 approval middleware can emit `FileEditPreviewed` without recomputing
 - [x] `FileEditPreviewed` / `FileEditApplied` event types defined; renderer subscribed
 - [x] Tests: 28 cases across all 6 tools including approval metadata, error paths, and edge cases
+
+---
+
+### C5 — Agent Factory & Config Loader (2026-05-03)
+
+- [x] `src/jac/agents/base.py`: `config_loader` — the only site that calls `pydantic_ai.Agent(...)`. Reads `agent_configs`, resolves `allowed_tools` against `TOOL_REGISTRY`, builds MCP toolsets from `run_mcp_servers`, composes system prompt with skills from `run_skills`
+- [x] `src/jac/agents/seeds.py`: `ensure_default_run_config` — idempotently seeds the default `chat` role row so C0 behaviour stays green without callers pre-populating the DB
+- [x] `src/jac/state/agent_configs.py`, `run_mcp_servers.py`, `run_skills.py`: three new repos activating the C5 tables
+- [x] `StateStore` wired with `agent_configs`, `run_mcp_servers`, `run_skills`
+- [x] `RunCoordinator.build_agent` now delegates to `config_loader`; fallback path retained when `state=None`
+- [x] `SessionConfig.role: str = "chat"` added
+- [x] `from jac import build_agent` SDK re-export (`__getattr__` lazy import)
+- [x] 136 tests pass; `AgentConfigNotFound`, `UnknownToolError` error types
+- [x] `docs/guide/` (5 files) and `docs/dev/` (7 files) created
+- [x] Version bumped to 0.3.0 (new public SDK seam)
 
 ---
 

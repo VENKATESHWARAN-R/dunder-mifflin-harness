@@ -33,6 +33,7 @@ class SessionConfig:
     mode: RunMode = RunMode.HITL
     model: str | None = None
     tier: ModelTier | None = None
+    role: str = "chat"
     approval_mode: ApprovalMode = ApprovalMode.INTERACTIVE
     model_params: dict[str, str] = field(default_factory=dict)
     max_attachment_bytes: int = 200_000

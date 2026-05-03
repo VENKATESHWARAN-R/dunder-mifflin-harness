@@ -8,8 +8,11 @@ from pathlib import Path
 
 import aiosqlite
 
+from jac.state.agent_configs import AgentConfigsRepo
 from jac.state.mcp_servers import McpServersRepo
 from jac.state.messages import MessagesRepo
+from jac.state.run_mcp_servers import RunMcpServersRepo
+from jac.state.run_skills import RunSkillsRepo
 from jac.state.runs import RunsRepo
 from jac.state.skills import SkillsRepo
 
@@ -25,6 +28,9 @@ class StateStore:
         self.messages = MessagesRepo(connection)
         self.skills = SkillsRepo(connection)
         self.mcp_servers = McpServersRepo(connection)
+        self.agent_configs = AgentConfigsRepo(connection)
+        self.run_mcp_servers = RunMcpServersRepo(connection)
+        self.run_skills = RunSkillsRepo(connection)
 
     @property
     def connection(self) -> aiosqlite.Connection:

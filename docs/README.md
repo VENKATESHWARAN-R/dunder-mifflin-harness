@@ -43,7 +43,37 @@ Every doc starts with a status header so you can tell at a glance where it sits:
 
 | Doc | Purpose |
 |---|---|
-| [ROADMAP.md](ROADMAP.md) | Component plan in dependency order (C0..Cn). C0 done; C1 next. |
+| [ROADMAP.md](ROADMAP.md) | Component plan in dependency order (C0..Cn). C0..C5 done; C6 next. |
+
+## Guide
+
+User-facing narrative for installing, running, and embedding JAC. Mirrors only **shipped** behaviour (C0..current).
+
+| Doc | Purpose |
+|---|---|
+| [guide/README.md](guide/README.md) | Index for the guide. |
+| [guide/getting-started.md](guide/getting-started.md) | Install, onboard, first run. |
+| [guide/usage.md](guide/usage.md) | CLI commands, `@` attachments, `!` shell, slash commands. |
+| [guide/configuration.md](guide/configuration.md) | Workspace layout, profiles, model tiers, env vars. |
+| [guide/sdk.md](guide/sdk.md) | Embedding `jac` as a library (`build_agent`, `RunCoordinator`). |
+
+## Developer Docs
+
+Contributor and AI-agent reference — what is built, how layers connect, where things live. The source of truth for debugging and onboarding once a component has shipped. Update when a layer's structure changes.
+
+| Doc | Purpose |
+|---|---|
+| [dev/README.md](dev/README.md) | Index + "when to update" guidance. |
+| [dev/architecture.md](dev/architecture.md) | Layer diagram, dependency rules, end-to-end data flow. |
+| [dev/components.md](dev/components.md) | C0–C5 component map: what each shipped and key files. |
+| [dev/state-layer.md](dev/state-layer.md) | SQLite repos, schema activation, migration pattern, seeder. |
+| [dev/agents-layer.md](dev/agents-layer.md) | Agent factory deep-dive: config_loader, tool resolution, skills. |
+| [dev/runtime-layer.md](dev/runtime-layer.md) | RunCoordinator, EventBus, SessionState, approvals, model factory. |
+| [dev/cli-layer.md](dev/cli-layer.md) | Terminal adapter: commands, slash commands, input parsing, renderer. |
+
+## Implementation Docs
+
+Per-component handoff docs that scope what is being built before it ships. See `docs/implementation_docs/`. These are **transient** — delete or archive once the component lands.
 
 ## Promotion path
 

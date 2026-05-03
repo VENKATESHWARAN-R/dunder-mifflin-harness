@@ -2,9 +2,17 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
-__all__ = ["__version__"]
+__all__ = ["__version__", "build_agent"]
 
 try:
     __version__ = version("jac")
 except PackageNotFoundError:
-    __version__ = "0.2.0"
+    __version__ = "0.3.0"
+
+
+def __getattr__(name: str) -> object:
+    if name == "build_agent":
+        from jac.agents import config_loader
+
+        return config_loader
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

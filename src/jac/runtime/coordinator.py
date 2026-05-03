@@ -15,7 +15,6 @@ from pydantic_ai.messages import (
 )
 
 from jac.config import Settings
-from jac.runtime.models import build_pydantic_model
 from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
@@ -24,6 +23,7 @@ from jac.runtime.events import (
     RunFailed,
     RunStarted,
 )
+from jac.runtime.models import build_pydantic_model
 from jac.runtime.session import SessionState
 from jac.state import StateStore
 from jac.tools.filesystem import (
@@ -68,8 +68,8 @@ class RunCoordinator:
         self._run_persisted = False
         self._message_history: list[ModelMessage] = []
 
-    def build_agent(self) -> Agent:
-        """Build the current single-agent backend."""
+    def _build_fallback_agent(self) -> Agent:
+        """Build the agent inline when no state store is available."""
         selection = self.settings.resolve_model_selection(
             model_override=self.session.config.model,
             tier=self.session.config.tier,
@@ -87,9 +87,57 @@ class RunCoordinator:
             model_settings={"temperature": temperature},
         )
 
-    def _ensure_agent(self) -> Agent:
+    async def build_agent(self) -> Agent:
+        """Build the current single-agent backend.
+
+        When a state store is available this delegates to the agent factory;
+        otherwise it falls back to an inline build.
+        """
+        if self.state is None:
+            return self._build_fallback_agent()
+        from jac.agents import config_loader
+
+        return await config_loader(
+            state=self.state,
+            settings=self.settings,
+            run_id=self.session.run_id,
+            role=self.session.config.role,
+            events=self.events,
+            model_settings={
+                "temperature": float(
+                    self.session.config.model_params.get("temperature", "0")
+                )
+            },
+        )
+
+    async def _ensure_agent(self) -> Agent:
         if self._agent is None:
-            self._agent = self.build_agent()
+            if self.state is not None:
+                from jac.agents import ensure_default_run_config
+
+                cfg = await ensure_default_run_config(
+                    self.state,
+                    self.session.run_id,
+                    role=self.session.config.role,
+                    model_tier=str(
+                        self.session.config.tier or self.settings.default_tier
+                    ),
+                    model_override=self.session.config.model,
+                )
+                # Sync DB row if session config drifted since creation.
+                expected_tier = str(
+                    self.session.config.tier or self.settings.default_tier
+                )
+                if (
+                    cfg.model_override != self.session.config.model
+                    or cfg.model_tier != expected_tier
+                ):
+                    await self.state.agent_configs.update(
+                        cfg.config_id,
+                        model_tier=expected_tier,
+                        model_override=self.session.config.model,
+                    )
+            self._agent = await self.build_agent()
         return self._agent
 
     def reset_agent(self) -> None:
@@ -131,9 +179,11 @@ class RunCoordinator:
 
         try:
             self._configure_observability()
-            result = await self._ensure_agent().run(
-                prompt, message_history=self._message_history or None
-            )
+            agent = await self._ensure_agent()
+            async with agent:
+                result = await agent.run(
+                    prompt, message_history=self._message_history or None
+                )
         except Exception as exc:
             await self.events.emit(
                 RunFailed(run_id=run_id, message=str(exc), exception=exc)
