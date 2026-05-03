@@ -40,7 +40,7 @@ uv run jac chat
 ```
 src/jac/        # the product — terminal adapter + runtime + tools
 tests/          # pytest suite mirroring src/jac/
-docs/           # authoritative docs (contracts/, reference/) + ROADMAP.md
+docs/           # authoritative docs (contracts/, reference/, implementation_docs/) + ROADMAP.md
 lab/            # experiments (brainstorm/, scripts/, notebooks/, specimens/)
 ```
 
@@ -98,6 +98,7 @@ Index: [`docs/README.md`](docs/README.md). Every entry lists status.
 | Test | `tests/` (mirror package layout) | — |
 | Locked design doc | `docs/contracts/` + add to `docs/README.md` | Add status header dated today |
 | Stable narrative doc | `docs/reference/` + add to `docs/README.md` | Add status header dated today |
+| Implementation plan (handoff for coding) | `docs/implementation_docs/<slug>.md` | After analysis + human agreement; see **Planning vs implementation** below |
 | Rough idea, half-formed | `lab/brainstorm/YYYY-MM-DD-<slug>.md` | Promote later if it matures |
 | Runnable experiment | `lab/scripts/` + add row to `lab/README.md` | — |
 | Notebook | `lab/notebooks/` + add row to `lab/README.md` | — |
@@ -184,6 +185,20 @@ JAC is still in alpha; breaking changes are expected. Even so, **bump the packag
 - **When to bump:** user-visible behavior (new CLI commands, config/env semantics, default model or deps), fixes that matter for released installs, or **breaking** changes (removed flags, changed defaults, contract-level behavior). For tiny internal-only refactors with no observable effect, a bump is optional.
 - **How to bump:** use [SemVer](https://semver.org/) shape while on `0.x.y` — e.g. `0.1.0` → `0.1.1` for fixes/small additions, `0.2.0` when you intentionally break compatibility or ship a larger surface change. Document breaking changes in the commit/PR body either way.
 - **Dependencies:** if `pyproject.toml` dependencies change, run `uv lock` and commit `uv.lock` so global installs resolve the same graph.
+
+## Planning vs implementation (roadmap items, refactors, new work)
+
+Non-trivial work — roadmap components, refactors, new subsystems, or anything that changes boundaries — should follow a **two-phase** pattern so analysis can run on a capable model and implementation can run in a separate session on a lighter model using a written handoff.
+
+1. **Ground analysis first.** Before writing production code, establish what must change, how it fits `docs/reference/PHILOSOPHY.md` and existing contracts, which modules and events are touched, migration or CLI implications, and risks or open questions. Read the relevant **Locked** docs; do not contradict them without revising them.
+
+2. **Align with the human.** When scope, tradeoffs, or contract updates are unclear, discuss and **finalize** decisions with the user before coding. Skip lengthy debate for obviously small, localized fixes.
+
+3. **Write an implementation doc.** Produce a single markdown file under **`docs/implementation_docs/`** (e.g. `docs/implementation_docs/C7-foo.md` or a descriptive slug). It should be **detailed enough** that another session can implement without re-doing architecture discovery: goals, non-goals, key files and integration points, ordered steps, acceptance checks, and pointers to contracts. It should **not** be overwhelming — no essay-length background; link to existing docs instead of duplicating them.
+
+4. **Implement from the doc.** A follow-up session (or a sub agent with smaller/faster model such as sonnet) should treat that file as the source of truth, implement against it, and update or remove the doc when the work lands if that keeps the tree honest.
+
+Trivial one-line fixes and test-only tweaks do not need this ceremony.
 
 ## Working Rules
 
