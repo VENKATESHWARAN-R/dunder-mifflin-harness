@@ -11,6 +11,7 @@ from rich.syntax import Syntax
 
 from jac import __version__
 from jac.runtime.events import (
+    AgentDelegated,
     AgentMessageCompleted,
     AgentTextDelta,
     CostUpdated,
@@ -52,6 +53,7 @@ class Renderer:
         events.on(CostUpdated, self._on_cost_updated)
         events.on(WarningRaised, self._on_warning)
         events.on(RunFailed, self._on_run_failed)
+        events.on(AgentDelegated, self._on_agent_delegated)
 
     async def _on_agent_text(self, event: AgentTextDelta) -> None:
         self._stream_buffer.append(event.text)
@@ -124,6 +126,10 @@ class Renderer:
     async def _on_run_failed(self, event: RunFailed) -> None:
         self.flush_stream()
         self.console.print(f"[red]run failed:[/red] {event.message}")
+
+    async def _on_agent_delegated(self, event: AgentDelegated) -> None:
+        self.flush_stream()
+        self.console.print(f"[dim]→ Handing to {event.display_name}…[/dim]")
 
     def flush_stream(self) -> None:
         """Render buffered model text as Markdown."""

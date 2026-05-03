@@ -17,6 +17,7 @@ from jac.agents import (
     config_loader,
     ensure_default_run_config,
 )
+from jac.agents.personas import SCOTT_SYSTEM_PROMPT
 from jac.config import Settings
 from jac.runtime.coordinator import RunCoordinator, UserMessage
 from jac.state import open_state_store
@@ -46,7 +47,7 @@ class TestConfigLoader:
                 await state.runs.create(run_id="run-1", prompt="p")
                 await ensure_default_run_config(state, "run-1")
                 agent = await config_loader(
-                    state=state, settings=settings, run_id="run-1", role="chat"
+                    state=state, settings=settings, run_id="run-1", role="manager"
                 )
                 return agent, settings
             finally:
@@ -55,11 +56,7 @@ class TestConfigLoader:
         agent, settings = _run(scenario())
         assert isinstance(agent, Agent)
         assert agent.model is not None
-        assert agent._instructions == [
-            "You are a helpful assistant inside JAC, a research CLI. "
-            "Answer clearly and keep implementation details "
-            "grounded in the user's workspace."
-        ]
+        assert agent._instructions == [SCOTT_SYSTEM_PROMPT]
 
     def test_resolves_local_tools(self, tmp_path: Path) -> None:
         async def scenario():
@@ -301,7 +298,7 @@ class TestConfigLoader:
                     state=state,
                     settings=settings,
                     run_id="run-1",
-                    role="chat",
+                    role="manager",
                     events=events,
                 )
                 return recorded
@@ -338,11 +335,13 @@ class TestEnsureDefaultRunConfig:
                 await state.close()
 
         cfg = _run(scenario())
-        assert cfg.role == "chat"
+        assert cfg.role == "manager"
         assert cfg.model_tier == "worker"
         assert cfg.model_override is None
-        assert cfg.allowed_tools == []
-        assert "helpful assistant inside JAC" in cfg.system_prompt
+        assert cfg.allowed_tools == ["filesystem", "shell"]
+        assert cfg.persona == "Michael Scott"
+        assert cfg.display_name == "Scott"
+        assert "Michael Scott" in cfg.system_prompt
 
 
 class TestCoordinatorFactory:

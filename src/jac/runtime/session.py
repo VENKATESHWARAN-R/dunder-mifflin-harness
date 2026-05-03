@@ -33,7 +33,7 @@ class SessionConfig:
     mode: RunMode = RunMode.HITL
     model: str | None = None
     tier: ModelTier | None = None
-    role: str = "chat"
+    role: str = "manager"
     approval_mode: ApprovalMode = ApprovalMode.INTERACTIVE
     model_params: dict[str, str] = field(default_factory=dict)
     max_attachment_bytes: int = 200_000
@@ -48,6 +48,7 @@ class SessionState:
     config: SessionConfig = field(default_factory=SessionConfig)
     session_id: str = field(default_factory=lambda: uuid4().hex)
     run_id: str = field(default_factory=lambda: uuid4().hex)
+    active_attempt_id: str | None = None
     attached_paths: list[Path] = field(default_factory=list)
     latest_cost_summary: str | None = None
 

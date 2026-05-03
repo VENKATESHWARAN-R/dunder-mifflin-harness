@@ -55,7 +55,7 @@ def test_open_creates_db_and_runs_migration(tmp_path: Path) -> None:
         "agent_messages",
     }
     assert expected.issubset(tables)
-    assert version == "1.0"
+    assert version == "1.1"
     assert db_path.exists()
 
 
@@ -146,7 +146,7 @@ def test_open_is_idempotent(tmp_path: Path) -> None:
 
     row, version = _run(scenario())
     assert row is not None
-    assert version == "1.0"
+    assert version == "1.1"
 
 
 def test_foreign_key_enforced(tmp_path: Path) -> None:

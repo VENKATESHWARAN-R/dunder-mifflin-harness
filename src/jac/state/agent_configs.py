@@ -19,6 +19,11 @@ class AgentConfigRow:
     config_id: str
     run_id: str
     role: str
+    persona: str | None
+    display_name: str | None
+    is_minion: int
+    parent_role: str | None
+    depth: int
     model_tier: str
     model_override: str | None
     system_prompt: str
@@ -44,6 +49,11 @@ class AgentConfigsRepo:
         system_prompt: str,
         allowed_tools: list[str],
         max_context_tokens: int = 8000,
+        persona: str | None = None,
+        display_name: str | None = None,
+        is_minion: int = 0,
+        parent_role: str | None = None,
+        depth: int = 0,
     ) -> AgentConfigRow:
         now = _now()
         config_id = uuid4().hex
@@ -51,14 +61,20 @@ class AgentConfigsRepo:
         await self._connection.execute(
             """
             INSERT INTO agent_configs
-                (config_id, run_id, role, model_tier, model_override,
+                (config_id, run_id, role, persona, display_name, is_minion,
+                 parent_role, depth, model_tier, model_override,
                  system_prompt, allowed_tools, max_context_tokens, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 config_id,
                 run_id,
                 role,
+                persona,
+                display_name,
+                is_minion,
+                parent_role,
+                depth,
                 model_tier,
                 model_override,
                 system_prompt,
@@ -73,6 +89,11 @@ class AgentConfigsRepo:
             config_id=config_id,
             run_id=run_id,
             role=role,
+            persona=persona,
+            display_name=display_name,
+            is_minion=is_minion,
+            parent_role=parent_role,
+            depth=depth,
             model_tier=model_tier,
             model_override=model_override,
             system_prompt=system_prompt,
@@ -133,10 +154,16 @@ class AgentConfigsRepo:
 
 
 def _agent_config_from_row(row: aiosqlite.Row) -> AgentConfigRow:
+    keys = row.keys()
     return AgentConfigRow(
         config_id=row["config_id"],
         run_id=row["run_id"],
         role=row["role"],
+        persona=row["persona"] if "persona" in keys else None,
+        display_name=row["display_name"] if "display_name" in keys else None,
+        is_minion=row["is_minion"] if "is_minion" in keys else 0,
+        parent_role=row["parent_role"] if "parent_role" in keys else None,
+        depth=row["depth"] if "depth" in keys else 0,
         model_tier=row["model_tier"],
         model_override=row["model_override"],
         system_prompt=row["system_prompt"],

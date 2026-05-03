@@ -6,12 +6,18 @@ from jac.agents.base import (
     UnknownToolError,
     config_loader,
 )
-from jac.agents.seeds import ensure_default_run_config
+from jac.agents.seeds import (
+    ensure_builder_config,
+    ensure_default_run_config,
+    ensure_manager_config,
+)
 
 __all__ = [
     "AgentConfig",
     "AgentConfigNotFound",
     "UnknownToolError",
     "config_loader",
+    "ensure_builder_config",
     "ensure_default_run_config",
+    "ensure_manager_config",
 ]

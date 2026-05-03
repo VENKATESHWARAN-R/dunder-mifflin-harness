@@ -134,6 +134,27 @@ class ShellCommandCompleted(RuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class AgentDelegated(RuntimeEvent):
+    """Emitted when Scott hands work to a specialist."""
+
+    from_role: str
+    to_role: str
+    persona: str
+    display_name: str
+    task_summary: str
+
+
+@dataclass(frozen=True, slots=True)
+class AttemptRecorded(RuntimeEvent):
+    """Emitted when an attempt row is created in the DB."""
+
+    attempt_id: str
+    role: str
+    call_type: str
+    parent_attempt_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CostUpdated(RuntimeEvent):
     summary: str
 

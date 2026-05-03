@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic_ai import Agent
@@ -29,6 +30,11 @@ class AgentConfig:
     config_id: str
     run_id: str
     role: str
+    persona: str | None
+    display_name: str | None
+    is_minion: int
+    parent_role: str | None
+    depth: int
     model_tier: str
     model_override: str | None
     system_prompt: str
@@ -43,10 +49,11 @@ async def config_loader(
     state: StateStore,
     settings: Settings,
     run_id: str,
-    role: str = "chat",
+    role: str = "manager",
     output_type: type | None = None,
     events: EventBus | None = None,
     model_settings: Any = None,
+    extra_tools: Sequence[ToolFn] | None = None,
 ) -> Agent:
     """Build a Pydantic AI Agent from persisted config.
 
@@ -57,7 +64,9 @@ async def config_loader(
 
     cfg = await _load_config(state, run_id, role)
     mcp_toolsets = await _build_mcp_toolsets(state, run_id, role)
-    local_tools = _resolve_local_tools(cfg.allowed_tools)
+    local_tools = list(_resolve_local_tools(cfg.allowed_tools))
+    if extra_tools:
+        local_tools.extend(extra_tools)
     composed_prompt = await _compose_system_prompt(state, cfg.system_prompt, run_id, role)
 
     selection = settings.resolve_model_selection(
@@ -97,6 +106,11 @@ async def _load_config(state: StateStore, run_id: str, role: str) -> AgentConfig
         config_id=row.config_id,
         run_id=row.run_id,
         role=row.role,
+        persona=row.persona,
+        display_name=row.display_name,
+        is_minion=row.is_minion,
+        parent_role=row.parent_role,
+        depth=row.depth,
         model_tier=row.model_tier,
         model_override=row.model_override,
         system_prompt=row.system_prompt,

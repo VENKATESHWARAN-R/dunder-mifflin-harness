@@ -96,13 +96,24 @@ class RunCoordinator:
         if self.state is None:
             return self._build_fallback_agent()
         from jac.agents import config_loader
+        from jac.agents.tools import make_summon_jim_tool
+
+        role = self.session.config.role
+        extra_tools = None
+        if role == "manager":
+            extra_tools = [
+                make_summon_jim_tool(
+                    self.state, self.settings, self.session, self.events
+                )
+            ]
 
         return await config_loader(
             state=self.state,
             settings=self.settings,
             run_id=self.session.run_id,
-            role=self.session.config.role,
+            role=role,
             events=self.events,
+            extra_tools=extra_tools,
             model_settings={
                 "temperature": float(
                     self.session.config.model_params.get("temperature", "0")
@@ -113,20 +124,22 @@ class RunCoordinator:
     async def _ensure_agent(self) -> Agent:
         if self._agent is None:
             if self.state is not None:
-                from jac.agents import ensure_default_run_config
+                from jac.agents import ensure_builder_config, ensure_manager_config
 
-                cfg = await ensure_default_run_config(
-                    self.state,
-                    self.session.run_id,
-                    role=self.session.config.role,
-                    model_tier=str(
-                        self.session.config.tier or self.settings.default_tier
-                    ),
-                    model_override=self.session.config.model,
-                )
-                # Sync DB row if session config drifted since creation.
                 expected_tier = str(
                     self.session.config.tier or self.settings.default_tier
+                )
+                cfg = await ensure_manager_config(
+                    self.state,
+                    self.session.run_id,
+                    model_tier=expected_tier,
+                    model_override=self.session.config.model,
+                )
+                await ensure_builder_config(
+                    self.state,
+                    self.session.run_id,
+                    model_tier=expected_tier,
+                    model_override=self.session.config.model,
                 )
                 if (
                     cfg.model_override != self.session.config.model
@@ -134,6 +147,18 @@ class RunCoordinator:
                 ):
                     await self.state.agent_configs.update(
                         cfg.config_id,
+                        model_tier=expected_tier,
+                        model_override=self.session.config.model,
+                    )
+                b_row = await self.state.agent_configs.get_by_run_and_role(
+                    self.session.run_id, "builder"
+                )
+                if b_row is not None and (
+                    b_row.model_override != self.session.config.model
+                    or b_row.model_tier != expected_tier
+                ):
+                    await self.state.agent_configs.update(
+                        b_row.config_id,
                         model_tier=expected_tier,
                         model_override=self.session.config.model,
                     )
@@ -177,9 +202,25 @@ class RunCoordinator:
         if self.state is not None:
             await self.state.messages.append(run_id, "user", message.text)
 
+        scott_attempt_id: str | None = None
         try:
             self._configure_observability()
             agent = await self._ensure_agent()
+            if self.state is not None:
+                tier = str(self.session.config.tier or self.settings.default_tier)
+                selection = self.settings.resolve_model_selection(
+                    model_override=self.session.config.model,
+                    tier=tier,
+                )
+                scott_row = await self.state.attempts.create(
+                    run_id=run_id,
+                    role="manager",
+                    model=selection.model_ref,
+                    tier=tier,
+                    call_type="agent",
+                )
+                scott_attempt_id = scott_row.attempt_id
+                self.session.active_attempt_id = scott_attempt_id
             async with agent:
                 result = await agent.run(
                     prompt, message_history=self._message_history or None
@@ -190,7 +231,16 @@ class RunCoordinator:
             )
             if self.state is not None:
                 await self.state.runs.update_status(run_id, "failed")
+                if scott_attempt_id is not None:
+                    await self.state.attempts.update_status(
+                        scott_attempt_id, "failed"
+                    )
             raise
+        finally:
+            self.session.active_attempt_id = None
+
+        if self.state is not None and scott_attempt_id is not None:
+            await self.state.attempts.update_status(scott_attempt_id, "passed")
 
         output = result.output
         self._message_history = list(result.all_messages())
