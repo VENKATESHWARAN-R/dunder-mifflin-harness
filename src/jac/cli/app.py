@@ -24,7 +24,7 @@ from jac.runtime.events import (
 )
 from jac.runtime.coordinator import RunCoordinator, UserMessage, resume_run
 from jac.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
-from jac.state import StateStore, open_state_store
+from jac.state import StateStore, open_state_store, seed_workspace
 from jac.tools.shell import run_shell
 from jac.workspace import discover_workspace
 
@@ -81,6 +81,7 @@ class ChatApp:
         session = SessionState(config=config)
         workspace = discover_workspace(session.config.cwd)
         state = await open_state_store(workspace.state_db_path)
+        await seed_workspace(workspace, state)
         return cls(settings=resolved_settings, state=state, session=session)
 
     @classmethod

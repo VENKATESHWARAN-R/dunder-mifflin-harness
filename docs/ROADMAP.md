@@ -165,7 +165,7 @@ flowchart LR
 ### C2 — Workspace Layout & File→DB Seeding
 
 **Layer:** state
-**Status:** planned
+**Status:** shipped (2026-05-03)
 **Depends on:** C1
 **Brainstorm/contract:** [`WORKSPACE.md`](contracts/WORKSPACE.md)
 
@@ -175,8 +175,10 @@ Anchors JAC to a project workspace. Adds `~/.jac/` for user globals and `<repo>/
 - Project discovery (upward walk for `.agents/` or `AGENTS.md`)
 - Layered settings, dotenv, and instruction resolution
 - `jac init`, `jac init --global`, and `jac doctor` onboarding/diagnostic commands
-- Seeding node: file → `mcp_servers` / `skills` / `agent_configs` upsert
+- Seeding node: file → `mcp_servers` / `skills` upsert on every boot
 - Source metadata for seeded `skills` and `mcp_servers`
+- GC: stale file-backed rows removed on re-seed if not held by an open run
+- `jac doctor` reports duplicate skill/MCP names per scope and missing `.gitignore` entries
 
 **Evaluation:**
 - Add `<repo>/.agents/skills/foo.md` → row appears in `skills`
@@ -1231,6 +1233,19 @@ Move components here when shipped, with the date.
 - [x] `ChatApp._handle_shell` emits `ShellCommandStarted` / `ShellCommandCompleted` around `run_shell` — shared rendering path for user `!` commands and future agent tool calls
 - [x] `ShellCommandStarted` / `ShellCommandCompleted` event types defined; renderer subscribed
 - [x] Tests: background process lifecycle (start, list, read output), approval metadata for all 4 functions
+
+---
+
+### C2 — Workspace Layout & File→DB Seeding (2026-05-03)
+
+- [x] `SkillsRepo` and `McpServersRepo` added to `src/jac/state/`; wired into `StateStore`
+- [x] `src/jac/state/seeder.py`: walks `~/.jac/skills/`, `~/.jac/mcp/`, `.agents/skills/`, `.agents/mcp/` on each boot; upserts rows with `source_scope`/`source_path`; project scope overrides user scope for same name
+- [x] Garbage collection: stale file-backed rows deleted on re-seed when not held by an open run
+- [x] Duplicate detection within scope: error reported, entry skipped
+- [x] `seed_workspace()` called at boot in `ChatApp.open()` and `run_prompt()`
+- [x] `jac doctor` extended with `check_workspace_files()`: reports duplicates and missing `.gitignore` entries
+- [x] 13 seeder tests covering upsert, override, duplicate error, idempotency, GC, and doctor checks
+- [x] **Persistence checkpoint reached**: sessions resume (`jac resume`), workspace files seed into DB
 
 ---
 

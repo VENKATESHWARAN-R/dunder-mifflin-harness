@@ -1,6 +1,6 @@
 # State Schema Contract
 
-> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-03 · **Type:** contract
 
 **Schema version:** 1.2  
 **Storage:** SQLite (single file, local-first, crash-safe)
@@ -356,8 +356,8 @@ roadmap components that need them ship. Component IDs reference [`docs/ROADMAP.m
 | `attempts` | C7 | Active when cost tracking lands; `call_type` distinguishes agent vs direct LLM. |
 | `agent_configs` | C5 | Active from the agent factory; gains hot-reload semantics at C20. |
 | `context_store` | C11 | Populated by `context_loader` per agent role. |
-| `mcp_servers` | C2 | Registry seeded from disk; live transports added at C17. |
-| `skills` | C2 | Registry seeded from disk; dynamic injection added at C16. |
+| `mcp_servers` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; live transports added at C17. |
+| `skills` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; dynamic injection added at C16. |
 | `run_mcp_servers` | C5 | Run-start config; mid-run toggle command added at C18. |
 | `run_skills` | C5 | Run-start config; mid-run toggle command added at C18. |
 | `agent_instances` | C15 | Reserved until multi-agent runs land. |

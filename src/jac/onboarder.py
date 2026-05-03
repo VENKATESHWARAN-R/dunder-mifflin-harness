@@ -16,6 +16,7 @@ from jac.config import (
     profile_env_name,
     provider_definition,
 )
+from jac.state.seeder import check_workspace_files
 from jac.workspace import Workspace, discover_workspace, env_source
 
 
@@ -269,6 +270,9 @@ def doctor_report(settings: Settings, *, cwd: Path | None = None) -> str:
             else "not set"
         )
         lines.append(f"- optional {item.name}: {status}")
+
+    for warning in check_workspace_files(workspace):
+        lines.append(f"- warning: {warning}")
 
     return "\n".join(lines)
 

@@ -6,7 +6,7 @@ This file provides guidance to AI Agents when working with code in this reposito
 
 JAC ("Just Another CLI") is an R&D harness exploring whether a multi-agent system with tiered model routing can match Anthropic's long-running coding harness at 3–5× lower cost. The repo directory is `dunder-mifflin-harness` (a nod to the predecessor project), but the product is **JAC**.
 
-The project is in **early implementation**. C0 shipped a Click/prompt_toolkit/Rich CLI over a UI-agnostic runtime boundary with typed events. The current runtime wraps a simple Pydantic AI agent; later components replace coordinator internals with graph workflows without changing the CLI/event boundary. The roadmap is now component-wise (C0..Cn) — see `docs/ROADMAP.md`.
+The project is in **early implementation**. C0 shipped a Click/prompt_toolkit/Rich CLI over a UI-agnostic runtime boundary with typed events. C1 added SQLite persistence (`runs` + `messages`) and `jac resume`. C2 added workspace file seeding (`skills`, `mcp_servers`) and `jac doctor` diagnostics. The current runtime wraps a simple Pydantic AI agent; later components replace coordinator internals with graph workflows without changing the CLI/event boundary. The roadmap is now component-wise (C0..Cn) — see `docs/ROADMAP.md`.
 
 ## Commands
 
@@ -120,11 +120,11 @@ When a discussion *does* finalize a decision, propagate it. The common cascade:
 
 Don't silently accept an idea that contradicts a `Locked` contract. Either revise the contract or push back.
 
-## Database Scope (post-C1)
+## Database Scope (post-C2)
 
-C1 has shipped. SQLite is wired through `src/jac/state/` and `runs` + `messages` are populated by `RunCoordinator` on every harness invocation. State lives at `Workspace.state_db_path` (`<repo>/.agents/state.db` for projects, `~/.jac/runs/<cwd-hash>/state.db` otherwise). Schema version `1.0` is recorded in `schema_meta`; future migrations land as numbered files in `src/jac/state/migrations/`.
+C1 + C2 have shipped. SQLite is wired through `src/jac/state/` and `runs` + `messages` are populated by `RunCoordinator` on every invocation. On boot, `src/jac/state/seeder.py` walks `~/.jac/skills/`, `~/.jac/mcp/`, `.agents/skills/`, and `.agents/mcp/` and upserts into `skills` and `mcp_servers`. State lives at `Workspace.state_db_path` (`<repo>/.agents/state.db` for projects, `~/.jac/runs/<cwd-hash>/state.db` otherwise). Schema version `1.0` is recorded in `schema_meta`; future migrations land as numbered files in `src/jac/state/migrations/`.
 
-The other 10 tables in `docs/contracts/STATE_SCHEMA.md` are **created** by the v1.0 migration but **not yet populated** — they activate as their owning components arrive (see the schema's "Activation Sequence" table). Until then, code that needs `tasks`, `attempts`, `agent_configs`, etc. can prepare against the locked schema, but should not start writing to those tables outside the component that owns them.
+The other tables in `docs/contracts/STATE_SCHEMA.md` are **created** by the v1.0 migration but **not yet populated** — they activate as their owning components arrive (see the schema's "Activation Sequence" table). Until then, code that needs `tasks`, `attempts`, `agent_configs`, etc. can prepare against the locked schema, but should not start writing to those tables outside the component that owns them.
 
 When proposing state-related changes:
 - If the change is about how state is *represented* (fields, relationships, lifecycle), update `STATE_SCHEMA.md` first and write a new numbered migration alongside the code change.

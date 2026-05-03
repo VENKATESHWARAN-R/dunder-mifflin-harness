@@ -29,7 +29,7 @@ from jac.onboarder import (
 from jac.runtime.approvals import ApprovalMode
 from jac.runtime.coordinator import RunCoordinator, UserMessage
 from jac.runtime.session import RunMode, SessionConfig, SessionState
-from jac.state import open_state_store
+from jac.state import open_state_store, seed_workspace
 from jac.workspace import default_user_dir, discover_workspace
 
 
@@ -51,6 +51,7 @@ async def run_prompt(
     )
     workspace = discover_workspace(session.config.cwd)
     state = await open_state_store(workspace.state_db_path)
+    await seed_workspace(workspace, state)
     try:
         coordinator = RunCoordinator(
             settings=resolved_settings, session=session, state=state

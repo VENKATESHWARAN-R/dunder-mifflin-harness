@@ -8,8 +8,10 @@ from pathlib import Path
 
 import aiosqlite
 
+from jac.state.mcp_servers import McpServersRepo
 from jac.state.messages import MessagesRepo
 from jac.state.runs import RunsRepo
+from jac.state.skills import SkillsRepo
 
 _MIGRATION_PATTERN = re.compile(r"^(\d{3})_.+\.sql$")
 
@@ -21,6 +23,8 @@ class StateStore:
         self._connection = connection
         self.runs = RunsRepo(connection)
         self.messages = MessagesRepo(connection)
+        self.skills = SkillsRepo(connection)
+        self.mcp_servers = McpServersRepo(connection)
 
     @property
     def connection(self) -> aiosqlite.Connection:
