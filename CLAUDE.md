@@ -6,7 +6,7 @@ This file provides guidance to AI Agents when working with code in this reposito
 
 JAC ("Just Another CLI") is an R&D harness exploring whether a multi-agent system with tiered model routing can match Anthropic's long-running coding harness at 3–5× lower cost. The repo directory is `dunder-mifflin-harness` (a nod to the predecessor project), but the product is **JAC**.
 
-The project is in **early implementation**. C0 shipped a Click/prompt_toolkit/Rich CLI over a UI-agnostic runtime boundary with typed events. C1 added SQLite persistence (`runs` + `messages`) and `jac resume`. C2 added workspace file seeding (`skills`, `mcp_servers`) and `jac doctor` diagnostics. C3 added the model factory and `jac init` onboarding. C4 added shell tools with approval flow. C5 added the agent factory (`src/jac/agents/`) — the single `pydantic_ai.Agent(...)` construction site — and activated the `agent_configs`, `run_mcp_servers`, `run_skills` tables. The roadmap is now component-wise (C0..Cn) — see `docs/ROADMAP.md`.
+The project is in **early implementation**. C0–C5 have shipped: CLI/runtime foundation, SQLite persistence, workspace + file seeding (`jac init`, `jac doctor`), file tools, shell tools, and the agent factory (`src/jac/agents/`) — the single `pydantic_ai.Agent(...)` construction site. Active DB tables: `runs`, `messages`, `skills`, `mcp_servers`, `agent_configs`, `run_mcp_servers`, `run_skills`. See `docs/ROADMAP.md` for the full component plan and `docs/ROADMAP.md#done` for per-component ship notes.
 
 ## Commands
 
@@ -50,8 +50,9 @@ lab/            # experiments (brainstorm/, scripts/, notebooks/, specimens/)
 - `src/jac/tools/` — shared local tool helpers (filesystem attachments, shell execution).
 - `src/jac/config.py` — env-backed settings.
 - `lab/` — research workspace; the `lab` dependency group covers extras only used here.
+- `docs/dev/` — layer deep-dives and component history. **Read the relevant `docs/dev/<layer>.md` before touching an existing layer.** Index at `docs/dev/README.md`.
 
-## Doc Status Convention
+## Doc System
 
 Every `docs/*` file has a status header:
 
@@ -68,33 +69,7 @@ Every `docs/*` file has a status header:
 
 **Always check the status before treating a doc as authoritative.** If a `Draft` and a `Locked` doc disagree, the `Locked` one wins.
 
-## Core Documents
-
-Index: [`docs/README.md`](docs/README.md). Every entry lists status.
-
-**Locked contracts** (binding):
-- [`docs/contracts/STATE_SCHEMA.md`](docs/contracts/STATE_SCHEMA.md) — SQLite schema. Update before touching the database layer.
-- [`docs/contracts/EVENT_CONTRACT.md`](docs/contracts/EVENT_CONTRACT.md) — typed events, requests, commands at the runtime↔UI boundary.
-- [`docs/contracts/CLI_DESIGN.md`](docs/contracts/CLI_DESIGN.md) — terminal adapter design, input grammar, slash commands.
-- [`docs/contracts/MCP_INTEGRATION.md`](docs/contracts/MCP_INTEGRATION.md) — MCP servers/skills loaded from DB into Pydantic AI agents (`config_loader` contract).
-- [`docs/contracts/TOOLS_CONTRACT.md`](docs/contracts/TOOLS_CONTRACT.md) — agent tool interface. Required reading before adding a tool.
-
-**Reference** (stable narrative):
-- [`docs/reference/IDEA.md`](docs/reference/IDEA.md) — project genesis, hypothesis, V0 scope.
-- [`docs/reference/PHILOSOPHY.md`](docs/reference/PHILOSOPHY.md) — where code belongs, dependency boundaries, extension rules. **Read before adding new subsystems.**
-- [`docs/reference/V0_BENCHMARK.md`](docs/reference/V0_BENCHMARK.md) — Notes CLI test case with acceptance criteria.
-
-**Living**:
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — component plan in dependency order (C0..Cn).
-
-**User Guide** (user-facing, shipped behaviour only):
-- [`docs/guide/`](docs/guide/README.md) — install, usage, configuration, SDK. Index at `docs/guide/README.md`.
-
-**Developer Docs** (contributor and agent reference):
-- [`docs/dev/`](docs/dev/README.md) — architecture, layer deep-dives, component history. Index at `docs/dev/README.md`. See **Developer Docs** section below.
-
-**Lab**:
-- [`lab/README.md`](lab/README.md) — index of all experiments, scripts, notebooks, brainstorms, and specimens.
+Full doc index: [`docs/README.md`](docs/README.md). Locked contracts in `docs/contracts/`, stable narratives in `docs/reference/`, layer deep-dives in `docs/dev/`.
 
 ## Where to Put a New X
 
@@ -117,54 +92,20 @@ When promoting a brainstorm to a contract, add a row to `docs/README.md` and eit
 
 ## Brainstorm Sessions
 
-A brainstorm (the `brainstrom` skill, or any free-form discussion) can legitimately end in any of: a spoken decision and nothing written, a note in `lab/brainstorm/`, a runnable spike in `lab/scripts/` or `lab/notebooks/`, an edit to an existing `Locked` contract, a new `Draft` doc, a `docs/ROADMAP.md` update, or a real implementation task. Most sessions need none of these — that's fine.
+Use the `brainstrom` skill for free-form design sessions. When a discussion finalises a decision that changes a contract, schema, event surface, or scope — propagate it to the relevant `Locked` doc and `docs/ROADMAP.md`. Don't silently accept an idea that contradicts a `Locked` contract; either revise the contract or push back.
 
-When a discussion *does* finalize a decision, propagate it. The common cascade:
+## Database Scope
 
-- Decision changes how state is represented → revise `docs/contracts/STATE_SCHEMA.md` and bump `Last revised`.
-- Decision changes the runtime↔UI surface → revise `docs/contracts/EVENT_CONTRACT.md`.
-- Decision changes how tools are written → revise `docs/contracts/TOOLS_CONTRACT.md`.
-- Decision changes scope, order, or adds work → update `docs/ROADMAP.md`.
-- New component or surface → new `Draft` doc under `docs/contracts/` or `docs/reference/`, plus a row in `docs/README.md`.
+Active tables (post-C5): `runs`, `messages`, `skills`, `mcp_servers`, `agent_configs`, `run_mcp_servers`, `run_skills`. Remaining tables exist in the schema but are not yet populated — they activate as their owning components arrive. Check `docs/contracts/STATE_SCHEMA.md` Activation Sequence before writing to any new table.
 
-Don't silently accept an idea that contradicts a `Locked` contract. Either revise the contract or push back.
-
-## Database Scope (post-C5)
-
-C1–C5 have shipped. SQLite is wired through `src/jac/state/` and the following tables are actively populated: `runs`, `messages` (C1), `skills`, `mcp_servers` (C2), `agent_configs`, `run_mcp_servers`, `run_skills` (C5). On boot, `src/jac/state/seeder.py` walks `~/.jac/skills/`, `~/.jac/mcp/`, `.agents/skills/`, and `.agents/mcp/` and upserts into `skills` and `mcp_servers`. State lives at `Workspace.state_db_path` (`<repo>/.agents/state.db` for projects, `~/.jac/runs/<cwd-hash>/state.db` otherwise). Schema version `1.0` is recorded in `schema_meta`; future migrations land as numbered files in `src/jac/state/migrations/`.
-
-The remaining tables in `docs/contracts/STATE_SCHEMA.md` are **created** by the v1.0 migration but **not yet populated** — they activate as their owning components arrive (see the schema's "Activation Sequence" table). Until then, code that needs `tasks`, `attempts`, etc. can prepare against the locked schema, but should not start writing to those tables outside the component that owns them.
-
-When proposing state-related changes:
-- If the change is about how state is *represented* (fields, relationships, lifecycle), update `STATE_SCHEMA.md` first and write a new numbered migration alongside the code change.
-- If the change is about *new persistence* (a previously-empty table goes live), make sure it lines up with the activation sequence — or revise the activation table with reasoning.
+When proposing state changes:
+- Schema changes (fields, relationships) → update `STATE_SCHEMA.md` first, write a new numbered migration alongside the code.
+- New table going live → confirm it lines up with the activation sequence, or revise it with reasoning.
 - Migrations are append-only and ordered by filename; never edit a shipped migration.
 
 ## Architecture Direction
 
-The planned harness has three compositional layers:
-
-1. **Nodes** — atomic units: LLM calls (plan, build, evaluate) or deterministic logic (routing, state reads/writes, cost tracking).
-2. **Workflows** — directed graphs wiring nodes for a specific dev strategy (feature-by-feature, TDD, POC-swarm, etc.).
-3. **Modes** — top-level configs selecting which workflow to run (Autopilot vs HITL).
-
-Every node follows a uniform interface: receive state `(run_id, task_id, context, config)`, return updated state plus status. Workflows compose nodes. Modes choose workflow compositions.
-
-**First workflow** (feature-by-feature, ships through C11; alternatives at C22):
-```
-plan → task_router → context_loader → config_loader → build → evaluate → pass_check
-                                                                              ├── Pass → state_writer → task_router (next task or DONE)
-                                                                              └── Fail → hr_escalation → config_loader → build (retry)
-```
-
-**Model tiers** (provider-agnostic):
-- Tier 1 (Scout): cheap/fast — file reading, boilerplate, formatting.
-- Tier 2 (Worker): balanced — feature impl, testing, evaluation.
-- Tier 3 (Architect): most capable — planning, architecture, complex debugging.
-
-**Persistent state store** tracks: run state, tasks (with status/complexity/tier), attempt records (model, tokens, cost, eval scores), agent configs, and scoped context per agent role.
-
-**Tool abstraction layer**: agents call tools through a standardized interface so the underlying execution environment (local → container → cloud) can change without touching agent code.
+The planned harness is three layers: **Nodes** (atomic LLM/deterministic units) → **Workflows** (directed graphs, `pydantic_graph`) → **Modes** (Autopilot vs HITL). Model tiers are Scout (cheap/fast), Worker (balanced), Architect (most capable). See [`docs/reference/IDEA.md`](docs/reference/IDEA.md) §5 for the full design and [`docs/dev/architecture.md`](docs/dev/architecture.md) for what's built. Read both before touching the orchestration layer.
 
 ## Current Design Decisions
 
@@ -186,13 +127,7 @@ plan → task_router → context_loader → config_loader → build → evaluate
 
 ## Developer Docs
 
-`docs/dev/` holds narrative docs for contributors and AI agents who need to understand JAC as it currently exists — architecture diagrams, layer deep-dives, component history. They are not specs (that's `docs/contracts/`) and not a roadmap; they are the source of truth for "what is built, how the pieces connect, and where to look when something breaks."
-
-**Why they exist:** during implementation, the roadmap and brainstorm docs are the source of truth. After the component ships, the developer docs take over — for debugging, polishing, and onboarding future agents who inherit a running codebase.
-
-**When to update:** after any component ships or a layer's structure changes meaningfully (new module, renamed boundary, changed data flow). A stale developer doc misleads more than a missing one.
-
-**How to update:** if the change is large, delegate to a sub-agent (Sonnet-class is sufficient — the source code is the ground truth). The index is `docs/dev/README.md`; each layer has its own file.
+`docs/dev/` is the source of truth for what's built, how the pieces connect, and where to look when something breaks. Update the relevant `docs/dev/<layer>.md` after any component ships or a layer's structure changes meaningfully. Index at `docs/dev/README.md`; delegate large update passes to a sub-agent (the source code is the ground truth).
 
 ## Versioning (alpha)
 
