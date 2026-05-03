@@ -120,14 +120,16 @@ When a discussion *does* finalize a decision, propagate it. The common cascade:
 
 Don't silently accept an idea that contradicts a `Locked` contract. Either revise the contract or push back.
 
-## Pre-Database Scope
+## Database Scope (post-C1)
 
-JAC is **pre-database**. `docs/contracts/STATE_SCHEMA.md` describes the *future* shape of persistent state, not a current requirement. Until SQLite is wired (component **C1** — see `docs/ROADMAP.md`), code can use plain `dict`, `dataclass`, or module-level structures for state. The schema is binding as a *target*, not as an *implementation*.
+C1 has shipped. SQLite is wired through `src/jac/state/` and `runs` + `messages` are populated by `RunCoordinator` on every harness invocation. State lives at `Workspace.state_db_path` (`<repo>/.agents/state.db` for projects, `~/.jac/runs/<cwd-hash>/state.db` otherwise). Schema version `1.0` is recorded in `schema_meta`; future migrations land as numbered files in `src/jac/state/migrations/`.
+
+The other 10 tables in `docs/contracts/STATE_SCHEMA.md` are **created** by the v1.0 migration but **not yet populated** — they activate as their owning components arrive (see the schema's "Activation Sequence" table). Until then, code that needs `tasks`, `attempts`, `agent_configs`, etc. can prepare against the locked schema, but should not start writing to those tables outside the component that owns them.
 
 When proposing state-related changes:
-- If the change is about how state is *represented* (fields, relationships, lifecycle), update `STATE_SCHEMA.md` and let the in-memory implementation follow.
-- If the change is about *persistence* (when/how to write to disk), don't introduce SQLite ahead of C1 — note the intent in the schema and keep the runtime in-memory.
-- Be skeptical of any idea that adds persistence, async I/O, or migration machinery before C1 lands. That's almost always overkill at this point.
+- If the change is about how state is *represented* (fields, relationships, lifecycle), update `STATE_SCHEMA.md` first and write a new numbered migration alongside the code change.
+- If the change is about *new persistence* (a previously-empty table goes live), make sure it lines up with the activation sequence — or revise the activation table with reasoning.
+- Migrations are append-only and ordered by filename; never edit a shipped migration.
 
 ## Architecture Direction
 

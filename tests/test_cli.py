@@ -82,6 +82,36 @@ def test_public_cli_exports_main() -> None:
     assert cli_public_main is cli_main
 
 
+def test_resume_unknown_run_id_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
+
+    exit_code = cli_main(["resume", "no-such-run"])
+
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "no run with id no-such-run" in captured.err
+
+
+def test_resume_requires_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
+
+    exit_code = cli_main(["resume"])
+
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "Usage: jac resume" in captured.err
+
+
 def test_cli_prints_version(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = cli_main(["--version"])
 

@@ -29,7 +29,8 @@ from jac.onboarder import (
 from jac.runtime.approvals import ApprovalMode
 from jac.runtime.coordinator import RunCoordinator, UserMessage
 from jac.runtime.session import RunMode, SessionConfig, SessionState
-from jac.workspace import default_user_dir
+from jac.state import open_state_store
+from jac.workspace import default_user_dir, discover_workspace
 
 
 async def run_prompt(
@@ -48,8 +49,17 @@ async def run_prompt(
             shell_max_output_chars=resolved_settings.shell_max_output_chars,
         )
     )
-    coordinator = RunCoordinator(settings=resolved_settings, session=session)
-    return await coordinator.submit_message(UserMessage(text=prompt))
+    workspace = discover_workspace(session.config.cwd)
+    state = await open_state_store(workspace.state_db_path)
+    try:
+        coordinator = RunCoordinator(
+            settings=resolved_settings, session=session, state=state
+        )
+        output = await coordinator.submit_message(UserMessage(text=prompt))
+        await state.runs.update_status(session.run_id, "done")
+        return output
+    finally:
+        await state.close()
 
 
 @click.command(
@@ -83,7 +93,7 @@ def _command(
     """Run a prompt or start interactive chat."""
     settings = Settings()
     command_args = list(args)
-    if command_args and command_args[0] in {"chat", "run"}:
+    if command_args and command_args[0] in {"chat", "run", "resume"}:
         command_name = command_args[0]
         remaining, model, mode, approval_mode = _extract_inline_options(
             command_args[1:],
@@ -106,23 +116,82 @@ def _command(
         return
 
     if command_args and command_args[0] == "chat":
-        app = ChatApp(settings=settings)
-        _apply_overrides(app, model=model, mode=mode, approval_mode=approval_mode)
-        asyncio.run(app.run())
+        asyncio.run(
+            _run_chat(
+                settings=settings,
+                model=model,
+                mode=mode,
+                approval_mode=approval_mode,
+            )
+        )
+        return
+
+    if command_args and command_args[0] == "resume":
+        if len(command_args) < 2:
+            raise click.ClickException("Usage: jac resume <run-id>")
+        run_id = command_args[1]
+        try:
+            asyncio.run(
+                _run_resume(
+                    run_id=run_id,
+                    settings=settings,
+                    model=model,
+                    mode=mode,
+                    approval_mode=approval_mode,
+                )
+            )
+        except LookupError as exc:
+            raise click.ClickException(str(exc)) from exc
         return
 
     if command_args and command_args[0] == "run":
         command_args = command_args[1:]
 
     if not command_args:
-        app = ChatApp(settings=settings)
-        _apply_overrides(app, model=model, mode=mode, approval_mode=approval_mode)
-        asyncio.run(app.run())
+        asyncio.run(
+            _run_chat(
+                settings=settings,
+                model=model,
+                mode=mode,
+                approval_mode=approval_mode,
+            )
+        )
         return
 
     prompt = " ".join(command_args)
     output = asyncio.run(run_prompt(prompt, settings=settings, model=model))
     click.echo(output)
+
+
+async def _run_chat(
+    *,
+    settings: Settings,
+    model: str | None,
+    mode: str | None,
+    approval_mode: str | None,
+) -> None:
+    app = await ChatApp.open(settings=settings)
+    _apply_overrides(app, model=model, mode=mode, approval_mode=approval_mode)
+    try:
+        await app.run()
+    finally:
+        await app.aclose()
+
+
+async def _run_resume(
+    *,
+    run_id: str,
+    settings: Settings,
+    model: str | None,
+    mode: str | None,
+    approval_mode: str | None,
+) -> None:
+    app = await ChatApp.from_resumed(run_id, settings=settings)
+    _apply_overrides(app, model=model, mode=mode, approval_mode=approval_mode)
+    try:
+        await app.run()
+    finally:
+        await app.aclose()
 
 
 def _apply_overrides(

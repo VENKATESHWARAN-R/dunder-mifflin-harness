@@ -46,6 +46,7 @@ class SessionState:
 
     config: SessionConfig = field(default_factory=SessionConfig)
     session_id: str = field(default_factory=lambda: uuid4().hex)
+    run_id: str = field(default_factory=lambda: uuid4().hex)
     attached_paths: list[Path] = field(default_factory=list)
     latest_cost_summary: str | None = None
 

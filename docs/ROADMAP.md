@@ -131,7 +131,7 @@ flowchart LR
 ### C1 — Persistent State Store (SQLite)
 
 **Layer:** state
-**Status:** planned
+**Status:** shipped (2026-05-03)
 **Depends on:** C0
 **Brainstorm/contract:** [`STATE_SCHEMA.md`](contracts/STATE_SCHEMA.md)
 
@@ -1231,3 +1231,19 @@ Move components here when shipped, with the date.
 - [x] `ChatApp._handle_shell` emits `ShellCommandStarted` / `ShellCommandCompleted` around `run_shell` — shared rendering path for user `!` commands and future agent tool calls
 - [x] `ShellCommandStarted` / `ShellCommandCompleted` event types defined; renderer subscribed
 - [x] Tests: background process lifecycle (start, list, read output), approval metadata for all 4 functions
+
+---
+
+### C1 — Persistent State Store (SQLite) (2026-05-03)
+
+- [x] `src/jac/state/` package with `StateStore`, `RunsRepo`, `MessagesRepo`
+- [x] `001_initial.sql` migration creates all 12 tables from `STATE_SCHEMA.md` v1.0; `schema_meta` records the applied version
+- [x] `aiosqlite` connection with `PRAGMA foreign_keys = ON`; idempotent `open_state_store(db_path)` runs pending migrations
+- [x] `run_id` semantics changed: one run per harness invocation, generated on `SessionState`, persisted at first turn, tags every message
+- [x] `RunCoordinator` accepts an optional `StateStore`; persists `runs` row and user/assistant `messages` rows; updates run status to `done`/`failed`
+- [x] `resume_run(state, settings, run_id)` rebuilds a coordinator with prior message history fed into the next `agent.run(...)` call
+- [x] `jac resume <run-id>` Click subcommand drops into the chat loop with restored context
+- [x] `/context` reads run id, message count from the DB; cwd and attachments still shown
+- [x] State DB lives at `Workspace.state_db_path` (project `.agents/state.db` or `~/.jac/runs/<cwd-hash>/state.db`) — wired through `discover_workspace`
+- [x] Tests: 7 cases for the state package (migration, repos, idempotency, FK enforcement) + 5 integration cases (coordinator persistence, run-id stability across turns, resume hydration, missing-run error, no-state fallback) + 2 CLI cases for the `resume` command
+- [x] Version bumped to 0.2.0 (intentional break in `run_id` semantics)

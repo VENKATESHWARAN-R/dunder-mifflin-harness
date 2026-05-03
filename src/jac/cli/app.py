@@ -22,9 +22,11 @@ from jac.runtime.events import (
     ShellCommandStarted,
     WarningRaised,
 )
-from jac.runtime.coordinator import RunCoordinator, UserMessage
+from jac.runtime.coordinator import RunCoordinator, UserMessage, resume_run
 from jac.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
+from jac.state import StateStore, open_state_store
 from jac.tools.shell import run_shell
+from jac.workspace import discover_workspace
 
 
 class ChatApp:
@@ -35,22 +37,29 @@ class ChatApp:
         settings: Settings | None = None,
         events: EventBus | None = None,
         renderer: Renderer | None = None,
+        state: StateStore | None = None,
+        session: SessionState | None = None,
+        coordinator: RunCoordinator | None = None,
     ) -> None:
         self.settings = settings or Settings()
-        config = SessionConfig(
-            max_attachment_bytes=self.settings.max_attachment_bytes,
-            shell_timeout_seconds=self.settings.shell_timeout_seconds,
-            shell_max_output_chars=self.settings.shell_max_output_chars,
-        )
-        self.session = SessionState(config=config)
+        if session is None:
+            config = SessionConfig(
+                max_attachment_bytes=self.settings.max_attachment_bytes,
+                shell_timeout_seconds=self.settings.shell_timeout_seconds,
+                shell_max_output_chars=self.settings.shell_max_output_chars,
+            )
+            session = SessionState(config=config)
+        self.session = session
         self.events = events or EventBus()
         self.renderer = renderer or Renderer()
         self.prompts = PromptViews(self.renderer.console)
         self.approvals = ApprovalPolicy(mode=self.session.config.approval_mode)
-        self.coordinator = RunCoordinator(
+        self.state = state
+        self.coordinator = coordinator or RunCoordinator(
             settings=self.settings,
             session=self.session,
             events=self.events,
+            state=self.state,
         )
         self.input = InputSession(self.settings.config_dir / "input_history")
         self.commands = SlashCommandRegistry()
@@ -59,6 +68,48 @@ class ChatApp:
         self.renderer.wire(self.events)
         self._wire_requests()
         self._register_commands()
+
+    @classmethod
+    async def open(cls, settings: Settings | None = None) -> "ChatApp":
+        """Build a ChatApp with a freshly-opened StateStore for the current cwd."""
+        resolved_settings = settings or Settings()
+        config = SessionConfig(
+            max_attachment_bytes=resolved_settings.max_attachment_bytes,
+            shell_timeout_seconds=resolved_settings.shell_timeout_seconds,
+            shell_max_output_chars=resolved_settings.shell_max_output_chars,
+        )
+        session = SessionState(config=config)
+        workspace = discover_workspace(session.config.cwd)
+        state = await open_state_store(workspace.state_db_path)
+        return cls(settings=resolved_settings, state=state, session=session)
+
+    @classmethod
+    async def from_resumed(
+        cls, run_id: str, settings: Settings | None = None
+    ) -> "ChatApp":
+        """Build a ChatApp pre-loaded from a prior run."""
+        resolved_settings = settings or Settings()
+        workspace = discover_workspace(Path.cwd())
+        state = await open_state_store(workspace.state_db_path)
+        try:
+            coordinator = await resume_run(
+                state=state, settings=resolved_settings, run_id=run_id
+            )
+        except LookupError:
+            await state.close()
+            raise
+        return cls(
+            settings=resolved_settings,
+            state=state,
+            session=coordinator.session,
+            coordinator=coordinator,
+            events=coordinator.events,
+        )
+
+    async def aclose(self) -> None:
+        if self.state is not None:
+            await self.state.close()
+            self.state = None
 
     def _wire_requests(self) -> None:
         async def on_approval(event: ApprovalRequested) -> None:
@@ -153,8 +204,15 @@ class ChatApp:
             self.renderer.print_info(f"Parameter set: {key}={value}")
 
         async def context_command(_args: str) -> None:
+            run_id = self.session.run_id
+            message_count: int | None = None
+            if self.state is not None:
+                message_count = await self.state.messages.count_for_run(run_id)
+            header = f"run_id: {run_id}"
+            if message_count is not None:
+                header += f" ({message_count} messages)"
+            body = f"{header}\ncwd: {self.session.config.cwd}"
             paths = "\n".join(str(path) for path in self.session.attached_paths)
-            body = f"cwd: {self.session.config.cwd}"
             if paths:
                 body += f"\n\nattached files:\n{paths}"
             self.renderer.print_value("Context", body)
