@@ -26,7 +26,7 @@ def test_cli_prints_agent_response(
 
     monkeypatch.setattr(cli_module, "run_prompt", fake_run_prompt)
 
-    exit_code = cli_main(["say", "hi"])
+    exit_code = cli_main(["run", "say", "hi"])
 
     captured = capsys.readouterr()
     assert exit_code == 0
@@ -46,7 +46,7 @@ def test_cli_reports_missing_configuration(
 
     monkeypatch.setattr(cli_module, "run_prompt", fake_run_prompt)
 
-    exit_code = cli_main(["say hi"])
+    exit_code = cli_main(["run", "say hi"])
 
     captured = capsys.readouterr()
     assert exit_code == 2
@@ -76,6 +76,48 @@ def test_run_accepts_mode_after_subcommand(
     assert exit_code == 0
     assert seen["prompt"] == "say hi"
     assert captured.out == "ok\n"
+
+
+def test_prompt_requires_run_subcommand(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli_module = importlib.import_module("jac.cli.main")
+    called = {"run_prompt": False}
+
+    async def fake_run_prompt(prompt: str, **_kwargs: object) -> str:
+        called["run_prompt"] = True
+        return prompt
+
+    monkeypatch.setattr(cli_module, "run_prompt", fake_run_prompt)
+
+    exit_code = cli_main(["say", "hi"])
+
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert 'Use `jac run "<prompt>"`' in captured.err
+    assert called["run_prompt"] is False
+
+
+def test_list_profiles_guides_to_profile_subcommand(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli_module = importlib.import_module("jac.cli.main")
+    called = {"run_prompt": False}
+
+    async def fake_run_prompt(prompt: str, **_kwargs: object) -> str:
+        called["run_prompt"] = True
+        return prompt
+
+    monkeypatch.setattr(cli_module, "run_prompt", fake_run_prompt)
+
+    exit_code = cli_main(["list", "profiles"])
+
+    captured = capsys.readouterr()
+    assert exit_code != 0
+    assert "Did you mean `jac profile list`?" in captured.err
+    assert called["run_prompt"] is False
 
 
 def test_public_cli_exports_main() -> None:
@@ -118,6 +160,19 @@ def test_cli_prints_version(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured.out.startswith("jac, version ")
+
+
+def test_cli_help_lists_real_usage_patterns(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = cli_main(["--help"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Usage patterns:" in captured.out
+    assert "jac run " in captured.out
+    assert "jac resume <run-id>" in captured.out
+    assert "jac init [--global] [--yes]" in captured.out
+    assert "Interactive chat shortcuts:" in captured.out
+    assert 'jac "explain this repo"' not in captured.out
 
 
 def test_init_global_creates_user_workspace(

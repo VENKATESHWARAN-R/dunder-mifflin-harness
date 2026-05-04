@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-04 · **Type:** developer documentation
 
 # CLI Layer
 
@@ -20,11 +20,12 @@ Click command group. Entry point for all user-facing commands.
 
 | Command | Behaviour |
 |---|---|
-| `jac [PROMPT]` | One-shot: opens `ChatApp`, calls `coordinator.submit_message(UserMessage(text=PROMPT))`, prints result, exits |
-| `jac chat` | Interactive: opens `ChatApp`, calls `app.run()` (prompt_toolkit loop) |
-| `jac resume [RUN_ID]` | Calls `ChatApp.from_resumed(run_id)`, then `app.run()`. If `RUN_ID` is omitted, resumes the most recent run |
-| `jac init [--global]` | Calls `onboarder.run_wizard(global_scope=...)` — interactive provider and API key setup |
-| `jac doctor` | Calls diagnostics, prints workspace health report |
+| `jac` | Interactive default: opens `ChatApp`, calls `app.run()` (prompt_toolkit loop) |
+| `jac run [PROMPT]` | One-shot: opens coordinator, calls `submit_message(UserMessage(text=PROMPT))`, prints result, exits |
+| `jac chat` | Interactive alias for `jac` (kept for compatibility) |
+| `jac resume RUN_ID` | Calls `ChatApp.from_resumed(run_id)`, then `app.run()` |
+| `jac init [--global]` | Initializes project/global workspace and provider config |
+| `jac doctor` / `jac config` | Prints workspace health diagnostics |
 
 ---
 

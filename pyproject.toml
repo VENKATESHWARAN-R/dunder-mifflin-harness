@@ -1,6 +1,6 @@
 [project]
 name = "jac"
-version = "0.3.2"
+version = "0.3.3"
 description = "JAC — Just Another CLI. A multi-agent dev harness with tier-routed model selection."
 readme = "README.md"
 requires-python = ">=3.13"

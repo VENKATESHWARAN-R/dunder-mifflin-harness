@@ -63,26 +63,58 @@ async def run_prompt(
         await state.close()
 
 
+HELP_TEXT = "Run prompts, interactive chat, and workspace/profile tooling."
+HELP_EPILOG = """\
+\b
+Usage patterns:
+  jac
+  jac run "write tests for parser"
+  jac resume <run-id>
+  jac init [--global] [--yes]
+  jac profile [current|list|use|add]
+  jac doctor
+  jac config
+
+\b
+Interactive chat shortcuts:
+  /help, /model, /tier, /mode, /approval, /params, /context, /cost, /quit
+
+\b
+Runtime override examples:
+  jac --model <name> --mode hitl --approval interactive
+  jac run --model <name> --mode autopilot "summarize this file"
+"""
+
+KNOWN_TOP_LEVEL_COMMANDS = {"run", "chat", "resume", "init", "profile", "doctor", "config"}
+
+
 @click.command(
     context_settings={
         "ignore_unknown_options": True,
         "allow_extra_args": True,
-    }
+    },
+    help=HELP_TEXT,
+    epilog=HELP_EPILOG,
 )
-@click.option("--model", "-m", default=None, help="Override the model name.")
+@click.option(
+    "--model",
+    "-m",
+    default=None,
+    help="Override the model name for this invocation.",
+)
 @click.version_option(version=__version__, prog_name="jac")
 @click.option(
     "--mode",
     type=click.Choice([item.value for item in RunMode]),
     default=None,
-    help="Run mode for interactive sessions.",
+    help="Run mode override (useful with chat/resume).",
 )
 @click.option(
     "--approval",
     "approval_mode",
     type=click.Choice([item.value for item in ApprovalMode]),
     default=None,
-    help="Approval mode for agent-requested actions.",
+    help="Approval mode override for agent-requested actions.",
 )
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 def _command(
@@ -91,7 +123,7 @@ def _command(
     approval_mode: str | None,
     args: tuple[str, ...],
 ) -> None:
-    """Run a prompt or start interactive chat."""
+    """Run a prompt or dispatch CLI subcommands."""
     settings = Settings()
     command_args = list(args)
     if command_args and command_args[0] in {"chat", "run", "resume"}:
@@ -104,19 +136,7 @@ def _command(
         )
         command_args = [command_name, *remaining]
 
-    if command_args and command_args[0] == "init":
-        _run_init(command_args[1:], settings=settings)
-        return
-
-    if command_args and command_args[0] == "profile":
-        _run_profile(command_args[1:], settings=settings)
-        return
-
-    if command_args and command_args[0] in {"doctor", "config"}:
-        click.echo(doctor_report(settings))
-        return
-
-    if command_args and command_args[0] == "chat":
+    if not command_args:
         asyncio.run(
             _run_chat(
                 settings=settings,
@@ -127,7 +147,32 @@ def _command(
         )
         return
 
-    if command_args and command_args[0] == "resume":
+    command = command_args[0]
+
+    if command == "init":
+        _run_init(command_args[1:], settings=settings)
+        return
+
+    if command == "profile":
+        _run_profile(command_args[1:], settings=settings)
+        return
+
+    if command in {"doctor", "config"}:
+        click.echo(doctor_report(settings))
+        return
+
+    if command == "chat":
+        asyncio.run(
+            _run_chat(
+                settings=settings,
+                model=model,
+                mode=mode,
+                approval_mode=approval_mode,
+            )
+        )
+        return
+
+    if command == "resume":
         if len(command_args) < 2:
             raise click.ClickException("Usage: jac resume <run-id>")
         run_id = command_args[1]
@@ -145,23 +190,26 @@ def _command(
             raise click.ClickException(str(exc)) from exc
         return
 
-    if command_args and command_args[0] == "run":
-        command_args = command_args[1:]
-
-    if not command_args:
-        asyncio.run(
-            _run_chat(
-                settings=settings,
-                model=model,
-                mode=mode,
-                approval_mode=approval_mode,
-            )
-        )
-        return
-
-    prompt = " ".join(command_args)
+    if command != "run":
+        raise click.ClickException(_unknown_command_message(command_args))
+    prompt_args = command_args[1:]
+    if not prompt_args:
+        raise click.ClickException('Usage: jac run "<prompt>"')
+    prompt = " ".join(prompt_args)
     output = asyncio.run(run_prompt(prompt, settings=settings, model=model))
     click.echo(output)
+
+
+def _unknown_command_message(args: list[str]) -> str:
+    command = args[0]
+    if command == "list" and len(args) >= 2 and args[1] == "profiles":
+        return 'Unknown command "list profiles". Did you mean `jac profile list`?'
+    known = ", ".join(sorted(KNOWN_TOP_LEVEL_COMMANDS))
+    return (
+        f'Unknown command "{command}". '
+        f"Top-level commands: {known}. "
+        'Use `jac run "<prompt>"` for one-shot prompts.'
+    )
 
 
 async def _run_chat(
