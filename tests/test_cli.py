@@ -139,7 +139,7 @@ def test_resume_unknown_run_id_fails(
     assert "no run with id no-such-run" in captured.err
 
 
-def test_resume_requires_run_id(
+def test_resume_with_no_sessions(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -147,11 +147,12 @@ def test_resume_requires_run_id(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
 
+    # With no prior sessions, resume should fail with a clear message
     exit_code = cli_main(["resume"])
 
     captured = capsys.readouterr()
     assert exit_code != 0
-    assert "Usage: jac resume" in captured.err
+    assert "No prior sessions found" in captured.err
 
 
 def test_cli_prints_version(capsys: pytest.CaptureFixture[str]) -> None:

@@ -45,7 +45,7 @@ class PromptViews:
         for key, value in request.details.items():
             body.append(f"{key}: {value}")
 
-        allowed = {item for item in request.allowed_decisions}
+        allowed = set(request.allowed_decisions)
         options = ["a=approve once", "d=deny"]
         if ApprovalDecision.ALLOW_TOOL_FOR_SESSION in allowed:
             options.append("t=allow tool for session")
@@ -105,6 +105,16 @@ class PromptViews:
             if (choice := _coerce_choice(piece.strip(), option_ids))
         )
         return QuestionResponse(request_id=request.id, answer=answers)
+
+
+    def ask_yn(self, prompt: str) -> bool:
+        """Ask a yes/no question; returns False on interrupt or invalid input."""
+        self.console.print(f"[dim]{prompt} [y/N][/dim]", end=" ")
+        try:
+            raw = self.console.input("")
+        except (EOFError, KeyboardInterrupt):
+            return False
+        return raw.strip().lower() in {"y", "yes"}
 
 
 def _coerce_choice(raw: str, option_ids: list[str]) -> str | None:

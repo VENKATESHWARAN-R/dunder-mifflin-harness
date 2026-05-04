@@ -77,7 +77,9 @@ Usage patterns:
 
 \b
 Interactive chat shortcuts:
-  /help, /model, /tier, /mode, /approval, /params, /context, /cost, /quit
+  /help (/h), /model (/m), /tier (/t), /mode, /approval, /params
+  /context (/x), /cost, /history, /save, /undo, /clear, /quit (/q)
+  @path — attach file · !cmd — run shell · esc+enter — newline · tab — complete
 
 \b
 Runtime override examples:
@@ -181,9 +183,7 @@ def _command(
         return
 
     if command == "resume":
-        if len(command_args) < 2:
-            raise click.ClickException("Usage: jac resume <run-id>")
-        run_id = command_args[1]
+        run_id = command_args[1] if len(command_args) >= 2 else None
         try:
             asyncio.run(
                 _run_resume(
@@ -237,16 +237,29 @@ async def _run_chat(
 
 async def _run_resume(
     *,
-    run_id: str,
+    run_id: str | None,
     settings: Settings,
     model: str | None,
     mode: str | None,
     approval_mode: str | None,
 ) -> None:
+    if run_id is None:
+        workspace = discover_workspace(Path.cwd())
+        from jac.state import open_state_store
+        state = await open_state_store(workspace.state_db_path)
+        try:
+            recent = await state.runs.list_recent(limit=1)
+        finally:
+            await state.close()
+        if not recent:
+            raise LookupError("No prior sessions found.")
+        run_id = recent[0].run_id
+        click.echo(f"Resuming session: {run_id[:12]}…")
+
     app = await ChatApp.from_resumed(run_id, settings=settings)
     _apply_overrides(app, model=model, mode=mode, approval_mode=approval_mode)
     try:
-        await app.run()
+        await app.run_resumed()
     finally:
         await app.aclose()
 

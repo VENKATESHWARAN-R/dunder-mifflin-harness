@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 from jac.cli.commands import SlashCommandRegistry
@@ -17,6 +19,7 @@ from jac.runtime.approvals import (
 from jac.runtime.events import (
     ApprovalRequested,
     EventBus,
+    FileEditPreviewed,
     QuestionRequested,
     ShellCommandCompleted,
     ShellCommandStarted,
@@ -27,6 +30,18 @@ from jac.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
 from jac.state import StateStore, open_state_store, seed_workspace
 from jac.tools.shell import run_shell
 from jac.workspace import discover_workspace
+
+_DESTRUCTIVE_PATTERNS = [
+    re.compile(r"\brm\s+-[a-z]*r[a-z]*f?\b", re.IGNORECASE),
+    re.compile(r"\bgit\s+reset\s+--hard\b", re.IGNORECASE),
+    re.compile(r"\bgit\s+push\b.*--force", re.IGNORECASE),
+    re.compile(r"\bgit\s+clean\s+-[a-z]*f\b", re.IGNORECASE),
+    re.compile(r"\bdrop\s+table\b", re.IGNORECASE),
+    re.compile(r"\btruncate\s+table\b", re.IGNORECASE),
+    re.compile(r"\bdd\s+if=", re.IGNORECASE),
+    re.compile(r"\bmkfs\b", re.IGNORECASE),
+]
+_UNDO_STACK_LIMIT = 20
 
 
 class ChatApp:
@@ -68,9 +83,16 @@ class ChatApp:
             # to the approval wrapper.
             self.coordinator = coordinator
             self.approvals = coordinator.approval_policy
-        self.input = InputSession(self.settings.config_dir / "input_history")
         self.commands = SlashCommandRegistry()
         self._should_exit = False
+        # Undo stack: (path, original_bytes) snapshots captured before file edits
+        self._undo_stack: list[tuple[Path, bytes]] = []
+
+        self.input = InputSession(
+            self.settings.config_dir / "input_history",
+            command_source=lambda: self.commands.descriptions(),
+            session_config_source=lambda: self.session.config,
+        )
 
         self.renderer.wire(self.events)
         self._wire_requests()
@@ -130,12 +152,24 @@ class ChatApp:
             response = self.prompts.ask_question(event.request)
             await self.events.answer_question(response)
 
+        async def on_file_edit_previewed(event: FileEditPreviewed) -> None:
+            path = event.path
+            if path.exists() and path.is_file():
+                try:
+                    original = path.read_bytes()
+                    self._undo_stack.append((path, original))
+                    if len(self._undo_stack) > _UNDO_STACK_LIMIT:
+                        self._undo_stack.pop(0)
+                except OSError:
+                    pass
+
         self.events.on(ApprovalRequested, on_approval)
         self.events.on(QuestionRequested, on_question)
+        self.events.on(FileEditPreviewed, on_file_edit_previewed)
 
     def _register_commands(self) -> None:
         async def help_command(_args: str) -> None:
-            self.renderer.print_value("Slash Commands", self.commands.help_text())
+            self.renderer.print_value("Help", self.commands.help_text())
 
         async def quit_command(_args: str) -> None:
             self._should_exit = True
@@ -155,11 +189,15 @@ class ChatApp:
                 current = self.session.config.tier or "(none)"
                 self.renderer.print_info(f"Current preferred tier: {current}")
                 return
-            try:
-                self.session.config.tier = ModelTier(value)
-            except ValueError:
-                self.renderer.print_error("Tier must be scout, worker, or architect.")
+            valid = [t.value for t in ModelTier]
+            if value not in valid:
+                self.renderer.print_error(
+                    f"Unknown tier: '{value}'\n"
+                    f"Valid options: {', '.join(valid)}\n"
+                    f"Example: /tier worker"
+                )
                 return
+            self.session.config.tier = ModelTier(value)
             self.coordinator.reset_agent()
             self.renderer.print_info(f"Preferred tier set to: {value}")
 
@@ -168,11 +206,15 @@ class ChatApp:
             if not value:
                 self.renderer.print_info(f"Current mode: {self.session.config.mode}")
                 return
-            try:
-                self.session.config.mode = RunMode(value)
-            except ValueError:
-                self.renderer.print_error("Mode must be autopilot or hitl.")
+            valid = [m.value for m in RunMode]
+            if value not in valid:
+                self.renderer.print_error(
+                    f"Unknown mode: '{value}'\n"
+                    f"Valid options: {', '.join(valid)}\n"
+                    f"Example: /mode autopilot"
+                )
                 return
+            self.session.config.mode = RunMode(value)
             self.renderer.print_info(f"Mode set to: {value}")
 
         async def approval_command(args: str) -> None:
@@ -182,13 +224,15 @@ class ChatApp:
                     f"Current approval mode: {self.approvals.mode}"
                 )
                 return
-            try:
-                mode = ApprovalMode(value)
-            except ValueError:
+            valid = [m.value for m in ApprovalMode]
+            if value not in valid:
                 self.renderer.print_error(
-                    "Approval mode must be interactive, auto-edit, or yolo."
+                    f"Unknown approval mode: '{value}'\n"
+                    f"Valid options: {', '.join(valid)}\n"
+                    f"Example: /approval auto-edit"
                 )
                 return
+            mode = ApprovalMode(value)
             self.session.config.approval_mode = mode
             self.approvals.mode = mode
             self.renderer.print_info(f"Approval mode set to: {mode}")
@@ -201,11 +245,19 @@ class ChatApp:
                 )
                 return
             if len(parts) != 2:
-                self.renderer.print_error("Usage: /params <key> <value>")
+                self.renderer.print_error(
+                    "Usage: /params <key> <value>\n"
+                    "Supported keys: temperature, max_tokens\n"
+                    "Example: /params temperature 0.2"
+                )
                 return
             key, value = parts
-            if key not in {"temperature", "max_tokens"}:
-                self.renderer.print_error("Supported params: temperature, max_tokens")
+            valid_keys = {"temperature", "max_tokens"}
+            if key not in valid_keys:
+                self.renderer.print_error(
+                    f"Unknown parameter: '{key}'\n"
+                    f"Supported: {', '.join(sorted(valid_keys))}"
+                )
                 return
             self.session.config.model_params[key] = value
             self.coordinator.reset_agent()
@@ -229,26 +281,149 @@ class ChatApp:
             summary = self.session.latest_cost_summary or "No cost data reported yet."
             self.renderer.print_value("Cost", summary)
 
+        async def clear_command(_args: str) -> None:
+            self.renderer.console.clear()
+
+        async def history_command(args: str) -> None:
+            n = 10
+            stripped = args.strip()
+            if stripped.isdigit():
+                n = int(stripped)
+            if self.state is None:
+                self.renderer.print_info("No state store — history unavailable.")
+                return
+            messages = await self.state.messages.list_for_run(self.session.run_id)
+            self.renderer.render_message_history(messages, n)
+
+        async def save_command(args: str) -> None:
+            filename = args.strip() or f"jac-session-{self.session.run_id[:8]}.md"
+            if self.state is None:
+                self.renderer.print_info("No state store — nothing to save.")
+                return
+            messages = await self.state.messages.list_for_run(self.session.run_id)
+            if not messages:
+                self.renderer.print_info("No messages to save.")
+                return
+            lines = [f"# JAC Session {self.session.run_id[:8]}\n"]
+            for msg in messages:
+                role = msg.role.capitalize()
+                lines.append(f"**{role}:** {msg.content}\n")
+            Path(filename).write_text("\n".join(lines))
+            self.renderer.print_info(f"Session saved to: {filename}")
+
+        async def undo_command(_args: str) -> None:
+            if not self._undo_stack:
+                self.renderer.print_info("Nothing to undo.")
+                return
+            path, original = self._undo_stack.pop()
+            try:
+                path.write_bytes(original)
+                self.renderer.print_info(f"Reverted: {path}")
+            except OSError as exc:
+                self.renderer.print_error(f"Could not revert {path}: {exc}")
+
+        async def capabilities_command(_args: str) -> None:
+            config = self.session.config
+            lines = [
+                f"model:    {config.model or '(from settings)'}",
+                f"tier:     {config.tier or '(from settings)'}",
+                f"mode:     {config.mode}",
+                f"approval: {config.approval_mode}",
+            ]
+            if self.state is not None:
+                agent_cfg = await self.state.agent_configs.get_by_run_and_role(
+                    self.session.run_id, config.role
+                )
+                if agent_cfg:
+                    try:
+                        tools = json.loads(agent_cfg.allowed_tools)
+                        if tools:
+                            lines.append(f"\ntools: {', '.join(tools)}")
+                    except (ValueError, TypeError):
+                        pass
+
+                mcp_rows = await self.state.run_mcp_servers.list_active_for_run(
+                    self.session.run_id
+                )
+                if mcp_rows:
+                    names = [getattr(r, "name", str(r)) for r in mcp_rows]
+                    lines.append(f"mcp: {', '.join(names)}")
+
+                skill_rows = await self.state.run_skills.list_active_for_run(
+                    self.session.run_id
+                )
+                if skill_rows:
+                    names = [getattr(r, "name", str(r)) for r in skill_rows]
+                    lines.append(f"skills: {', '.join(names)}")
+
+            self.renderer.print_value("Capabilities", "\n".join(lines))
+
         self.commands.register("help", help_command, "Show available commands")
         self.commands.register("quit", quit_command, "Exit the chat loop")
-        self.commands.register("model", model_command, "Show or set the active model")
-        self.commands.register("tier", tier_command, "Show or set preferred model tier")
-        self.commands.register("mode", mode_command, "Show or set run mode")
         self.commands.register(
-            "approval", approval_command, "Show or set approval mode"
+            "model", model_command, "Show or set the active model",
+            example="/model claude-sonnet-4-6",
         )
-        self.commands.register("params", params_command, "Show or set model parameters")
+        self.commands.register(
+            "tier", tier_command, "Show or set preferred model tier",
+            example="/tier worker",
+        )
+        self.commands.register(
+            "mode", mode_command, "Show or set run mode",
+            example="/mode autopilot",
+        )
+        self.commands.register(
+            "approval", approval_command, "Show or set approval mode",
+            example="/approval auto-edit",
+        )
+        self.commands.register(
+            "params", params_command, "Show or set model parameters",
+            example="/params temperature 0.2",
+        )
         self.commands.register("context", context_command, "Show session context")
         self.commands.register("cost", cost_command, "Show current cost summary")
+        self.commands.register("clear", clear_command, "Clear the terminal screen")
+        self.commands.register(
+            "history", history_command, "Show recent messages",
+            example="/history 5",
+        )
+        self.commands.register(
+            "save", save_command, "Save session transcript to a file",
+            example="/save transcript.md",
+        )
+        self.commands.register("undo", undo_command, "Revert the last file edit")
+        self.commands.register(
+            "capabilities", capabilities_command, "Show active tools and configuration"
+        )
+
+        # Short aliases
+        self.commands.alias("h", "help")
+        self.commands.alias("q", "quit")
+        self.commands.alias("m", "model")
+        self.commands.alias("t", "tier")
+        self.commands.alias("x", "context")
+        self.commands.alias("?", "help")
 
     async def run(self) -> None:
         """Run the prompt_toolkit chat loop."""
-        self.renderer.render_welcome()
+        config = self.session.config
+        self.renderer.render_welcome(
+            model=config.model,
+            tier=str(config.tier) if config.tier else None,
+            mode=str(config.mode),
+        )
         while not self._should_exit:
             raw = await self.input.read()
             if raw is None:
                 continue
             await self.handle_input(raw)
+
+    async def run_resumed(self) -> None:
+        """Run after resuming a prior session — shows context preview first."""
+        if self.state is not None:
+            messages = await self.state.messages.list_for_run(self.session.run_id)
+            self.renderer.render_resume_context(messages[-6:])
+        await self.run()
 
     async def handle_input(self, raw: str) -> None:
         """Handle one raw user input."""
@@ -261,8 +436,14 @@ class ChatApp:
         if parsed.kind == ParsedInputKind.EMPTY:
             return
 
-        for warning in parsed.warnings:
-            await self.events.emit(WarningRaised(message=warning.message))
+        # Consolidate attachment warnings into a single message
+        if len(parsed.warnings) == 1:
+            await self.events.emit(WarningRaised(message=parsed.warnings[0].message))
+        elif len(parsed.warnings) > 1:
+            lines = ["Attachment warnings:"]
+            for w in parsed.warnings:
+                lines.append(f"  {w.message}")
+            await self.events.emit(WarningRaised(message="\n".join(lines)))
 
         if parsed.kind == ParsedInputKind.SLASH:
             assert parsed.slash is not None
@@ -271,21 +452,41 @@ class ChatApp:
                 parsed.slash.args,
             )
             if not dispatched:
-                self.renderer.print_error(f"Unknown command: /{parsed.slash.command}")
+                self.renderer.print_error(
+                    f"Unknown command: /{parsed.slash.command}  (try /help)"
+                )
             return
 
         if parsed.kind == ParsedInputKind.SHELL:
             await self._handle_shell(parsed.shell_command or "")
             return
 
-        await self.coordinator.submit_message(
+        await self._submit_message(
             UserMessage(text=parsed.text, attachments=parsed.attachments)
         )
+
+    async def _submit_message(self, message: UserMessage) -> None:
+        """Submit a message to the coordinator with retry-on-failure."""
+        try:
+            await self.coordinator.submit_message(message)
+        except Exception:
+            # RunFailed event already fired and was rendered; offer retry
+            if self.prompts.ask_yn("Retry with the same input?"):
+                try:
+                    await self.coordinator.submit_message(message)
+                except Exception:
+                    pass  # second failure: already shown by RunFailed event
 
     async def _handle_shell(self, command: str) -> None:
         if not command:
             await self.events.emit(WarningRaised(message="empty shell command"))
             return
+
+        if any(p.search(command) for p in _DESTRUCTIVE_PATTERNS):
+            self.renderer.print_warning(f"Potentially destructive command: {command}")
+            if not self.prompts.ask_yn("Run anyway?"):
+                self.renderer.print_info("Cancelled.")
+                return
 
         await self.events.emit(
             ShellCommandStarted(

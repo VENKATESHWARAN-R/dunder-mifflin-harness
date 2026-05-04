@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
+from rich.table import Table
 
 from jac import __version__
 from jac.runtime.events import (
@@ -126,7 +127,7 @@ class Renderer:
         )
 
     async def _on_cost_updated(self, event: CostUpdated) -> None:
-        self.console.print(Panel(event.summary, title="Cost", border_style="green"))
+        self.console.print(f"[dim]  ↳ {event.summary}[/dim]")
 
     async def _on_warning(self, event: WarningRaised) -> None:
         self.console.print(f"[yellow]warning:[/yellow] {event.message}")
@@ -148,14 +149,61 @@ class Renderer:
         if text.strip():
             self.console.print(Markdown(text))
 
-    def render_welcome(self) -> None:
-        """Display the chat welcome text."""
+    def render_welcome(self, model: str | None = None, tier: str | None = None, mode: str | None = None) -> None:
+        """Display the chat welcome text with current session config."""
         self.console.print()
         self.console.print(
             f"[bold cyan]JAC[/bold cyan] [dim]v{__version__} — Just Another CLI[/dim]"
         )
-        self.console.print("[dim]Type /help for commands, /quit to exit.[/dim]")
+        config_parts = [
+            f"model: {model or 'default'}",
+            f"tier: {tier or 'worker'}",
+            f"mode: {mode or 'autopilot'}",
+        ]
+        self.console.print(f"[dim]{' · '.join(config_parts)}[/dim]")
+        self.console.print("[dim]Type a message to start · /help for commands · ctrl+d to exit[/dim]")
         self.console.print()
+
+    def render_resume_context(self, messages: list[Any]) -> None:
+        """Show a compact preview of recent messages when resuming a session."""
+        if not messages:
+            return
+        self.console.print("[dim]— resuming session —[/dim]")
+        self.console.print()
+        for msg in messages:
+            role = getattr(msg, "role", "?")
+            content = getattr(msg, "content", "")
+            if role == "user":
+                prefix = "[bold green]you[/bold green]"
+            else:
+                prefix = "[bold cyan]jac[/bold cyan]"
+            preview = content[:300].replace("\n", " ")
+            if len(content) > 300:
+                preview += "…"
+            self.console.print(f"{prefix}: {preview}")
+        self.console.print()
+
+    def render_message_history(self, messages: list[Any], n: int) -> None:
+        """Render last n messages from session history."""
+        shown = messages[-n:] if len(messages) > n else messages
+        if not shown:
+            self.console.print("[dim]No messages yet.[/dim]")
+            return
+
+        table = Table(show_header=False, box=None, padding=(0, 1))
+        table.add_column(style="bold", width=5)
+        table.add_column()
+
+        for msg in shown:
+            role = getattr(msg, "role", "?")
+            content = getattr(msg, "content", "")
+            preview = content[:200].replace("\n", " ")
+            if len(content) > 200:
+                preview += "…"
+            style = "green" if role == "user" else "cyan"
+            table.add_row(f"[{style}]{role}[/{style}]", preview)
+
+        self.console.print(table)
 
     def print_info(self, message: str) -> None:
         """Print informational text."""
