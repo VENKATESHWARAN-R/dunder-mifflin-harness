@@ -71,6 +71,8 @@ Every `docs/*` file has a status header:
 
 Full doc index: [`docs/README.md`](docs/README.md). Locked contracts in `docs/contracts/`, stable narratives in `docs/reference/`, layer deep-dives in `docs/dev/`.
 
+**Product changes → docs:** When you add, update, or remove meaningful behavior or surface area (CLI, runtime, agents, tools, config, schema), keep documentation in step: the relevant **contracts**, **reference** pages, **`docs/dev/<layer>.md`** when a layer changes, **`docs/README.md`** when the index needs a new row, and **`docs/ROADMAP.md`** when shipped status, scope, or the living component plan changes. See **Developer Docs**, **Where to Put a New X**, and **Working Rules** below. Trivial internal-only fixes with no user-visible or architectural impact can skip doc churn.
+
 ## Where to Put a New X
 
 | New thing | Path | Required reading |
