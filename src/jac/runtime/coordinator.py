@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import logfire
+from logfire.exceptions import LogfireConfigError
 from pydantic_ai import Agent
 from pydantic_ai.messages import (
     ModelMessage,
@@ -22,6 +23,7 @@ from jac.runtime.events import (
     RunCompleted,
     RunFailed,
     RunStarted,
+    WarningRaised,
 )
 from jac.runtime.models import build_pydantic_model
 from jac.runtime.session import SessionState
@@ -174,12 +176,20 @@ class RunCoordinator:
         self._message_history = list(history)
         self._run_persisted = True
 
-    def _configure_observability(self) -> None:
+    def _configure_observability(self) -> str | None:
         if self._logfire_configured:
-            return
-        logfire.configure()
-        logfire.instrument_pydantic_ai()
+            return None
+        try:
+            logfire.configure(send_to_logfire="if-token-present")
+            logfire.instrument_pydantic_ai()
+        except (LogfireConfigError, RuntimeError) as exc:
+            self._logfire_configured = True
+            return (
+                "Observability is disabled for this session because Logfire "
+                f"configuration failed: {exc}"
+            )
         self._logfire_configured = True
+        return None
 
     async def _ensure_run_persisted(self, prompt: str) -> None:
         if self._run_persisted or self.state is None:
@@ -204,7 +214,9 @@ class RunCoordinator:
 
         scott_attempt_id: str | None = None
         try:
-            self._configure_observability()
+            warning_message = self._configure_observability()
+            if warning_message:
+                await self.events.emit(WarningRaised(message=warning_message))
             agent = await self._ensure_agent()
             if self.state is not None:
                 tier = str(self.session.config.tier or self.settings.default_tier)

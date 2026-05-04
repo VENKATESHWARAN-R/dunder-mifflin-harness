@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from pydantic_ai import Agent
@@ -11,6 +12,7 @@ from pydantic_ai.models.test import TestModel
 
 from jac.config import Settings
 from jac.runtime.coordinator import RunCoordinator, UserMessage, resume_run
+from jac.runtime.events import WarningRaised
 from jac.runtime.session import SessionState
 from jac.state import open_state_store
 
@@ -104,7 +106,7 @@ def test_resume_unknown_run_raises(tmp_path: Path) -> None:
         asyncio.run(scenario())
 
 
-def test_coordinator_without_state_still_works(tmp_path: Path) -> None:
+def test_coordinator_without_state_still_works() -> None:
     async def scenario():
         settings = Settings()
         coordinator = RunCoordinator(settings=settings, session=SessionState())
@@ -113,3 +115,27 @@ def test_coordinator_without_state_still_works(tmp_path: Path) -> None:
 
     output = asyncio.run(scenario())
     assert output == "ok"
+
+
+def test_coordinator_continues_when_logfire_config_fails() -> None:
+    async def scenario():
+        settings = Settings()
+        coordinator = RunCoordinator(settings=settings, session=SessionState())
+        coordinator._agent = Agent(TestModel(custom_output_text="ok"), output_type=str)
+        warnings: list[str] = []
+
+        async def capture_warning(event: WarningRaised) -> None:
+            warnings.append(event.message)
+
+        coordinator.events.on(WarningRaised, capture_warning)
+        with patch(
+            "jac.runtime.coordinator.logfire.configure",
+            side_effect=RuntimeError("no auth"),
+        ):
+            output = await coordinator.submit_message(UserMessage(text="ping"))
+        return output, warnings
+
+    output, warnings = asyncio.run(scenario())
+    assert output == "ok"
+    assert len(warnings) == 1
+    assert "Observability is disabled for this session" in warnings[0]

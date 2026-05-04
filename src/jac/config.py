@@ -99,7 +99,6 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
             "scout": ("anthropic:claude-haiku-4-5",),
             "worker": (
                 "anthropic:claude-sonnet-4-6",
-                "anthropic:claude-mythos-preview",
             ),
             "architect": ("anthropic:claude-opus-4-6",),
         },
@@ -130,8 +129,8 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         label="Ollama",
         tier_defaults={
             "scout": ("ollama:gemma4:31b-cloud",),
-            "worker": ("ollama:kimi-k2.6:cloud",),
-            "architect": ("ollama:qwen3.5:397b-cloud",),
+            "worker": ("ollama:qwen3.5:397b-cloud",),
+            "architect": ("ollama:kimi-k2.6:cloud",),
         },
         env=(
             EnvRequirement(
@@ -154,8 +153,8 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         label="OpenRouter",
         tier_defaults={
             "scout": ("openrouter:google/gemini-3-flash-preview",),
-            "worker": ("openrouter:anthropic/claude-sonnet-4-5",),
-            "architect": ("openrouter:anthropic/claude-opus-4-5",),
+            "worker": ("openrouter:anthropic/claude-sonnet-4-6",),
+            "architect": ("openrouter:anthropic/claude-opus-4-6",),
         },
         env=(EnvRequirement("OPENROUTER_API_KEY", "OpenRouter API key"),),
         custom_models=True,

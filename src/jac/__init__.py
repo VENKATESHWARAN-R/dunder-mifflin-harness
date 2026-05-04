@@ -7,7 +7,7 @@ __all__ = ["__version__", "build_agent"]
 try:
     __version__ = version("jac")
 except PackageNotFoundError:
-    __version__ = "0.3.1"
+    __version__ = "0.3.2"
 
 
 def __getattr__(name: str) -> object:
