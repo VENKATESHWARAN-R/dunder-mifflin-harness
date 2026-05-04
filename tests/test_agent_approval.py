@@ -352,3 +352,94 @@ def test_edit_file_compute_error_short_circuits_without_gate(tmp_path: Path) -> 
     # approve, so the wrapper short-circuits before prompting.
     assert result.status == ToolStatus.NOT_FOUND
     assert called is False
+
+
+# ---------------------------------------------------------------------------
+# REDIRECT decision: tool not executed; feedback returned as tool result
+# ---------------------------------------------------------------------------
+
+
+class _RedirectProbe:
+    """Replies to every ApprovalRequested with a REDIRECT decision carrying a
+    specific feedback message."""
+
+    def __init__(self, events: EventBus, redirect_message: str) -> None:
+        self.events = events
+        self.redirect_message = redirect_message
+        self.requests: list[ApprovalRequest] = []
+        events.on(ApprovalRequested, self._on_request)
+
+    async def _on_request(self, event: ApprovalRequested) -> None:
+        self.requests.append(event.request)
+        await self.events.resolve_approval(
+            ApprovalResponse(
+                request_id=event.request.id,
+                decision=ApprovalDecision.REDIRECT,
+                redirect_message=self.redirect_message,
+            )
+        )
+
+
+def test_redirect_skips_execution_and_returns_feedback(tmp_path: Path) -> None:
+    target = tmp_path / "out.py"
+
+    async def scenario():
+        events = EventBus()
+        policy = ApprovalPolicy(mode=ApprovalMode.INTERACTIVE)
+        probe = _RedirectProbe(events, "use append mode instead of overwrite")
+        wrapped = make_approval_wrapper(write_file, events, policy)
+
+        result = await wrapped(path=str(target), content="print('hi')\n")
+        return probe.requests, result
+
+    requests, result = _run(scenario())
+    assert len(requests) == 1
+    # Tool must NOT have executed
+    assert not target.exists()
+    # Result carries the user's feedback for the model
+    assert result.status == ToolStatus.PERMISSION_DENIED
+    assert "use append mode instead of overwrite" in result.error
+
+
+def test_redirect_without_message_returns_generic_feedback(tmp_path: Path) -> None:
+    target = tmp_path / "out.py"
+
+    async def scenario():
+        events = EventBus()
+        policy = ApprovalPolicy(mode=ApprovalMode.INTERACTIVE)
+        # redirect_message omitted → wrapper fills in a generic message
+        events_bus = events
+
+        async def _on_request(event: ApprovalRequested) -> None:
+            await events_bus.resolve_approval(
+                ApprovalResponse(
+                    request_id=event.request.id,
+                    decision=ApprovalDecision.REDIRECT,
+                )
+            )
+
+        events.on(ApprovalRequested, _on_request)
+        wrapped = make_approval_wrapper(write_file, events, policy)
+        result = await wrapped(path=str(target), content="x")
+        return result
+
+    result = _run(scenario())
+    assert not target.exists()
+    assert result.status == ToolStatus.PERMISSION_DENIED
+    assert "adjust" in result.error.lower() or "feedback" in result.error.lower()
+
+
+def test_redirect_on_shell_tool_skips_execution() -> None:
+    async def scenario():
+        events = EventBus()
+        policy = ApprovalPolicy(mode=ApprovalMode.INTERACTIVE)
+        probe = _RedirectProbe(events, "use tail -20 instead")
+        wrapped = make_approval_wrapper(run_shell, events, policy)
+
+        result = await wrapped(command="cat huge_file.log")
+        return probe.requests, result
+
+    requests, result = _run(scenario())
+    assert len(requests) == 1
+    assert result.status == ToolStatus.PERMISSION_DENIED
+    assert "tail -20" in result.error

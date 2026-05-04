@@ -1,6 +1,6 @@
 # CLI Design
 
-> **Status:** Locked · **Last revised:** 2026-05-03 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-04 · **Type:** contract
 
 ## Purpose
 
@@ -11,7 +11,7 @@ The backend owns agent behavior, workflow routing, tool execution, model selecti
 ## Library Roles
 
 - Click owns process-level entrypoints, options, exit codes, and script integration.
-- prompt_toolkit owns interactive input, history, multiline behavior, and future completions.
+- prompt_toolkit owns interactive input, history (with deduplication), multiline behavior, tab completions, bottom toolbar, and key bindings.
 - Rich owns terminal rendering for agent text, tool activity, file diffs, shell output, warnings, and summaries.
 
 Textual is intentionally out of scope for now. A full TUI would add surface area before the runtime is mature enough to benefit from it.
@@ -31,14 +31,14 @@ These should not share a yes/no primitive.
 
 ## Entrypoints
 
-Initial command surface:
+Command surface:
 
-- `jac "say hi"` runs a one-shot prompt.
-- `jac chat` starts the interactive REPL.
-- `jac run --mode autopilot|hitl "task"` is the future workflow-oriented shape.
-- `jac resume <run-id>` is reserved for persistent runs.
-- `jac config` is reserved for resolved non-secret settings.
-- `jac profile list|current|use|add` manages named provider/model profiles.
+- `jac "say hi"` / `jac run "say hi"` — one-shot prompt.
+- `jac` / `jac chat` — interactive REPL.
+- `jac resume [run-id]` — resume a prior session. When `run-id` is omitted, the most-recent session is selected automatically.
+- `jac init [--global]` — initialise project or global workspace.
+- `jac profile list|current|use|add` — manage named provider/model profiles.
+- `jac doctor` / `jac config` — resolved settings diagnostics.
 
 Until graph workflows exist, one-shot and chat mode use the same runtime coordinator around the current Pydantic AI agent.
 
@@ -66,7 +66,8 @@ Rules:
 - `@path` and `@"path with spaces"` are supported.
 - Email-style `name@example.com` is not treated as a file reference.
 - Relative paths resolve from the session cwd.
-- Directories, binary files, unreadable files, and oversized files become visible warnings.
+- Directories, binary files, unreadable files, and oversized files become warnings.
+- Multiple attachment warnings are consolidated into a single block rather than scattered inline.
 
 Shell commands run only when the trimmed input starts with `!`.
 
@@ -79,22 +80,43 @@ Rules:
 - Inline `!` inside a normal prompt is not expanded.
 - User-typed shell commands do not invoke the model automatically.
 - Agent-requested shell commands must go through the approval layer unless the current policy auto-approves them.
+- User-typed shell commands that match a list of destructive patterns (e.g. `rm -rf`, `git reset --hard`, `git push --force`, `DROP TABLE`) require an explicit confirmation before running.
 
 ## Slash Commands
 
-The first practical command set is intentionally small:
+Full command set:
 
-- `/help`: list available commands.
-- `/quit`: exit the chat loop.
-- `/model [model-id]`: show or set the session model override.
-- `/tier [scout|worker|architect]`: show or set the preferred model tier.
-- `/mode [autopilot|hitl]`: show or set session mode before a run.
-- `/approval [interactive|auto-edit|yolo]`: show or set approval policy.
-- `/params [key value]`: show or set safe model parameters.
-- `/context`: show current cwd and attached context summary.
-- `/cost`: show current run cost summary when the runtime reports one.
+| Command | Effect |
+|---|---|
+| `/help` (alias `/h`, `/?`) | List all commands with descriptions, examples, and keyboard shortcuts |
+| `/quit` (alias `/q`) | Exit the chat loop |
+| `/model [id]` (alias `/m`) | Show or set the session model override |
+| `/tier [scout\|worker\|architect]` (alias `/t`) | Show or set preferred model tier |
+| `/mode [autopilot\|hitl]` | Show or set session run mode |
+| `/approval [interactive\|auto-edit\|yolo]` | Show or set approval policy |
+| `/params [key value]` | Show or set model parameters (`temperature`, `max_tokens`) |
+| `/context` (alias `/x`) | Show run ID, cwd, message count, and attached files |
+| `/cost` | Show current run cost summary |
+| `/history [n]` | Show last `n` messages from the session (default: 10) |
+| `/save [file]` | Export session transcript as Markdown |
+| `/undo` | Revert the last file edit applied during this session |
+| `/clear` | Clear the terminal screen (session state unchanged) |
+| `/capabilities` | Show active model, tier, mode, approval policy, tools, MCP servers, and skills |
+
+Aliases are single-letter shortcuts for the most common commands. All slash commands mutate `SessionConfig` or local session state — none send data to the model directly.
 
 Avoid cosmetic commands until the backend has enough behavior to justify them.
+
+## Input Completion and Navigation
+
+The prompt_toolkit session provides:
+
+- **Tab completion** for slash command names (with one-line description), slash command arguments (`/tier`, `/mode`, `/approval`, `/params`), and `@`-prefixed file paths.
+- **Reverse history search** via Ctrl+R (prompt_toolkit default emacs binding).
+- **Multiline input** via Esc+Enter.
+- **Bottom toolbar** showing the current `model · tier · mode · approval` at all times.
+- **Placeholder hint** `(esc+enter for newline)` when the input buffer is empty.
+- **History deduplication**: consecutive identical entries are not written to disk.
 
 ## Approval Semantics
 
@@ -109,12 +131,22 @@ Approval requests include:
 - optional tool name
 - optional exact action key
 
-Initial responses:
+Responses:
 
-- `approve_once`: allow this action once.
-- `deny`: deny this action.
-- `allow_tool_for_session`: allow this tool for the session.
-- `allow_exact_for_session`: allow this exact action for the session.
+- `approve_once` — allow this action once.
+- `deny` — deny this action.
+- `allow_tool_for_session` — allow this tool for the remainder of the session.
+- `allow_exact_for_session` — allow this exact action for the remainder of the session.
+- `redirect` — deny execution but return the user's feedback message as the tool result so the model can adjust its approach and retry without prompting again.
+
+The approval prompt uses a prompt_toolkit `PromptSession` with:
+
+- Arrow keys (↑/↓) or Ctrl+P/N to navigate the option list.
+- Enter to confirm the highlighted option.
+- Single-letter shortcuts (`a`, `d`, `r`, `t`, `e`) to select directly without Enter.
+- Ctrl+C or Ctrl+D defaults to deny.
+
+When `redirect` is selected, a second prompt collects the feedback text before returning.
 
 Interrupted or invalid approval prompts default to deny.
 
@@ -142,9 +174,15 @@ Use Rich for clarity, not decoration.
 - Show shell commands with cwd, timeout, exit code, stdout, and stderr.
 - Truncate large outputs with head and tail preserved.
 - Show warnings without stopping the run unless the runtime says the run failed.
-- Show cost summaries at run end, `/cost`, or model escalation.
+- Show cost summaries inline as a compact one-liner (`↳ N tok · $X.XXXX`).
+- Machine-readable output should stay separate from interactive rendering.
 
-Machine-readable output should stay separate from interactive rendering.
+## Safety Behaviours
+
+- **Destructive shell detection**: user-typed `!` commands matching known destructive patterns prompt for confirmation before execution.
+- **File edit undo**: `ChatApp` maintains an in-memory undo stack (up to 20 entries). `FileEditPreviewed` events snapshot the original file bytes before any write. `/undo` restores from the stack.
+- **Retry on failure**: when `RunFailed` fires, the CLI offers "Retry? [y/N]" before returning to the prompt.
+- **Resume context preview**: `jac resume` shows the last three turn pairs from the prior session before entering the loop.
 
 ## Extension Checklist
 

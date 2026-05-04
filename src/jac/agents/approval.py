@@ -28,6 +28,7 @@ from typing import Any
 
 from jac.runtime.approvals import (
     ApprovalActionKind,
+    ApprovalDecision,
     ApprovalPolicy,
     ApprovalRequest,
     ApprovalResponse,
@@ -90,6 +91,9 @@ def make_approval_wrapper(fn: Any, events: EventBus, policy: ApprovalPolicy) -> 
         if response is None:
             response = await events.request_approval(request)
         policy.record_response(request, response)
+
+        if response.decision == ApprovalDecision.REDIRECT:
+            return _redirect_result(return_type, response, fn.__name__)
 
         if not response.approved:
             return _denial_result(return_type, response, fn.__name__)
@@ -218,6 +222,22 @@ def _denial_result(
     if issubclass(return_type, ToolResult):
         return return_type(status=ToolStatus.PERMISSION_DENIED, error=error)
     return ToolResult(status=ToolStatus.PERMISSION_DENIED, error=error)
+
+
+def _redirect_result(
+    return_type: type, response: ApprovalResponse, tool_name: str
+) -> Any:
+    """Return user feedback as the tool result so the model adjusts and retries.
+
+    Unlike a plain denial, REDIRECT gives the model a concrete instruction
+    to act on. The model sees this as the tool's output and can issue a
+    revised tool call without any additional user prompt.
+    """
+    feedback = response.redirect_message or "Please adjust your approach and try again."
+    message = f"[User feedback] {feedback}"
+    if issubclass(return_type, ToolResult):
+        return return_type(status=ToolStatus.PERMISSION_DENIED, error=message)
+    return ToolResult(status=ToolStatus.PERMISSION_DENIED, error=message)
 
 
 def _path_from_result_or_kwargs(

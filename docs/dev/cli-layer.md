@@ -20,11 +20,11 @@ Click command group. Entry point for all user-facing commands.
 
 | Command | Behaviour |
 |---|---|
-| `jac` | Interactive default: opens `ChatApp`, calls `app.run()` (prompt_toolkit loop) |
-| `jac run [PROMPT]` | One-shot: opens coordinator, calls `submit_message(UserMessage(text=PROMPT))`, prints result, exits |
-| `jac chat` | Interactive alias for `jac` (kept for compatibility) |
-| `jac resume RUN_ID` | Calls `ChatApp.from_resumed(run_id)`, then `app.run()` |
-| `jac init [--global]` | Initializes project/global workspace and provider config |
+| `jac` | Interactive default: opens `ChatApp`, calls `app.run()` |
+| `jac run [PROMPT]` | One-shot: opens coordinator, calls `submit_message`, prints result, exits |
+| `jac chat` | Interactive alias for `jac` |
+| `jac resume [RUN_ID]` | Calls `ChatApp.from_resumed(run_id)`, then `app.run_resumed()`. If `RUN_ID` is omitted, queries `state.runs.list_recent(limit=1)` and resumes the most-recent session. |
+| `jac init [--global]` | Initialises project/global workspace and provider config |
 | `jac doctor` / `jac config` | Prints workspace health diagnostics |
 
 ---
@@ -33,40 +33,44 @@ Click command group. Entry point for all user-facing commands.
 
 Composition root for the interactive session. Owns the lifecycle of all session-scoped objects.
 
-**`ChatApp.open(settings, workspace)`** — factory method for new sessions:
-1. Calls `open_state_store(workspace.state_db_path)` to get `StateStore`
-2. Calls `seed_workspace(workspace, state)` to upsert skills + MCP servers from disk
-3. Creates `SessionState` with a new `run_id`
-4. Creates `RunCoordinator(settings, state, session, events)`
-5. Wires `EventBus` → `Renderer`
-6. Registers all slash commands
+**`ChatApp.open(settings)`** — factory for new sessions:
+1. Opens `StateStore` and seeds workspace
+2. Creates `SessionState` and `RunCoordinator`
+3. Creates `InputSession` with `command_source` and `session_config_source` lambdas (feeds completions and toolbar)
+4. Wires `EventBus` → `Renderer`
+5. Subscribes `FileEditPreviewed` to snapshot files onto `_undo_stack` before each edit
+6. Registers all slash commands and aliases
 
-**`ChatApp.from_resumed(run_id, settings, workspace)`** — factory method for resumed sessions:
-1. Opens `StateStore` as above
+**`ChatApp.from_resumed(run_id, settings)`** — factory for resumed sessions:
+1. Opens `StateStore`
 2. Calls `resume_run(state, settings, run_id)` to reconstruct the coordinator with message history
-3. Wires renderer and slash commands as above
+3. Wires renderer and commands as above
 
-**`app.run()`** — the prompt_toolkit event loop:
-1. Shows the `run_id` at session start
-2. Reads a line from `InputSession`
-3. Calls `handle_input(raw_text)`
-4. Loops until `/quit` or EOF
+**`app.run()`**:
+1. Calls `renderer.render_welcome(model, tier, mode)` — shows config inline
+2. Reads from `InputSession` in a loop until `_should_exit`
+
+**`app.run_resumed()`**:
+1. Loads last 6 messages from DB and calls `renderer.render_resume_context(messages)` — shows context preview
+2. Calls `app.run()`
 
 **`handle_input(raw_text)`**:
-1. Calls `parse_input(raw_text, cwd, max_attachment_bytes)` → `ParsedInput`
-2. Dispatches based on kind:
-   - `EMPTY` → ignore
-   - `SLASH` → `slash_registry.dispatch(command, args)`
-   - `SHELL` → runs subprocess inline via `subprocess.run`, prints output to terminal (not sent to model)
-   - `PLAIN` → calls `await coordinator.submit_message(UserMessage(text=..., attachments=...))`
+1. Parses via `parse_input()`
+2. `EMPTY` → ignore
+3. Multiple attachment warnings → consolidated into one `WarningRaised` event
+4. `SLASH` → `commands.dispatch(command, args)`. Unknown command shows `(try /help)` hint
+5. `SHELL` → destructive pattern check, optional confirm, then `_handle_shell()`
+6. `PLAIN` → `_submit_message(UserMessage(...))` with retry-on-failure
+
+**`_submit_message(message)`**: wraps `coordinator.submit_message()` in try/except. If it raises (i.e. `RunFailed` fired), offers `ask_yn("Retry?")` and re-submits once.
+
+**`_undo_stack`**: `list[tuple[Path, bytes]]` capped at 20 entries. Populated by the `FileEditPreviewed` handler reading the file before the edit lands.
 
 ---
 
 ## Input parsing (`src/jac/cli/parser.py`)
 
 `parse_input(text: str, cwd: Path, max_attachment_bytes: int) -> ParsedInput`
-
-Parses raw user input into one of four kinds:
 
 | Kind | Trigger | Result |
 |---|---|---|
@@ -75,64 +79,101 @@ Parses raw user input into one of four kinds:
 | `SHELL` | Starts with `!` | `ParsedInput(kind=SHELL, shell_command=str)` |
 | `PLAIN` | Everything else | `ParsedInput(kind=PLAIN, text=str, attachments=[...], warnings=[...])` |
 
-For `PLAIN` input, the parser scans for `@path` and `@"path with spaces"` tokens. Each matched path is resolved relative to `cwd` and read. Successful reads produce `FileAttachment(path, content)` objects appended after the user text. Files exceeding `max_attachment_bytes` or that cannot be read produce `AttachmentWarning` objects instead.
+`@path` and `@"path with spaces"` tokens are resolved relative to `cwd`. Failures produce `AttachmentWarning` objects. `ChatApp` consolidates multiple warnings into a single `WarningRaised` emission.
 
 ---
 
 ## Slash command registry (`src/jac/cli/commands.py`)
 
-`SlashCommandRegistry` maps command names to `SlashCommand(name, handler, description)` objects. Handlers are `async def (args: str) -> None`.
+`SlashCommandRegistry` maps command names → `SlashCommand(name, handler, description, example)`.
+
+Aliases are stored in `_aliases: dict[str, str]`. `dispatch(name, args)` resolves aliases before returning `False` for unknown commands.
+
+`descriptions() -> dict[str, str]` returns `{name: description}` for the tab completer.
+
+`help_text()` returns the full formatted help including examples, alias table, keyboard shortcuts, and input prefix reference.
 
 All registered commands:
 
-| Command | Effect |
-|---|---|
-| `/help` | Prints all registered commands and descriptions |
-| `/quit` | Sets a stop flag; `app.run()` exits the loop |
-| `/model [name]` | With no args: prints current model string. With `name`: sets `session.config.model = name`, calls `coordinator.reset_agent()` |
-| `/tier [scout\|worker\|architect]` | With no args: prints current tier. With arg: sets `session.config.tier`, calls `coordinator.reset_agent()` |
-| `/mode [autopilot\|hitl]` | With no args: prints current mode. With arg: sets `session.config.mode` |
-| `/approval [interactive\|auto-edit\|yolo]` | With no args: prints current approval mode. With arg: sets `session.config.approval_mode` |
-| `/params [key value]` | With no args: prints all model params. With `key value`: sets `session.config.model_params[key] = value` (auto-converts to float/int where applicable) |
-| `/context` | Prints: run_id, cwd, attached files, message count |
-| `/cost` | Prints `session.latest_cost_summary` (tokens, estimated cost) |
+| Command | Aliases | Effect |
+|---|---|---|
+| `/help` | `/h`, `/?` | Print full help text |
+| `/quit` | `/q` | Set `_should_exit = True` |
+| `/model [id]` | `/m` | Show or set `session.config.model`; resets agent |
+| `/tier [value]` | `/t` | Show or set `session.config.tier` (scout/worker/architect); resets agent |
+| `/mode [value]` | — | Show or set `session.config.mode` (autopilot/hitl) |
+| `/approval [value]` | — | Show or set `session.config.approval_mode`; updates `ApprovalPolicy.mode` |
+| `/params [key value]` | — | Show or set `session.config.model_params`; resets agent |
+| `/context` | `/x` | Show run ID, cwd, message count, attached files |
+| `/cost` | — | Show `session.latest_cost_summary` |
+| `/history [n]` | — | Load last `n` messages from DB and call `renderer.render_message_history()` |
+| `/save [file]` | — | Export all messages from DB as Markdown |
+| `/undo` | — | Pop `_undo_stack`, restore original file bytes |
+| `/clear` | — | `console.clear()` |
+| `/capabilities` | — | Show model/tier/mode/approval + allowed_tools/MCP/skills from agent config |
 
-All commands mutate `SessionConfig` or the local approval policy. None send data to the model.
+All validation errors show the invalid value, list valid options, and give an example.
 
 ---
 
 ## Renderer (`src/jac/cli/renderer.py`)
 
-Rich console. Wired to `EventBus` at `ChatApp` construction time. Each subscription maps an event type to a Rich rendering action.
+Rich console. Stateless — no business logic, only presentation. Wired to `EventBus` at construction time.
 
 | Event | Rendering |
 |---|---|
-| `AgentTextDelta` | Writes `e.text` to stdout (streaming, no newline) |
-| `AgentMessageCompleted` | Prints trailing newline; optionally formats final message |
-| `ToolCallRequested` | Prints tool name + formatted args in a dim panel |
-| `ToolCallCompleted` | Prints result summary |
-| `ShellCommandStarted` | Prints `$ <command>` in a panel |
-| `ShellCommandCompleted` | Prints exit code + output in a bordered panel |
-| `FileEditPreviewed` | Renders a syntax-highlighted diff |
-| `FileEditApplied` | Prints confirmation with path |
-| `WarningRaised` | Prints `e.message` in yellow |
+| `AgentTextDelta` | Buffers text in `_stream_buffer` |
+| `AgentMessageCompleted` | Flushes buffer as Markdown; prints newline |
+| `ToolCallRequested` | Flushes buffer; prints tool name + params in cyan panel |
+| `ToolCallCompleted` | Prints result summary (red border on error) |
+| `NodeStarted/Completed/Failed` | Dim/red one-liners |
+| `FileEditPreviewed` | Syntax-highlighted unified diff in yellow panel |
+| `FileEditApplied` | `[green]file edited:[/green] <path>` |
+| `ShellCommandStarted` | Panel with command, cwd, timeout |
+| `ShellCommandCompleted` | Panel with exit code, stdout, stderr |
+| `CostUpdated` | Compact one-liner: `↳ <summary>` in dim |
+| `WarningRaised` | `[yellow]warning:[/yellow] <message>` |
+| `RunFailed` | `[red]run failed:[/red] <message>` |
+| `AgentDelegated` | `→ Handing to <name>…` in dim |
 
-The renderer also exposes direct methods used by slash command handlers:
+Additional methods:
 
-- `renderer.print_error(msg)` — red text
-- `renderer.print_info(msg)` — dim text
-- `renderer.print_value(label, value)` — label: value pair
+- `render_welcome(model, tier, mode)` — banner with version and current config
+- `render_resume_context(messages)` — compact preview of recent messages on session resume
+- `render_message_history(messages, n)` — table of last `n` messages (for `/history`)
+- `print_error / print_info / print_warning / print_value` — direct print helpers
 
 ---
 
 ## PromptViews (`src/jac/cli/prompts.py`)
 
-Handles approval and question prompts inline in the REPL. Called by `ChatApp`'s event handlers:
+Handles approval and yes/no prompts. All methods are **async** and use `prompt_toolkit.PromptSession` internally.
 
-- `ApprovalRequested` → `PromptViews.show_approval_prompt(request)` → renders description and preview → reads y/n from the user → calls `await events.resolve_approval(request.id, approved=answer)`
-- `QuestionRequested` → `PromptViews.show_question_prompt(request)` → renders question and optional choices → reads answer → calls `await events.answer_question(request.id, answer=answer)`
+### `ask_approval(request) → ApprovalResponse`
 
-These methods run synchronously within the prompt_toolkit loop using `PromptSession.prompt()` (a blocking read). The coordinator is suspended waiting on the `asyncio.Future` in `EventBus` until the user responds.
+Interactive approval gate:
+
+1. Renders a Rich panel with the action summary and details.
+2. Prints a static option list (`[a] approve once`, `[d] deny`, `[r] redirect`, etc.).
+3. Opens a `PromptSession` with:
+   - A dynamic message showing the currently highlighted option (`▶ <label>`).
+   - ↑/↓ (or Ctrl+P/N) to navigate.
+   - Enter to confirm the highlighted option.
+   - Single-letter shortcuts that exit immediately without Enter.
+   - Ctrl+C/D defaults to deny.
+4. For `redirect`: opens a second `PromptSession` collecting the feedback text.
+
+Returns an `ApprovalResponse` with one of: `APPROVE_ONCE`, `DENY`, `ALLOW_TOOL_FOR_SESSION`, `ALLOW_EXACT_FOR_SESSION`, or `REDIRECT` (with `redirect_message`).
+
+**REDIRECT in the approval wrapper** (`agents/approval.py`): returns `ToolResult(status=PERMISSION_DENIED, error="[User feedback] <message>")`. The model sees this as the tool's output and can issue a revised tool call without any additional user prompt.
+
+### `ask_yn(prompt) → bool`
+
+Async yes/no prompt via `PromptSession`. `y`/`Y` returns `True`; `n`, Enter, Ctrl+C, Ctrl+D return `False`.
+
+### `ask_question(request) → QuestionResponse`
+
+Synchronous Rich-based question prompt (free-text, single-choice, multi-choice). Uses `console.input()`. Returns a structured `QuestionResponse`.
 
 ---
 
@@ -140,8 +181,20 @@ These methods run synchronously within the prompt_toolkit loop using `PromptSess
 
 prompt_toolkit `PromptSession` wrapper.
 
-- Persistent history file: `~/.jac/input_history`
-- Multi-line support: `Meta+Enter` inserts a newline; `Enter` submits
-- Keyboard shortcuts: `Ctrl+C` cancels the current input (not the session); `Ctrl+D` on an empty line sends EOF to exit
+**History**: `DedupFileHistory` at `~/.jac/input_history`. Skips consecutive duplicate entries.
 
-`InputSession.prompt(session_display)` blocks until the user submits a line or triggers EOF.
+**Completions**: `JacCompleter` (custom `Completer` subclass):
+- On `/`: completes command names with descriptions as `display_meta`.
+- On `/tier `, `/mode `, `/approval `, `/params `: completes valid argument values.
+- On `@`: delegates to `PathCompleter` for file path completion.
+- `complete_while_typing=False` (Tab only, not on every keystroke).
+
+**Toolbar**: `bottom_toolbar` lambda reads from `session_config_source()` and renders `model · tier · mode · approval` on every render cycle.
+
+**Key bindings**: custom `KeyBindings` adds Esc+Enter for multiline. Ctrl+R history search uses prompt_toolkit's default emacs bindings.
+
+**Placeholder**: `(esc+enter for newline)` shown when the buffer is empty.
+
+`InputSession` accepts two optional callables at construction:
+- `command_source: () → dict[str, str]` — fed by `lambda: self.commands.descriptions()` in `ChatApp`.
+- `session_config_source: () → SessionConfig` — fed by `lambda: self.session.config` in `ChatApp`.

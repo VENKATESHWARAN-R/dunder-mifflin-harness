@@ -1,6 +1,9 @@
 # CLI UX Improvements — Implementation Plan
 
-> **Status:** Draft · **Last revised:** 2026-05-04 · **Type:** Implementation Plan
+> **Status:** Implemented · **Last revised:** 2026-05-04 · **Type:** Implementation Plan
+>
+> All batches shipped 2026-05-04. See ROADMAP.md Done → CLI-UX for the full checklist.
+> Arrow-key approval navigation and REDIRECT decision added beyond original scope.
 
 ---
 

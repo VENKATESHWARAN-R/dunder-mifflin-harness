@@ -3,6 +3,7 @@
 > **Status:** Living · **Last revised:** 2026-05-04 · **Type:** component plan, in dependency order
 >
 > _2026-05-04: C5a (tool approval middleware) shipped — see Done section._
+> _2026-05-04: CLI-UX batch shipped — tab completions, toolbar, aliases, new slash commands, arrow-key approvals, REDIRECT decision, undo stack, destructive-shell guard, retry prompt — see Done section._
 
 JAC is built component by component, not slice by slice. Each entry below is a self-contained module with a stable ID (`C0`..`Cn`). Order reflects **dependency**, not calendar — `Cn+1` assumes `Cn` is in place.
 
@@ -1306,6 +1307,26 @@ Worth remembering — decisions, dead ends, tricks that worked.
 ## Done
 
 Move components here when shipped, with the date.
+
+### CLI-UX — Terminal UX improvements (2026-05-04)
+
+Cross-cutting UX pass on `src/jac/cli/`. Not a numbered component — improves the existing C0 foundation.
+
+- [x] **Input layer** (`input.py`): `DedupFileHistory` skips consecutive duplicates; `JacCompleter` completes slash command names (with descriptions), command arguments (`/tier`, `/mode`, `/approval`, `/params`), and `@`-prefixed file paths; `bottom_toolbar` shows `model · tier · mode · approval` live; `(esc+enter for newline)` placeholder; Ctrl+R history search via prompt_toolkit emacs defaults
+- [x] **Slash commands** (`commands.py`): `SlashCommand` gains optional `example` field; `SlashCommandRegistry` gains `alias()` and `descriptions()`; `help_text()` shows examples, aliases, keyboard shortcuts, and input prefix reference
+- [x] **New slash commands** (`app.py`): `/clear`, `/history [n]`, `/save [file]`, `/undo`, `/capabilities`
+- [x] **Aliases**: `/h`→`/help`, `/q`→`/quit`, `/m`→`/model`, `/t`→`/tier`, `/x`→`/context`, `/?`→`/help`
+- [x] **Actionable validation errors**: all slash command handlers show the invalid value, list valid options, and provide an example
+- [x] **Undo stack** (`app.py`): `FileEditPreviewed` handler snapshots files before edits; `/undo` restores from stack (depth 20)
+- [x] **Destructive shell guard** (`app.py`): user `!` commands matching `rm -rf`, `git reset --hard`, `git push --force`, `DROP TABLE`, etc. prompt for confirmation
+- [x] **Retry on failure** (`app.py`): `RunFailed` is caught; `ask_yn("Retry?")` re-submits once
+- [x] **Consolidated attachment warnings** (`app.py`): multiple `@path` failures emitted as a single `WarningRaised` block
+- [x] **Auto-resume** (`main.py`): `jac resume` with no ID selects most-recent run from DB; `run_resumed()` shows a context preview of last 3 turns
+- [x] **Richer welcome banner** (`renderer.py`): shows `model · tier · mode` at session start; `CostUpdated` rendered as compact one-liner instead of full panel; `render_resume_context` and `render_message_history` methods added
+- [x] **REDIRECT approval decision** (`runtime/approvals.py`, `agents/approval.py`, `cli/prompts.py`): new `ApprovalDecision.REDIRECT` with `redirect_message` field on `ApprovalResponse`; approval wrapper returns feedback as tool result so model can adjust and retry; approval prompt is now async with arrow-key navigation; `ask_yn` also async
+- [x] 3 new tests for REDIRECT in `tests/test_agent_approval.py`; all existing tests passing
+
+---
 
 ### C5a — Tool Approval Middleware (2026-05-04)
 

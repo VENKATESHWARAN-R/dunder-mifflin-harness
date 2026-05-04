@@ -144,7 +144,7 @@ class ChatApp:
     def _wire_requests(self) -> None:
         async def on_approval(event: ApprovalRequested) -> None:
             auto_response = self.approvals.auto_response_for(event.request)
-            response = auto_response or self.prompts.ask_approval(event.request)
+            response = auto_response or await self.prompts.ask_approval(event.request)
             self.approvals.record_response(event.request, response)
             await self.events.resolve_approval(response)
 
@@ -471,7 +471,7 @@ class ChatApp:
             await self.coordinator.submit_message(message)
         except Exception:
             # RunFailed event already fired and was rendered; offer retry
-            if self.prompts.ask_yn("Retry with the same input?"):
+            if await self.prompts.ask_yn("Retry with the same input?"):
                 try:
                     await self.coordinator.submit_message(message)
                 except Exception:
@@ -484,7 +484,7 @@ class ChatApp:
 
         if any(p.search(command) for p in _DESTRUCTIVE_PATTERNS):
             self.renderer.print_warning(f"Potentially destructive command: {command}")
-            if not self.prompts.ask_yn("Run anyway?"):
+            if not await self.prompts.ask_yn("Run anyway?"):
                 self.renderer.print_info("Cancelled.")
                 return
 

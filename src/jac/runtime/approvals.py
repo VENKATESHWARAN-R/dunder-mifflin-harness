@@ -41,6 +41,8 @@ class ApprovalDecision(StrEnum):
     DENY = "deny"
     ALLOW_TOOL_FOR_SESSION = "allow_tool_for_session"
     ALLOW_EXACT_FOR_SESSION = "allow_exact_for_session"
+    # Deny execution but route user feedback back to the model so it can adjust.
+    REDIRECT = "redirect"
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +69,9 @@ class ApprovalResponse:
     request_id: str
     decision: ApprovalDecision
     reason: str | None = None
+    # Set when decision == REDIRECT; the message is returned to the model as
+    # the tool result so it can adjust its approach before retrying.
+    redirect_message: str | None = None
 
     @property
     def approved(self) -> bool:
