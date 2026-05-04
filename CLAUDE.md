@@ -6,7 +6,7 @@ This file provides guidance to AI Agents when working with code in this reposito
 
 JAC ("Just Another CLI") is an R&D harness exploring whether a multi-agent system with tiered model routing can match Anthropic's long-running coding harness at 3–5× lower cost. The repo directory is `dunder-mifflin-harness` (a nod to the predecessor project), but the product is **JAC**.
 
-The project is in **early implementation**. C0–C5 have shipped: CLI/runtime foundation, SQLite persistence, workspace + file seeding (`jac init`, `jac doctor`), file tools, shell tools, and the agent factory (`src/jac/agents/`) — the single `pydantic_ai.Agent(...)` construction site. Active DB tables: `runs`, `messages`, `skills`, `mcp_servers`, `agent_configs`, `run_mcp_servers`, `run_skills`. See `docs/ROADMAP.md` for the full component plan and `docs/ROADMAP.md#done` for per-component ship notes.
+The project is in **early implementation**. C0–C5, C5a, and C6 have shipped: CLI/runtime foundation, SQLite persistence, workspace + file seeding (`jac init`, `jac doctor`), file tools, shell tools, the agent factory (`src/jac/agents/`) — the single `pydantic_ai.Agent(...)` construction site — tool approval middleware, and Scott (manager) + Jim (builder) with `summon_jim` delegation and `attempts` call-tree rows. Active DB tables: `runs`, `messages`, `skills`, `mcp_servers`, `agent_configs`, `run_mcp_servers`, `run_skills`, `attempts` (populated for manager/builder turns; token/cost columns filled at C7). See `docs/ROADMAP.md` for the full component plan and `docs/ROADMAP.md#done` for per-component ship notes.
 
 ## Commands
 

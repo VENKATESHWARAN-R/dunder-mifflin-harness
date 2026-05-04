@@ -43,7 +43,7 @@ Every doc starts with a status header so you can tell at a glance where it sits:
 
 | Doc | Purpose |
 |---|---|
-| [ROADMAP.md](ROADMAP.md) | Component plan in dependency order (C0..Cn). C0..C5 done; C6 next. |
+| [ROADMAP.md](ROADMAP.md) | Component plan in dependency order (C0..Cn). C0..C5, C5a, and C6 done; C6b next. |
 
 ## Guide
 

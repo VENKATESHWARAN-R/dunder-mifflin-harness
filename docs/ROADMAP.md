@@ -4,6 +4,7 @@
 >
 > _2026-05-04: C5a (tool approval middleware) shipped — see Done section._
 > _2026-05-04: CLI-UX batch shipped — tab completions, toolbar, aliases, new slash commands, arrow-key approvals, REDIRECT decision, undo stack, destructive-shell guard, retry prompt — see Done section._
+> _2026-05-04: C6 (Scott + Jim, `summon_jim`, `attempts` call tree) shipped — see Done section._
 
 JAC is built component by component, not slice by slice. Each entry below is a self-contained module with a stable ID (`C0`..`Cn`). Order reflects **dependency**, not calendar — `Cn+1` assumes `Cn` is in place.
 
@@ -357,8 +358,9 @@ flow for file writes.
 ### C6 — Scott (Manager) + Jim (Builder)
 
 **Layer:** agents
-**Status:** planned
+**Status:** shipped (2026-05-04)
 **Depends on:** C5a
+**Implementation doc:** [`C6-scott-jim.md`](implementation_docs/C6-scott-jim.md)
 **Brainstorm/contract:** [`lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md`](../lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md), [`IDEA.md`](reference/IDEA.md) §5
 
 The shift away from "every prompt goes through a planner+builder loop." JAC's default agent is **Michael Scott (manager)**, persistent across turns, who tool-routes everything: trivial chat replies stay in Scott; build-shaped prompts get delegated. C6 wires Scott + **Jim Halpert (builder)** through Pydantic AI agent-as-tool delegation. One specialist is enough to prove the manager-specialist primitive end-to-end. Planner, analyst, and evaluator come at C6b/C9.
@@ -1338,6 +1340,20 @@ Cross-cutting UX pass on `src/jac/cli/`. Not a numbered component — improves t
 - [x] `FileEditApplied` emitted post-write for file_write tools; READ_ONLY tools skip the gate entirely
 - [x] 13 new tests in `tests/test_agent_approval.py` covering all approval modes, denial short-circuit, preview-before-write ordering, session-scoped allowances, and compute-error short-circuit
 - [x] Full test suite green (159 passing)
+
+---
+
+### C6 — Scott (Manager) + Jim (Builder) (2026-05-04)
+
+- [x] Migration `002_c6_scott_jim.sql`: `agent_configs` gains `persona`, `display_name`, minion metadata; `attempts` table with `parent_attempt_id` and per-call `role`
+- [x] `src/jac/state/attempts.py` — `AttemptsRepo` (`create`, `update_status`)
+- [x] `src/jac/agents/personas.py` — `PERSONAS`, Scott/Jim system prompts
+- [x] `src/jac/agents/seeds.py` — `ensure_manager_config`, `ensure_builder_config`; `ensure_default_run_config` shims to manager seeding
+- [x] `src/jac/agents/tools.py` — `make_summon_jim_tool`: Jim built via `config_loader`, `AgentDelegated` / `AttemptRecorded` events, Jim attempt row with `parent_attempt_id = session.active_attempt_id`
+- [x] `RunCoordinator` — seeds manager + builder configs per run; `build_agent` attaches `summon_jim` when `session.config.role == "manager"`; `submit_message` creates Scott attempt, sets `active_attempt_id` for the turn
+- [x] Default session role is `manager` (`SessionConfig` / factory defaults); `config_loader` / `AgentConfig` carry persona fields
+- [x] `tests/test_c6_scott_jim.py` — migration, attempts FK, persistence
+- [x] **Deferred to C7:** populate `tokens_in` / `tokens_out` / `cost` / `duration_ms` on `attempts` rows and usage rollup (`ctx.usage`) — schema defaults remain until cost tracking ships
 
 ---
 

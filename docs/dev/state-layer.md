@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-04 · **Type:** developer documentation
 
 # State Layer
 
@@ -50,7 +50,7 @@ All tables are **created** by migration `001_initial.sql`. Not all are populated
 | `run_mcp_servers` | Active (C5) | C5 | Which MCP servers are enabled for a run and role. Fields: `id`, `run_id`, `mcp_server_id`, `agent_role` (NULL = all roles), `enabled`, `toggled_at` |
 | `run_skills` | Active (C5) | C5 | Which skills are enabled for a run and role. Fields: `id`, `run_id`, `skill_id`, `agent_role` (NULL = all roles), `enabled`, `toggled_at` |
 | `tasks` | Inactive | C6+ | Task planning graph. Created but not populated. |
-| `attempts` | Inactive | C6+ | LLM call records (tokens, cost, eval scores). Created but not populated. |
+| `attempts` | Active (C6) | C7 for usage columns | Per-turn / per-delegation rows (manager + builder); `parent_attempt_id` for Jim under Scott. Token, cost, and duration columns populated at **C7**. |
 | `agent_messages` | Inactive | C15 | Agent-to-agent message queue. Created but not populated. |
 | `context_chunks` | Inactive | C6+ | Scoped context per agent role. Created but not populated. |
 
