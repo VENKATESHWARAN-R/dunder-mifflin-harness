@@ -55,9 +55,7 @@ def test_list_active_with_details(tmp_path: Path) -> None:
             await store.run_mcp_servers.create(
                 run_id="run-1", mcp_server_id=server.mcp_server_id
             )
-            rows = await store.run_mcp_servers.list_active_for_run_with_details(
-                "run-1"
-            )
+            rows = await store.run_mcp_servers.list_active_for_run_with_details("run-1")
             return rows
         finally:
             await store.close()

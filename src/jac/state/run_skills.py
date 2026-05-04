@@ -127,9 +127,7 @@ class RunSkillsRepo:
             for r in rows
         ]
 
-    async def toggle(
-        self, row_id: str, *, enabled: int
-    ) -> RunSkillRow | None:
+    async def toggle(self, row_id: str, *, enabled: int) -> RunSkillRow | None:
         now = _now()
         await self._connection.execute(
             """

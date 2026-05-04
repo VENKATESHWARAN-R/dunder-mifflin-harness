@@ -60,7 +60,15 @@ class McpServersRepo:
                     source_scope = ?, source_path = ?, updated_at = ?
                 WHERE mcp_server_id = ?
                 """,
-                (description, transport, config, source_scope, source_path, now, mcp_server_id),
+                (
+                    description,
+                    transport,
+                    config,
+                    source_scope,
+                    source_path,
+                    now,
+                    mcp_server_id,
+                ),
             )
         else:
             mcp_server_id = uuid4().hex
@@ -72,8 +80,17 @@ class McpServersRepo:
                      is_enabled, source_scope, source_path, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
                 """,
-                (mcp_server_id, name, description, transport, config,
-                 source_scope, source_path, now, now),
+                (
+                    mcp_server_id,
+                    name,
+                    description,
+                    transport,
+                    config,
+                    source_scope,
+                    source_path,
+                    now,
+                    now,
+                ),
             )
         await self._connection.commit()
         return McpServerRow(

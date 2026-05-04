@@ -25,7 +25,14 @@ from jac.tools.types import ToolFn
 #   "shell"             — blocking + background execution + process management
 #   "shell:read"        — process inspection only (no execution)
 TOOL_REGISTRY: dict[str, list[ToolFn]] = {
-    "filesystem": [read_file, write_file, edit_file, list_directory, search_files, grep_files],
+    "filesystem": [
+        read_file,
+        write_file,
+        edit_file,
+        list_directory,
+        search_files,
+        grep_files,
+    ],
     "filesystem:read": [read_file, list_directory, search_files, grep_files],
     "shell": [run_shell, run_shell_background, list_processes, read_process_output],
     "shell:read": [list_processes, read_process_output],

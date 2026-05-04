@@ -1,6 +1,8 @@
 # Roadmap — JAC
 
 > **Status:** Living · **Last revised:** 2026-05-04 · **Type:** component plan, in dependency order
+>
+> _2026-05-04: C5a (tool approval middleware) shipped — see Done section._
 
 JAC is built component by component, not slice by slice. Each entry below is a self-contained module with a stable ID (`C0`..`Cn`). Order reflects **dependency**, not calendar — `Cn+1` assumes `Cn` is in place.
 
@@ -316,11 +318,46 @@ flowchart LR
 
 ---
 
+### C5a — Tool Approval Middleware
+
+**Layer:** agents + tools
+**Status:** done (2026-05-04)
+**Depends on:** C5
+**Implementation doc:** [`C5a-tool-approval-middleware.md`](implementation_docs/C5a-tool-approval-middleware.md)
+
+The missing link between local tool execution and the approval system. C3/C4 shipped
+tool implementations with `.approval` metadata and the CLI wired to handle
+`ApprovalRequested` events — but nothing bridges them. Agents currently call tools
+without any gate. This component wraps every non-read-only local tool call with an
+approval check before execution, and adds the `FileEditPreviewed` → approve → apply
+flow for file writes.
+
+**Ships:**
+- `agents/approval.py`: `make_approval_wrapper(fn, events, policy)` — approval-gating
+  decorator that reads `.approval` metadata and calls `events.request_approval()` before
+  each write/shell tool call
+- `edit_file` refactored: compute-diff and apply-write split so preview fires before write
+- `config_loader` passes `ApprovalPolicy` into `_resolve_local_tools`; `RunCoordinator`
+  threads session approval mode through
+- `FileEditPreviewed` emitted before the approval gate for file write/edit tools
+- `FileEditApplied` emitted on successful write
+- Denial returns a `ToolResult(status=ERROR)` so the model receives coherent feedback
+- Tests: interactive approve, interactive deny (file not written), auto-edit shell bypass,
+  read-only gate skip, yolo no-prompt, preview-before-write ordering
+
+**Evaluation:**
+- `jac "write a file called test.py"` → diff preview renders → approval prompt fires → file lands on approve
+- `jac "run ls"` → HIGH-risk approval prompt fires before shell executes
+- `jac --approval yolo "run ls"` → no prompt, immediate execution
+- Denial: file does not exist on disk after deny
+
+---
+
 ### C6 — Scott (Manager) + Jim (Builder)
 
 **Layer:** agents
 **Status:** planned
-**Depends on:** C5
+**Depends on:** C5a
 **Brainstorm/contract:** [`lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md`](../lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md), [`IDEA.md`](reference/IDEA.md) §5
 
 The shift away from "every prompt goes through a planner+builder loop." JAC's default agent is **Michael Scott (manager)**, persistent across turns, who tool-routes everything: trivial chat replies stay in Scott; build-shaped prompts get delegated. C6 wires Scott + **Jim Halpert (builder)** through Pydantic AI agent-as-tool delegation. One specialist is enough to prove the manager-specialist primitive end-to-end. Planner, analyst, and evaluator come at C6b/C9.
@@ -1270,6 +1307,19 @@ Worth remembering — decisions, dead ends, tricks that worked.
 
 Move components here when shipped, with the date.
 
+### C5a — Tool Approval Middleware (2026-05-04)
+
+- [x] `src/jac/agents/approval.py`: `make_approval_wrapper(fn, events, policy)` — preserves `__name__` / `__annotations__` / `__wrapped__` so pydantic_ai schema introspection still works
+- [x] `_resolve_local_tools` in `agents/base.py` wraps every entry from `TOOL_REGISTRY`; `config_loader` accepts a new `approval_policy` kwarg with INTERACTIVE fallback for SDK callers
+- [x] `RunCoordinator` constructs `ApprovalPolicy(mode=session.config.approval_mode)` and threads it through; `ChatApp` shares the same policy instance so `/approval yolo` updates flow through to the wrapper
+- [x] `edit_file` split into `compute_edit` (returns `PreparedEdit | FileEditResult`) and `apply_edit`; `write_file` gains `preview_write` so the wrapper can emit `FileEditPreviewed` before any byte hits disk
+- [x] Denial returns a typed `ToolResult(status=PERMISSION_DENIED)` of the wrapped tool's return type — never raises
+- [x] `FileEditApplied` emitted post-write for file_write tools; READ_ONLY tools skip the gate entirely
+- [x] 13 new tests in `tests/test_agent_approval.py` covering all approval modes, denial short-circuit, preview-before-write ordering, session-scoped allowances, and compute-error short-circuit
+- [x] Full test suite green (159 passing)
+
+---
+
 ### C0 — CLI/Runtime Foundation (2026-04-27)
 
 - [x] `docs/contracts/CLI_DESIGN.md` captures CLI philosophy, input grammar, events, approvals, questions, extension rules
@@ -1288,9 +1338,10 @@ Move components here when shipped, with the date.
 - [x] `tools/types.py`: `ToolResult`, `ToolStatus`, `RiskLevel`, `ToolApprovalMeta`; all filesystem and shell result types
 - [x] `tools/filesystem.py`: `read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`, `grep_files` — each with `ToolApprovalMeta` attached
 - [x] `TOOL_REGISTRY` entries for `filesystem` (full) and `filesystem:read` (read-only subset)
-- [x] `FileEditResult.diff` carries a unified diff so the C5 approval middleware can emit `FileEditPreviewed` without recomputing
+- [x] `FileEditResult.diff` carries a unified diff so the approval middleware can emit `FileEditPreviewed` without recomputing
 - [x] `FileEditPreviewed` / `FileEditApplied` event types defined; renderer subscribed
 - [x] Tests: 28 cases across all 6 tools including approval metadata, error paths, and edge cases
+- [x] Approval gate wired in C5a (2026-05-04)
 
 ---
 
@@ -1316,6 +1367,7 @@ Move components here when shipped, with the date.
 - [x] `ChatApp._handle_shell` emits `ShellCommandStarted` / `ShellCommandCompleted` around `run_shell` — shared rendering path for user `!` commands and future agent tool calls
 - [x] `ShellCommandStarted` / `ShellCommandCompleted` event types defined; renderer subscribed
 - [x] Tests: background process lifecycle (start, list, read output), approval metadata for all 4 functions
+- [x] Approval gate wired in C5a (2026-05-04)
 
 ---
 

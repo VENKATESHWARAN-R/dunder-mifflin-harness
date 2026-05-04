@@ -9,7 +9,9 @@ from typing import Any
 
 from pydantic_ai import Agent
 
+from jac.agents.approval import make_approval_wrapper
 from jac.config import Settings
+from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
 from jac.runtime.events import EventBus, NodeCompleted, NodeStarted
 from jac.runtime.models import build_pydantic_model
 from jac.state import StateStore
@@ -52,22 +54,37 @@ async def config_loader(
     role: str = "manager",
     output_type: type | None = None,
     events: EventBus | None = None,
+    approval_policy: ApprovalPolicy | None = None,
     model_settings: Any = None,
     extra_tools: Sequence[ToolFn] | None = None,
 ) -> Agent:
     """Build a Pydantic AI Agent from persisted config.
 
     This is the only site that calls ``Agent(...)``.
+
+    Local tools resolved from `allowed_tools` are wrapped by the approval
+    middleware (`agents/approval.py`) so every non-read-only call goes
+    through the approval gate before executing. The wrapper requires both
+    `events` and `approval_policy`; when either is absent the loader falls
+    back to a default INTERACTIVE policy and a fresh EventBus so SDK
+    callers without a CLI-side wiring still get a coherent gate.
     """
     if events is not None:
         await events.emit(NodeStarted(node_name="config_loader"))
 
+    effective_events = events if events is not None else EventBus()
+    effective_policy = approval_policy or ApprovalPolicy(mode=ApprovalMode.INTERACTIVE)
+
     cfg = await _load_config(state, run_id, role)
     mcp_toolsets = await _build_mcp_toolsets(state, run_id, role)
-    local_tools = list(_resolve_local_tools(cfg.allowed_tools))
+    local_tools = list(
+        _resolve_local_tools(cfg.allowed_tools, effective_events, effective_policy)
+    )
     if extra_tools:
         local_tools.extend(extra_tools)
-    composed_prompt = await _compose_system_prompt(state, cfg.system_prompt, run_id, role)
+    composed_prompt = await _compose_system_prompt(
+        state, cfg.system_prompt, run_id, role
+    )
 
     selection = settings.resolve_model_selection(
         model_override=cfg.model_override,
@@ -121,9 +138,7 @@ async def _load_config(state: StateStore, run_id: str, role: str) -> AgentConfig
     )
 
 
-async def _build_mcp_toolsets(
-    state: StateStore, run_id: str, role: str
-) -> list[Any]:
+async def _build_mcp_toolsets(state: StateStore, run_id: str, role: str) -> list[Any]:
     from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
 
     servers = await state.run_mcp_servers.list_active_for_run_with_details(
@@ -147,7 +162,11 @@ async def _build_mcp_toolsets(
     return toolsets
 
 
-def _resolve_local_tools(allowed_tools: list[str]) -> list[ToolFn]:
+def _resolve_local_tools(
+    allowed_tools: list[str],
+    events: EventBus,
+    policy: ApprovalPolicy,
+) -> list[ToolFn]:
     local_tools: list[ToolFn] = []
     unknown: list[str] = []
     for name in allowed_tools:
@@ -157,12 +176,13 @@ def _resolve_local_tools(allowed_tools: list[str]) -> list[ToolFn]:
         if tools is None:
             unknown.append(name)
         else:
-            local_tools.extend(tools)
+            local_tools.extend(
+                make_approval_wrapper(fn, events, policy) for fn in tools
+            )
     if unknown:
         known = ", ".join(sorted(TOOL_REGISTRY))
         raise UnknownToolError(
-            f"Unknown tool(s): {', '.join(unknown)}. "
-            f"Known entries: {known}"
+            f"Unknown tool(s): {', '.join(unknown)}. Known entries: {known}"
         )
     return local_tools
 

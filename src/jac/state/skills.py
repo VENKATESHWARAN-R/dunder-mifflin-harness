@@ -62,7 +62,16 @@ class SkillsRepo:
                     source_scope = ?, source_path = ?, updated_at = ?
                 WHERE skill_id = ?
                 """,
-                (description, domain, content, version, source_scope, source_path, now, skill_id),
+                (
+                    description,
+                    domain,
+                    content,
+                    version,
+                    source_scope,
+                    source_path,
+                    now,
+                    skill_id,
+                ),
             )
         else:
             skill_id = uuid4().hex
@@ -74,8 +83,18 @@ class SkillsRepo:
                      is_enabled, source_scope, source_path, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
                 """,
-                (skill_id, name, description, domain, content, version,
-                 source_scope, source_path, now, now),
+                (
+                    skill_id,
+                    name,
+                    description,
+                    domain,
+                    content,
+                    version,
+                    source_scope,
+                    source_path,
+                    now,
+                    now,
+                ),
             )
         await self._connection.commit()
         return SkillRow(
@@ -101,9 +120,7 @@ class SkillsRepo:
         return _skill_from_row(row) if row is not None else None
 
     async def list_all(self) -> list[SkillRow]:
-        cursor = await self._connection.execute(
-            "SELECT * FROM skills ORDER BY name"
-        )
+        cursor = await self._connection.execute("SELECT * FROM skills ORDER BY name")
         rows = await cursor.fetchall()
         await cursor.close()
         return [_skill_from_row(r) for r in rows]

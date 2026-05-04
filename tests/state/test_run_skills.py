@@ -25,9 +25,7 @@ def test_create_and_list_active(tmp_path: Path) -> None:
                 source_scope="seeded",
                 source_path=None,
             )
-            await store.run_skills.create(
-                run_id="run-1", skill_id=skill.skill_id
-            )
+            await store.run_skills.create(run_id="run-1", skill_id=skill.skill_id)
             rows = await store.run_skills.list_active_for_run("run-1")
             return rows
         finally:
@@ -51,9 +49,7 @@ def test_list_active_with_details(tmp_path: Path) -> None:
                 source_scope="seeded",
                 source_path=None,
             )
-            await store.run_skills.create(
-                run_id="run-1", skill_id=skill.skill_id
-            )
+            await store.run_skills.create(run_id="run-1", skill_id=skill.skill_id)
             rows = await store.run_skills.list_active_for_run_with_details("run-1")
             return rows
         finally:
@@ -112,9 +108,7 @@ def test_toggle(tmp_path: Path) -> None:
                 source_scope="seeded",
                 source_path=None,
             )
-            row = await store.run_skills.create(
-                run_id="run-1", skill_id=skill.skill_id
-            )
+            row = await store.run_skills.create(run_id="run-1", skill_id=skill.skill_id)
             assert row.enabled == 1
             updated = await store.run_skills.toggle(row.id, enabled=0)
             assert updated is not None
@@ -158,9 +152,7 @@ def test_ordering_by_domain_and_name(tmp_path: Path) -> None:
                 source_path=None,
             )
             # Insert in reverse order to prove sorting works
-            await store.run_skills.create(
-                run_id="run-1", skill_id=z_skill.skill_id
-            )
+            await store.run_skills.create(run_id="run-1", skill_id=z_skill.skill_id)
             await store.run_skills.create(
                 run_id="run-1", skill_id=python_skill.skill_id
             )

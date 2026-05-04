@@ -18,10 +18,10 @@ class ToolStatus(StrEnum):
 
 
 class RiskLevel(StrEnum):
-    READ_ONLY = "read_only"   # no side effects; auto-approved in all modes
-    LOW = "low"               # reversible local change (edit a file)
-    MEDIUM = "medium"         # harder to reverse (create new file)
-    HIGH = "high"             # significant side effects (shell command)
+    READ_ONLY = "read_only"  # no side effects; auto-approved in all modes
+    LOW = "low"  # reversible local change (edit a file)
+    MEDIUM = "medium"  # harder to reverse (create new file)
+    HIGH = "high"  # significant side effects (shell command)
 
 
 class ToolResult(BaseModel):
@@ -75,7 +75,7 @@ class GrepMatch(BaseModel):
     line_number: int
     line: str
     context_before: list[str] = []  # lines before the match (when context_lines > 0)
-    context_after: list[str] = []   # lines after the match  (when context_lines > 0)
+    context_after: list[str] = []  # lines after the match  (when context_lines > 0)
 
 
 class FileReadResult(ToolResult):
@@ -168,4 +168,6 @@ class ProcessOutputResult(ToolResult):
 # Tool registry type
 # ---------------------------------------------------------------------------
 
-ToolFn = Any  # async callable with a `.approval: ToolApprovalMeta` attribute set via setattr
+ToolFn = (
+    Any  # async callable with a `.approval: ToolApprovalMeta` attribute set via setattr
+)

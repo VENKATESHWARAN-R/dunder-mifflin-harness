@@ -71,7 +71,9 @@ def make_summon_jim_tool(
             role="builder",
             events=events,
             model_settings={
-                "temperature": float(session.config.model_params.get("temperature", "0"))
+                "temperature": float(
+                    session.config.model_params.get("temperature", "0")
+                )
             },
         )
 

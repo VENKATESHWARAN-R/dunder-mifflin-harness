@@ -16,6 +16,7 @@ from pydantic_ai.messages import (
 )
 
 from jac.config import Settings
+from jac.runtime.approvals import ApprovalPolicy
 from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
@@ -60,11 +61,15 @@ class RunCoordinator:
         session: SessionState | None = None,
         events: EventBus | None = None,
         state: StateStore | None = None,
+        approval_policy: ApprovalPolicy | None = None,
     ) -> None:
         self.settings = settings
         self.session = session or SessionState()
         self.events = events or EventBus()
         self.state = state
+        self.approval_policy = approval_policy or ApprovalPolicy(
+            mode=self.session.config.approval_mode
+        )
         self._agent: Agent | None = None
         self._logfire_configured = False
         self._run_persisted = False
@@ -115,6 +120,7 @@ class RunCoordinator:
             run_id=self.session.run_id,
             role=role,
             events=self.events,
+            approval_policy=self.approval_policy,
             extra_tools=extra_tools,
             model_settings={
                 "temperature": float(
@@ -244,9 +250,7 @@ class RunCoordinator:
             if self.state is not None:
                 await self.state.runs.update_status(run_id, "failed")
                 if scott_attempt_id is not None:
-                    await self.state.attempts.update_status(
-                        scott_attempt_id, "failed"
-                    )
+                    await self.state.attempts.update_status(scott_attempt_id, "failed")
             raise
         finally:
             self.session.active_attempt_id = None
@@ -292,8 +296,6 @@ async def resume_run(
                 ModelRequest(parts=[UserPromptPart(content=message.content)])
             )
         elif message.role == "assistant":
-            history.append(
-                ModelResponse(parts=[TextPart(content=message.content)])
-            )
+            history.append(ModelResponse(parts=[TextPart(content=message.content)]))
     coordinator.seed_message_history(history)
     return coordinator

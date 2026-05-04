@@ -45,7 +45,9 @@ def _make_workspace(
     return workspace, user_dir, project_dir
 
 
-def _write_skill(directory: Path, filename: str, name: str, domain: str = "general") -> Path:
+def _write_skill(
+    directory: Path, filename: str, name: str, domain: str = "general"
+) -> Path:
     path = directory / filename
     path.write_text(
         f"---\nname: {name}\ndomain: {domain}\nversion: 1.0\ndescription: A test skill\n---\n\nSkill body for {name}.\n",

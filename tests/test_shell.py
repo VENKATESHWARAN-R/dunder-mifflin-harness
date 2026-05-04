@@ -14,9 +14,7 @@ from jac.tools.types import RiskLevel, ToolStatus
 
 
 def test_run_shell_captures_output(tmp_path: Path) -> None:
-    result = asyncio.run(
-        run_shell(command="printf hello", cwd=str(tmp_path))
-    )
+    result = asyncio.run(run_shell(command="printf hello", cwd=str(tmp_path)))
 
     assert result.status == ToolStatus.OK
     assert result.stdout == "hello"
@@ -26,9 +24,7 @@ def test_run_shell_captures_output(tmp_path: Path) -> None:
 
 
 def test_run_shell_nonzero_exit_sets_error_status(tmp_path: Path) -> None:
-    result = asyncio.run(
-        run_shell(command="exit 1", cwd=str(tmp_path))
-    )
+    result = asyncio.run(run_shell(command="exit 1", cwd=str(tmp_path)))
 
     assert result.status == ToolStatus.ERROR
     assert result.exit_code == 1

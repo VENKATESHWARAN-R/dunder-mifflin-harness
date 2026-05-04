@@ -53,14 +53,21 @@ class ChatApp:
         self.events = events or EventBus()
         self.renderer = renderer or Renderer()
         self.prompts = PromptViews(self.renderer.console)
-        self.approvals = ApprovalPolicy(mode=self.session.config.approval_mode)
         self.state = state
-        self.coordinator = coordinator or RunCoordinator(
-            settings=self.settings,
-            session=self.session,
-            events=self.events,
-            state=self.state,
-        )
+        if coordinator is None:
+            self.approvals = ApprovalPolicy(mode=self.session.config.approval_mode)
+            self.coordinator = RunCoordinator(
+                settings=self.settings,
+                session=self.session,
+                events=self.events,
+                state=self.state,
+                approval_policy=self.approvals,
+            )
+        else:
+            # Share the coordinator's policy so /approval mutations flow through
+            # to the approval wrapper.
+            self.coordinator = coordinator
+            self.approvals = coordinator.approval_policy
         self.input = InputSession(self.settings.config_dir / "input_history")
         self.commands = SlashCommandRegistry()
         self._should_exit = False

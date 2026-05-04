@@ -66,7 +66,9 @@ class Renderer:
         self.flush_stream()
         self.console.print(f"[cyan]tool[/cyan] {event.tool_name}")
         if event.params:
-            self.console.print(Panel(str(event.params), border_style="cyan", expand=False))
+            self.console.print(
+                Panel(str(event.params), border_style="cyan", expand=False)
+            )
 
     async def _on_tool_completed(self, event: ToolCallCompleted) -> None:
         style = "red" if event.is_error else "dim"
@@ -85,7 +87,9 @@ class Renderer:
         )
 
     async def _on_node_failed(self, event: NodeFailed) -> None:
-        self.console.print(f"[red]node failed:[/red] {event.node_name}: {event.message}")
+        self.console.print(
+            f"[red]node failed:[/red] {event.node_name}: {event.message}"
+        )
 
     async def _on_file_edit_previewed(self, event: FileEditPreviewed) -> None:
         self.flush_stream()
@@ -104,7 +108,9 @@ class Renderer:
             f"cwd: {event.cwd}\n"
             f"timeout: {event.timeout_seconds:g}s"
         )
-        self.console.print(Panel(body, title="Shell", border_style="cyan", expand=False))
+        self.console.print(
+            Panel(body, title="Shell", border_style="cyan", expand=False)
+        )
 
     async def _on_shell_completed(self, event: ShellCommandCompleted) -> None:
         status = "timed out" if event.timed_out else f"exit {event.exit_code}"
@@ -114,7 +120,9 @@ class Renderer:
         if event.stderr:
             body.append(f"\nstderr:\n{event.stderr.rstrip()}")
         self.console.print(
-            Panel("\n".join(body), title="Shell Result", border_style="dim", expand=False)
+            Panel(
+                "\n".join(body), title="Shell Result", border_style="dim", expand=False
+            )
         )
 
     async def _on_cost_updated(self, event: CostUpdated) -> None:

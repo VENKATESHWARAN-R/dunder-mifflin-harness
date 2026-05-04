@@ -72,7 +72,9 @@ def load_file_attachment(
         return AttachmentWarning(reference, f"could not inspect {reference}: {exc}")
 
     if path.is_dir():
-        return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+        return AttachmentWarning(
+            reference, f"directories are not attachable yet: {reference}"
+        )
 
     if stat.st_size > max_bytes:
         return AttachmentWarning(
@@ -88,7 +90,9 @@ def load_file_attachment(
         return AttachmentWarning(reference, f"could not read {reference}: {exc}")
 
     if b"\x00" in data:
-        return AttachmentWarning(reference, f"binary file cannot be attached: {reference}")
+        return AttachmentWarning(
+            reference, f"binary file cannot be attached: {reference}"
+        )
 
     try:
         content = data.decode("utf-8")
@@ -134,13 +138,26 @@ def format_attachments_for_prompt(attachments: list[FileAttachment]) -> str:
 # ---------------------------------------------------------------------------
 
 # Directories that add noise without value for agent exploration.
-_DEFAULT_IGNORE: frozenset[str] = frozenset({
-    ".git", ".hg", ".svn",
-    "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".ty_cache",
-    "node_modules", ".venv", "venv", "env",
-    "dist", "build", ".build",
-    ".DS_Store",
-})
+_DEFAULT_IGNORE: frozenset[str] = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".ty_cache",
+        "node_modules",
+        ".venv",
+        "venv",
+        "env",
+        "dist",
+        "build",
+        ".build",
+        ".DS_Store",
+    }
+)
 
 
 def _preview(s: str, max_len: int = 40) -> str:
@@ -171,21 +188,35 @@ def _collect_dir_entries(
             size = child.stat().st_size if not is_dir else 0
         except OSError:
             size = 0
-        entries.append(DirEntry(name=child.name, path=str(child), is_dir=is_dir, size=size))
+        entries.append(
+            DirEntry(name=child.name, path=str(child), is_dir=is_dir, size=size)
+        )
         if is_dir and current_depth < max_depth - 1:
-            entries.extend(_collect_dir_entries(child, current_depth + 1, max_depth, ignore, show_hidden))
+            entries.extend(
+                _collect_dir_entries(
+                    child, current_depth + 1, max_depth, ignore, show_hidden
+                )
+            )
     return entries
 
 
-async def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> FileReadResult:
+async def read_file(
+    path: str, start_line: int = 1, end_line: int | None = None
+) -> FileReadResult:
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
     try:
         raw = p.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
+        return FileReadResult(
+            status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path
+        )
     except PermissionError:
-        return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        return FileReadResult(
+            status=ToolStatus.PERMISSION_DENIED,
+            error=f"permission denied: {path}",
+            path=path,
+        )
     except OSError as exc:
         return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
@@ -201,16 +232,44 @@ async def read_file(path: str, start_line: int = 1, end_line: int | None = None)
         lines_total=total,
         lines_returned=len(sliced),
         truncated=truncated,
-        warnings=["reading partial file; use start_line/end_line to navigate"] if truncated else [],
+        warnings=["reading partial file; use start_line/end_line to navigate"]
+        if truncated
+        else [],
     )
 
 
-setattr(read_file, "approval", ToolApprovalMeta(
-    category="file_read",
-    risk_level=RiskLevel.READ_ONLY,
-    reversible=True,
-    description_fn=lambda path, **_: f"Read `{path}`",
-))
+setattr(
+    read_file,
+    "approval",
+    ToolApprovalMeta(
+        category="file_read",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda path, **_: f"Read `{path}`",
+    ),
+)
+
+
+def preview_write(path: str, content: str) -> str:
+    """Build a unified diff for a prospective write.
+
+    Reads the existing file (if any) and diffs against the new content. Used
+    by the approval wrapper to render `FileEditPreviewed` before the file is
+    written. Returns an empty string if the diff cannot be built.
+    """
+    p = Path(path)
+    try:
+        before = p.read_text(encoding="utf-8") if p.exists() else ""
+    except OSError:
+        before = ""
+    return "".join(
+        _difflib.unified_diff(
+            before.splitlines(keepends=True),
+            content.splitlines(keepends=True),
+            fromfile=f"a/{p.name}" if before else "/dev/null",
+            tofile=f"b/{p.name}",
+        )
+    )
 
 
 async def write_file(path: str, content: str) -> FileWriteResult:
@@ -221,35 +280,76 @@ async def write_file(path: str, content: str) -> FileWriteResult:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
     except PermissionError:
-        return FileWriteResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        return FileWriteResult(
+            status=ToolStatus.PERMISSION_DENIED,
+            error=f"permission denied: {path}",
+            path=path,
+        )
     except OSError as exc:
         return FileWriteResult(status=ToolStatus.ERROR, error=str(exc), path=path)
-    return FileWriteResult(path=path, bytes_written=len(content.encode("utf-8")), created=created)
+    return FileWriteResult(
+        path=path, bytes_written=len(content.encode("utf-8")), created=created
+    )
 
 
-setattr(write_file, "approval", ToolApprovalMeta(
-    category="file_write",
-    risk_level=RiskLevel.LOW,
-    reversible=True,
-    description_fn=lambda path, content="", **_: f"Write {len(content):,} bytes → `{path}`",
-))
+setattr(
+    write_file,
+    "approval",
+    ToolApprovalMeta(
+        category="file_write",
+        risk_level=RiskLevel.LOW,
+        reversible=True,
+        description_fn=lambda path, content="", **_: (
+            f"Write {len(content):,} bytes → `{path}`"
+        ),
+    ),
+)
 
 
-async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
-    """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+@dataclass(frozen=True, slots=True)
+class PreparedEdit:
+    """An edit computed but not yet applied. Used by the approval wrapper to
+    preview the diff before deciding whether to write."""
+
+    path: str
+    new_content: str
+    diff: str
+    replacements_made: int
+
+
+def compute_edit(
+    path: str, old_string: str, new_string: str, replace_all: bool = False
+) -> PreparedEdit | FileEditResult:
+    """Compute the prospective edit without writing.
+
+    Returns a `PreparedEdit` on success, or a `FileEditResult` carrying the
+    error if the file is missing / unreadable / the old_string match is
+    ambiguous. The approval wrapper calls this before the gate so the diff
+    can be previewed without touching disk.
+    """
     p = Path(path)
     try:
         content = p.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
+        return FileEditResult(
+            status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path
+        )
     except PermissionError:
-        return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        return FileEditResult(
+            status=ToolStatus.PERMISSION_DENIED,
+            error=f"permission denied: {path}",
+            path=path,
+        )
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
     count = content.count(old_string)
     if count == 0:
-        return FileEditResult(status=ToolStatus.ERROR, error=f"old_string not found in `{path}`", path=path)
+        return FileEditResult(
+            status=ToolStatus.ERROR,
+            error=f"old_string not found in `{path}`",
+            path=path,
+        )
     if count > 1 and not replace_all:
         return FileEditResult(
             status=ToolStatus.ERROR,
@@ -257,27 +357,63 @@ async def edit_file(path: str, old_string: str, new_string: str, replace_all: bo
             path=path,
         )
 
-    new_content = content.replace(old_string, new_string) if replace_all else content.replace(old_string, new_string, 1)
+    new_content = (
+        content.replace(old_string, new_string)
+        if replace_all
+        else content.replace(old_string, new_string, 1)
+    )
     made = count if replace_all else 1
-    diff = "".join(_difflib.unified_diff(
-        content.splitlines(keepends=True),
-        new_content.splitlines(keepends=True),
-        fromfile=f"a/{p.name}",
-        tofile=f"b/{p.name}",
-    ))
+    diff = "".join(
+        _difflib.unified_diff(
+            content.splitlines(keepends=True),
+            new_content.splitlines(keepends=True),
+            fromfile=f"a/{p.name}",
+            tofile=f"b/{p.name}",
+        )
+    )
+    return PreparedEdit(
+        path=path, new_content=new_content, diff=diff, replacements_made=made
+    )
+
+
+def apply_edit(prepared: PreparedEdit) -> FileEditResult:
+    """Apply a previously-computed edit, writing the new content to disk."""
+    p = Path(prepared.path)
     try:
-        p.write_text(new_content, encoding="utf-8")
+        p.write_text(prepared.new_content, encoding="utf-8")
     except OSError as exc:
-        return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
-    return FileEditResult(path=path, replacements_made=made, diff=diff)
+        return FileEditResult(
+            status=ToolStatus.ERROR, error=str(exc), path=prepared.path
+        )
+    return FileEditResult(
+        path=prepared.path,
+        replacements_made=prepared.replacements_made,
+        diff=prepared.diff,
+    )
 
 
-setattr(edit_file, "approval", ToolApprovalMeta(
-    category="file_write",
-    risk_level=RiskLevel.LOW,
-    reversible=True,
-    description_fn=lambda path, old_string="", **_: f"Edit `{path}` — replace `{_preview(old_string)}`",
-))
+async def edit_file(
+    path: str, old_string: str, new_string: str, replace_all: bool = False
+) -> FileEditResult:
+    """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    prepared = compute_edit(path, old_string, new_string, replace_all)
+    if isinstance(prepared, FileEditResult):
+        return prepared
+    return apply_edit(prepared)
+
+
+setattr(
+    edit_file,
+    "approval",
+    ToolApprovalMeta(
+        category="file_write",
+        risk_level=RiskLevel.LOW,
+        reversible=True,
+        description_fn=lambda path, old_string="", **_: (
+            f"Edit `{path}` — replace `{_preview(old_string)}`"
+        ),
+    ),
+)
 
 
 async def list_directory(
@@ -291,38 +427,59 @@ async def list_directory(
     """
     p = Path(path)
     if not p.exists():
-        return DirectoryListResult(status=ToolStatus.NOT_FOUND, error=f"not found: {path}", path=path)
+        return DirectoryListResult(
+            status=ToolStatus.NOT_FOUND, error=f"not found: {path}", path=path
+        )
     if not p.is_dir():
-        return DirectoryListResult(status=ToolStatus.ERROR, error=f"not a directory: {path}", path=path)
+        return DirectoryListResult(
+            status=ToolStatus.ERROR, error=f"not a directory: {path}", path=path
+        )
 
     effective_ignore = _DEFAULT_IGNORE | frozenset(ignore or [])
     entries = _collect_dir_entries(p, 0, max_depth, effective_ignore, show_hidden)
     return DirectoryListResult(path=path, entries=entries)
 
 
-setattr(list_directory, "approval", ToolApprovalMeta(
-    category="file_read",
-    risk_level=RiskLevel.READ_ONLY,
-    reversible=True,
-    description_fn=lambda path, max_depth=1, **_: f"List `{path}`" + (f" (depth {max_depth})" if max_depth > 1 else ""),
-))
+setattr(
+    list_directory,
+    "approval",
+    ToolApprovalMeta(
+        category="file_read",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda path, max_depth=1, **_: (
+            f"List `{path}`" + (f" (depth {max_depth})" if max_depth > 1 else "")
+        ),
+    ),
+)
 
 
 async def search_files(root: str, pattern: str) -> SearchResult:
     """Find files under root matching a glob pattern (recursive)."""
     p = Path(root)
     if not p.exists():
-        return SearchResult(status=ToolStatus.NOT_FOUND, error=f"root not found: {root}", root=root, pattern=pattern)
+        return SearchResult(
+            status=ToolStatus.NOT_FOUND,
+            error=f"root not found: {root}",
+            root=root,
+            pattern=pattern,
+        )
     matches = [str(m) for m in sorted(p.rglob(pattern))]
     return SearchResult(root=root, pattern=pattern, matches=matches)
 
 
-setattr(search_files, "approval", ToolApprovalMeta(
-    category="file_read",
-    risk_level=RiskLevel.READ_ONLY,
-    reversible=True,
-    description_fn=lambda root, pattern="", **_: f"Search `{root}` for files matching `{pattern}`",
-))
+setattr(
+    search_files,
+    "approval",
+    ToolApprovalMeta(
+        category="file_read",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda root, pattern="", **_: (
+            f"Search `{root}` for files matching `{pattern}`"
+        ),
+    ),
+)
 
 
 async def grep_files(
@@ -365,14 +522,18 @@ async def grep_files(
             total_matches += 1
             if len(matches) < max_matches:
                 before = file_lines[max(0, lineno - 1 - context_lines) : lineno - 1]
-                after = file_lines[lineno : min(len(file_lines), lineno + context_lines)]
-                matches.append(GrepMatch(
-                    file=str(filepath),
-                    line_number=lineno,
-                    line=line,
-                    context_before=before,
-                    context_after=after,
-                ))
+                after = file_lines[
+                    lineno : min(len(file_lines), lineno + context_lines)
+                ]
+                matches.append(
+                    GrepMatch(
+                        file=str(filepath),
+                        line_number=lineno,
+                        line=line,
+                        context_before=before,
+                        context_after=after,
+                    )
+                )
 
     warnings: list[str] = []
     if total_matches > max_matches:
@@ -388,9 +549,15 @@ async def grep_files(
     )
 
 
-setattr(grep_files, "approval", ToolApprovalMeta(
-    category="file_read",
-    risk_level=RiskLevel.READ_ONLY,
-    reversible=True,
-    description_fn=lambda root, pattern="", **_: f"Search file contents in `{root}` for `{pattern}`",
-))
+setattr(
+    grep_files,
+    "approval",
+    ToolApprovalMeta(
+        category="file_read",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda root, pattern="", **_: (
+            f"Search file contents in `{root}` for `{pattern}`"
+        ),
+    ),
+)

@@ -20,6 +20,7 @@ from jac.agents import (
 from jac.agents.personas import SCOTT_SYSTEM_PROMPT
 from jac.config import Settings
 from jac.runtime.coordinator import RunCoordinator, UserMessage
+from jac.runtime.session import SessionConfig, SessionState
 from jac.state import open_state_store
 
 
@@ -129,9 +130,7 @@ class TestConfigLoader:
                     name="stdio-server",
                     description="test",
                     transport="stdio",
-                    config=json.dumps(
-                        {"command": "python", "args": ["-m", "server"]}
-                    ),
+                    config=json.dumps({"command": "python", "args": ["-m", "server"]}),
                     source_scope="seeded",
                     source_path=None,
                 )
@@ -180,12 +179,8 @@ class TestConfigLoader:
                     source_scope="seeded",
                     source_path=None,
                 )
-                await state.run_skills.create(
-                    run_id="run-1", skill_id=general.skill_id
-                )
-                await state.run_skills.create(
-                    run_id="run-1", skill_id=python.skill_id
-                )
+                await state.run_skills.create(run_id="run-1", skill_id=general.skill_id)
+                await state.run_skills.create(run_id="run-1", skill_id=python.skill_id)
                 await state.agent_configs.create(
                     run_id="run-1",
                     role="chat",
@@ -207,9 +202,8 @@ class TestConfigLoader:
         assert "## Domain Knowledge" in instructions
         assert "Always use type hints." in instructions
         assert "Prefer dataclasses." in instructions
-        assert (
-            instructions.index("Always use type hints.")
-            < instructions.index("Prefer dataclasses.")
+        assert instructions.index("Always use type hints.") < instructions.index(
+            "Prefer dataclasses."
         )
 
     def test_uses_model_override_over_tier(self, tmp_path: Path) -> None:
@@ -350,16 +344,29 @@ class TestCoordinatorFactory:
             settings = _gateway_settings()
             state = await open_state_store(tmp_path / "state.db")
             try:
+                # Seed a custom role with no tools — keeps TestModel from
+                # auto-invoking write/shell tools (which would block on the
+                # approval gate).
+                await state.runs.create(run_id="run-1", prompt="p")
+                await state.agent_configs.create(
+                    run_id="run-1",
+                    role="chat",
+                    model_tier="worker",
+                    model_override=None,
+                    system_prompt="test",
+                    allowed_tools=[],
+                )
                 with patch(
                     "jac.agents.base.build_pydantic_model",
                     return_value=TestModel(custom_output_text="factory ok"),
                 ):
+                    session = SessionState(config=SessionConfig(role="chat"))
+                    session.run_id = "run-1"
                     coordinator = RunCoordinator(
-                        settings=settings, state=state, session=None
+                        settings=settings, state=state, session=session
                     )
-                    output = await coordinator.submit_message(
-                        UserMessage(text="hello")
-                    )
+                    coordinator._run_persisted = True
+                    output = await coordinator.submit_message(UserMessage(text="hello"))
                     return output
             finally:
                 await state.close()
@@ -374,9 +381,7 @@ class TestCoordinatorFactory:
             coordinator._agent = Agent(
                 TestModel(custom_output_text="fallback ok"), output_type=str
             )
-            output = await coordinator.submit_message(
-                UserMessage(text="hello")
-            )
+            output = await coordinator.submit_message(UserMessage(text="hello"))
             return output
 
         output = _run(scenario())

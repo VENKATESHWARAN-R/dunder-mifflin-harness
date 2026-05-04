@@ -84,7 +84,9 @@ class PromptViews:
 
         for index, option in enumerate(request.options, start=1):
             suffix = f" - {option.description}" if option.description else ""
-            self.console.print(f"  {index}. {option.label} [dim]({option.id})[/dim]{suffix}")
+            self.console.print(
+                f"  {index}. {option.label} [dim]({option.id})[/dim]{suffix}"
+            )
 
         prompt = "Choices comma-separated: " if request.allow_multiple else "Choice: "
         try:

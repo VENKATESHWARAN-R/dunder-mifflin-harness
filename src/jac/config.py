@@ -97,9 +97,7 @@ PROVIDER_DEFINITIONS: dict[str, ProviderDefinition] = {
         label="Anthropic",
         tier_defaults={
             "scout": ("anthropic:claude-haiku-4-5",),
-            "worker": (
-                "anthropic:claude-sonnet-4-6",
-            ),
+            "worker": ("anthropic:claude-sonnet-4-6",),
             "architect": ("anthropic:claude-opus-4-6",),
         },
         env=(EnvRequirement("ANTHROPIC_API_KEY", "Anthropic API key"),),

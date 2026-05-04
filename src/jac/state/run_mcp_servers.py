@@ -125,9 +125,7 @@ class RunMcpServersRepo:
             for r in rows
         ]
 
-    async def toggle(
-        self, row_id: str, *, enabled: int
-    ) -> RunMcpServerRow | None:
+    async def toggle(self, row_id: str, *, enabled: int) -> RunMcpServerRow | None:
         now = _now()
         await self._connection.execute(
             """

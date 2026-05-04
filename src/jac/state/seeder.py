@@ -81,9 +81,7 @@ async def seed_workspace(workspace: Workspace, state: StateStore) -> SeedResult:
         _collect_skills(
             workspace.project_dir / "skills", "project", skill_map, result.errors
         )
-        _collect_mcp(
-            workspace.project_dir / "mcp", "project", mcp_map, result.errors
-        )
+        _collect_mcp(workspace.project_dir / "mcp", "project", mcp_map, result.errors)
 
     # Upsert into DB.
     for entry in skill_map.values():
@@ -331,7 +329,7 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     if end == -1:
         return {}, text
     fm_text = text[3:end].strip()
-    body = text[end + 4:].lstrip("\n")
+    body = text[end + 4 :].lstrip("\n")
     meta: dict[str, str] = {}
     for line in fm_text.splitlines():
         if ":" not in line or line.startswith("#"):

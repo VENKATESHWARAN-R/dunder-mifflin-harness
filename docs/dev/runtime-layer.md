@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-04 · **Type:** developer documentation
 
 # Runtime Layer
 
@@ -164,7 +164,17 @@ class ApprovalResponse:
 - `auto-edit` → returns `approved=True` for file edits, `None` for shell commands
 - `yolo` → returns `approved=True` for everything
 
-Tool implementations call `await events.request_approval(...)`. In interactive mode, the CLI's `PromptViews` handles the resulting `ApprovalRequested` event and calls `await events.resolve_approval(...)` with the user's choice.
+**Wiring (C5a, 2026-05-04):** `_resolve_local_tools` in `agents/base.py` wraps every entry from `TOOL_REGISTRY` with `agents/approval.py:make_approval_wrapper(fn, events, policy)`. The wrapper:
+
+- Skips the gate for `RiskLevel.READ_ONLY` tools (read_file, list_directory, search_files, grep_files, list_processes, read_process_output).
+- For `category == "file_write"` tools, computes the prospective diff before the gate (via `compute_edit` for `edit_file`, `preview_write` for `write_file`) and emits `FileEditPreviewed` so the renderer shows the diff *before* the prompt fires.
+- Asks `policy.auto_response_for(request)` first; falls through to `await events.request_approval(...)` only when no auto-response applies.
+- On denial, returns a typed `ToolResult(status=PERMISSION_DENIED)` matching the wrapped tool's return type — never raises — so pydantic_ai feeds a coherent error back to the model.
+- On a successful file write, emits `FileEditApplied(path)`.
+
+`config_loader` accepts an optional `approval_policy` kwarg and falls back to `ApprovalPolicy(mode=INTERACTIVE)` when none is supplied. `RunCoordinator` constructs its policy from `session.config.approval_mode` and threads the same instance through to `config_loader` — so `/approval yolo` flips behaviour for the next agent build without restarting the session. `ChatApp.from_resumed` re-uses the coordinator's policy rather than building a divergent one.
+
+`edit_file` was split into `compute_edit` (returns a `PreparedEdit` or an error `FileEditResult`) and `apply_edit` so the wrapper can preview a diff without touching disk; the public `edit_file` async function chains the two for direct callers.
 
 ---
 

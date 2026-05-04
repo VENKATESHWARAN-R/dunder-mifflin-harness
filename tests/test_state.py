@@ -63,9 +63,7 @@ def test_runs_repo_create_and_get(tmp_path: Path) -> None:
     async def scenario():
         store = await open_state_store(tmp_path / "state.db")
         try:
-            created = await store.runs.create(
-                run_id="run-abc", prompt="hello world"
-            )
+            created = await store.runs.create(run_id="run-abc", prompt="hello world")
             fetched = await store.runs.get("run-abc")
             return created, fetched
         finally:

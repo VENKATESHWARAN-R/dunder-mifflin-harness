@@ -85,7 +85,15 @@ Runtime override examples:
   jac run --model <name> --mode autopilot "summarize this file"
 """
 
-KNOWN_TOP_LEVEL_COMMANDS = {"run", "chat", "resume", "init", "profile", "doctor", "config"}
+KNOWN_TOP_LEVEL_COMMANDS = {
+    "run",
+    "chat",
+    "resume",
+    "init",
+    "profile",
+    "doctor",
+    "config",
+}
 
 
 @click.command(
