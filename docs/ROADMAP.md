@@ -1,10 +1,11 @@
 # Roadmap — JAC
 
-> **Status:** Living · **Last revised:** 2026-05-04 · **Type:** component plan, in dependency order
+> **Status:** Living · **Last revised:** 2026-05-05 · **Type:** component plan, in dependency order
 >
 > _2026-05-04: C5a (tool approval middleware) shipped — see Done section._
 > _2026-05-04: CLI-UX batch shipped — tab completions, toolbar, aliases, new slash commands, arrow-key approvals, REDIRECT decision, undo stack, destructive-shell guard, retry prompt — see Done section._
 > _2026-05-04: C6 (Scott + Jim, `summon_jim`, `attempts` call tree) shipped — see Done section._
+> _2026-05-05: Multi-agent cast finalized — see [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md). C6b rewritten (Pam as planner, drops analyst), C6c added (universal `spawn_minion` + tool result interception + `read_file_smart`), C9 rewritten (Dwight + retry caps + cross-specialist escalation + `/build`/`/eval` slash), C12 refined (175k threshold), **C14 superseded** by C6c (no Holly persona)._
 
 JAC is built component by component, not slice by slice. Each entry below is a self-contained module with a stable ID (`C0`..`Cn`). Order reflects **dependency**, not calendar — `Cn+1` assumes `Cn` is in place.
 
@@ -44,9 +45,9 @@ flowchart TB
   subgraph agents[agents — roles, factory, teams]
     C5v[C5 Agent factory]
     C6v[C6 Scott + Jim]
-    C6bv[C6b Pam + Date Mike]
-    C9v[C9 Dwight + retry]
-    C14v[C14 Holly / Temp Agency]
+    C6bv[C6b Pam planner + slash modes]
+    C6cv[C6c spawn_minion + tool guards]
+    C9v[C9 Dwight + retry/escalation]
     C15v[C15 Agent teams]
     C19v[C19 HR escalation]
     C20v[C20 Hot-reload]
@@ -86,9 +87,9 @@ flowchart TB
 | Checkpoint | Reached after | What it proves |
 |---|---|---|
 | **Persistence checkpoint** | C2 | Sessions resume; workspace files seed into the DB. |
-| **Single-task autonomy** | C9 | Scott routes a build prompt → Pam analyses → Date Mike plans → Jim builds → Dwight evaluates → retry on fail → done. |
+| **Single-task autonomy** | C9 | Scott routes a build prompt → Pam plans → Jim builds → Dwight evaluates with structured fault classification → retry/escalation on fail → done. |
 | **Notes CLI v0 benchmark** | C11 | Full feature-by-feature cycle on `docs/reference/V0_BENCHMARK.md`. Cost target: <$15. |
-| **Multi-agent autonomy** | C15 | Holly recruits minions; specialists run as a team (parallel/sequential) with deterministic post-processing via hooks. |
+| **Multi-agent autonomy** | C15 | Specialists run as a team (parallel/sequential) using `spawn_minion` and `agent_messages`, with deterministic post-processing via hooks. |
 | **Multi-strategy harness** | C22 | The same prompt produces measurably different runs under POC-swarm vs feature-by-feature. |
 | **External surfaces** | C29 | Browser UI and A2A server consume the same event contract as the CLI. |
 
@@ -363,7 +364,7 @@ flow for file writes.
 **Implementation doc:** [`C6-scott-jim.md`](implementation_docs/C6-scott-jim.md)
 **Brainstorm/contract:** [`lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md`](../lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md), [`IDEA.md`](reference/IDEA.md) §5
 
-The shift away from "every prompt goes through a planner+builder loop." JAC's default agent is **Michael Scott (manager)**, persistent across turns, who tool-routes everything: trivial chat replies stay in Scott; build-shaped prompts get delegated. C6 wires Scott + **Jim Halpert (builder)** through Pydantic AI agent-as-tool delegation. One specialist is enough to prove the manager-specialist primitive end-to-end. Planner, analyst, and evaluator come at C6b/C9.
+The shift away from "every prompt goes through a planner+builder loop." JAC's default agent is **Michael Scott (manager)**, persistent across turns, who tool-routes everything: trivial chat replies stay in Scott; build-shaped prompts get delegated. C6 wires Scott + **Jim Halpert (builder)** through Pydantic AI agent-as-tool delegation. One specialist is enough to prove the manager-specialist primitive end-to-end. Planner and evaluator come at C6b/C9; universal `spawn_minion` at C6c.
 
 **Ships:**
 - Seed `agent_configs` rows for `manager` (Scott, Worker) and `builder` (Jim, Worker)
@@ -392,48 +393,102 @@ flowchart LR
 
 ---
 
-### C6b — Pam (Analyst) + Date Mike (Planner)
+### C6b — Pam (Planner) + Slash-Mode Addendums
 
 **Layer:** agents
 **Status:** planned
 **Depends on:** C6
-**Brainstorm/contract:** [`lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md`](../lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md)
+**Brainstorm/contract:** [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md)
 
-Adds the **autopilot intake + planning** layer in front of Jim. Pam Beesly (analyst, Worker) probes the environment (what runtimes, package managers, etc. are available) and synthesises a high-level requirements brief. Date Mike (planner, Architect) takes that brief and produces a structured task list with pseudo-code per task. Jim follows the plan; the plan does the thinking, which is why planner is on the highest tier and builder stays on Worker.
+Adds **Pam Beesly (planner, Architect)** as the only specialist between Scott and the build loop. Pam reads requirements, picks a development strategy (defaults to feature-by-feature; TDD / spec-driven / agile available later via C22), produces a structured task list with acceptance criteria, and drives the per-task loop once approved.
 
-In **HITL mode** Pam is bypassed — Scott asks the user clarifying questions directly via runtime question events. Pam is autopilot-only.
+The prior "analyst Pam" persona is dropped — Scott handles env probing himself. The "Date Mike" planner persona is renamed into Pam (one Pam, one role).
 
-`context_store` activates at this component (was originally slated for C11). Pam writes the requirements brief to the `shared` scope; Date Mike reads it.
+This component also lights up **dynamic system-prompt addendums** via Pydantic AI's `@agent.system_prompt` decorator, so slash commands can put Scott (or Pam) into a focused mode without a new agent. Two modes ship here: `init` and `plan`.
 
 **Ships:**
-- Seed `agent_configs` rows for `analyst` (Pam, Worker) and `planner` (Date Mike, Architect)
-- Scott's `kick_off_build(brief)` tool: orchestrates Pam → Date Mike → Jim sequentially (no graph yet — that's C10)
-- Mode-aware analyst skip: in HITL, Scott emits question events instead
-- `tasks` table populated by Date Mike's structured output (one row per task with `description`, `acceptance_criteria`, `complexity`, `order_index`)
-- `context_store` write/read APIs wired for the `shared` scope
+- Seed `agent_configs` row for `planner` (Pam, Architect). Drop the planned `analyst` row.
+- `MODE_PROMPTS` registry + `@agent.system_prompt` integration on Scott and Pam.
+- `/plan <task>` slash command: routes directly to Pam, returns formatted plan to terminal.
+- `/init` slash command: Scott in init mode, surveys repo, writes **`./AGENTS.md`** at project root. (User-level instructions remain at `~/.jac/JAC.md` — manually authored.)
+- `tasks` table populated by Pam's structured `Plan` output (`description`, `acceptance_criteria`, `complexity`, `order_index`, `dev_strategy`).
+- Message-history filter: drop intermediate `ToolCallPart` / `ToolReturnPart` blocks from slash-command runs; retain the user's slash prompt and the final artifact (plan / AGENTS.md content).
 
 **Evaluation:**
-- Autopilot: `jac "build a basic calculator"` → Scott routes to `kick_off_build` → Pam probes env → Date Mike plans 3-5 tasks → Jim executes → working calculator
-- HITL: `jac chat`, then "build a basic calculator" → Scott asks "Python or Node? CLI or GUI?" → user answers → Date Mike plans → Jim executes (Pam never summoned)
-- `tasks` rows match Date Mike's output; `context_store` shows the requirements brief in `shared`
+- `jac "/plan build a basic calculator"` → Pam returns formatted plan + chosen strategy; user can approve or revise.
+- `jac "/init"` in a fresh repo → Scott surveys, writes AGENTS.md (small repo: inline; large repo: spawns minions per module — depends on C6c shipping for the parallel path).
+- History after either command shows the slash prompt and final artifact, no tool noise.
 
 ```mermaid
 flowchart LR
   subgraph agents[agents]
     sc[Scott / manager]
-    pm[Pam / analyst]
-    dm[Date Mike / planner]
-    jm[Jim / builder]
+    pm[Pam / planner]
+  end
+  subgraph runtime[runtime]
+    addn["@system_prompt addendum"]
   end
   subgraph state[state]
-    cs[context_store · shared]
     tk[tasks]
+    ws["./AGENTS.md (workspace)"]
   end
-  sc -->|kick_off_build| pm
-  pm --> cs
-  cs --> dm
-  dm --> tk
-  tk --> jm
+  sc <--> addn
+  pm <--> addn
+  sc -->|"/init mode"| ws
+  pm -->|"/plan output"| tk
+```
+
+---
+
+### C6c — Universal `spawn_minion` + Tool-Layer Hardening
+
+**Layer:** agents + tools
+**Status:** planned
+**Depends on:** C6b
+**Brainstorm/contract:** [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md), [`TOOLS_CONTRACT.md`](contracts/TOOLS_CONTRACT.md)
+
+Replaces the prior C14 "Holly / Temp Agency" plan. Instead of a recruiter persona, **every agent gets a `spawn_minion` tool**. System prompts teach each agent when to use it. This unblocks Pam's research minions (off-loading web/API lookups so her own context stays clean), Scott's parallel module exploration during `/init`, and Jim/Dwight's read-and-summarise needs.
+
+Also hardens the tool layer: timeouts via Pydantic AI's `tool_timeout`, automatic summarization of large tool outputs, smart file reads, and per-run full-result retrieval.
+
+**Ships:**
+- `spawn_minion(task, tools=None, tier='scout', timeout_sec=240)` tool registered in `TOOL_REGISTRY`. Available to all agent configs by default.
+- Invariants: depth ≤ 1, tool whitelist bounded by caller, budget inherited via `usage_limits` and `usage=ctx.usage`, factory-mediated (`is_minion=1`, `parent_role`, `depth` populated on the agent_configs row).
+- Parallel patterns supported: (a) one tool can `asyncio.gather(*[spawn_minion(b) for b in briefs])`, (b) Pydantic AI auto-schedules multiple `spawn_minion` calls in one model turn concurrently. **Out-of-process / deferred-tools backgrounding defers to C26+.**
+- `tool_timeout` policy: agent default 180s; `spawn_minion` 240s (cap 300s); `shell_exec` 180s with auto-bumped 300s on retry; `read_file` 30s.
+- **Tool result interception:** outputs above 4k tokens piped through a direct Scout LLM call (`pydantic_ai.direct.model_request_sync`); returned as a structured `ToolResult` with `summary`, `summarized`, `original_tokens`, `full_result_handle`, `note`. In-memory per-run cache.
+- `fetch_full_result(handle)` tool: returns the original verbatim. Per-run only.
+- `read_file_smart` tool: pre-flight size check (word-count proxy v0). ≤4k → full content; 4k–20k → full + `large=True` flag; &gt;20k → metadata only with hint to use `read_lines`, `grep`, or `spawn_minion`.
+- `MinionSpawned` / `MinionReturned` events on the bus.
+
+**Evaluation:**
+- Pam during `/plan` spawns a research minion for an unfamiliar API; her own message history stays small.
+- Scott during `/init` on a multi-module repo spawns parallel minions, one per top-level dir; AGENTS.md stitches the digests.
+- A 50k-token shell output gets auto-summarised; agent fetches the full handle on demand.
+- `read_file_smart` on a 30k-line file returns metadata; agent falls back to `read_lines` or spawns a minion.
+- A minion attempting to call `spawn_minion` itself is refused (depth limit).
+
+```mermaid
+flowchart LR
+  subgraph agents[agents]
+    parent[parent agent]
+    minion[minion / depth 1]
+    fac[config_loader]
+  end
+  subgraph tools[tools]
+    sp[spawn_minion]
+    rf[read_file_smart]
+    rfr[fetch_full_result]
+  end
+  subgraph infra[infra]
+    filt[result_filter wrapper]
+    cache[(per-run cache)]
+  end
+  parent --> sp --> fac --> minion
+  minion -->|usage rollup| parent
+  parent --> rf
+  parent --> rfr --> cache
+  rf -.large output.-> filt --> cache
 ```
 
 ---
@@ -445,7 +500,7 @@ flowchart LR
 **Depends on:** C6, C6b
 **Brainstorm/contract:** [`STATE_SCHEMA.md`](contracts/STATE_SCHEMA.md) (`attempts`)
 
-Per-call model, token, duration, and cost records captured into `attempts` (with `call_type='agent'` or `'direct_llm'`, plus `parent_attempt_id` for the call tree). `CostUpdated` events emitted at run end and on model changes. `/cost` renders a tree-shaped breakdown (Scott → Pam → Date Mike → Jim) with per-tier and per-persona totals.
+Per-call model, token, duration, and cost records captured into `attempts` (with `call_type='agent'` / `'direct_llm'` / `'minion'`, plus `parent_attempt_id` for the call tree). `CostUpdated` events emitted at run end and on model changes. `/cost` renders a tree-shaped breakdown (Scott → Pam → Jim → Dwight, plus minions under their parents) with per-tier and per-persona totals. Minion costs roll up automatically via Pydantic AI's `usage=ctx.usage` parameter.
 
 **Ships:**
 - Cost-tracking wrapper around model calls
@@ -482,7 +537,7 @@ flowchart LR
 **Depends on:** C5, C7
 **Brainstorm/contract:** [`IDEA.md`](reference/IDEA.md) §2 (Model Buckets)
 
-Provider-agnostic tier map (Scout / Worker / Architect) wired into `config_loader`. At least two providers represented. `/model` and `/tier` slash commands update session config safely. Defaults per persona: Scott (manager) → Worker, Pam (analyst) → Worker, Date Mike (planner) → **Architect**, Jim (builder) → Worker, Dwight (evaluator) → Worker, Holly (recruiter) → Scout.
+Provider-agnostic tier map (Scout / Worker / Architect) wired into `config_loader`. At least two providers represented. `/model` and `/tier` slash commands update session config safely. Defaults per persona: Scott (manager) → Worker, Pam (planner) → **Architect**, Jim (builder) → Worker, Dwight (evaluator) → Worker. Minions default Scout (configurable to Worker per `spawn_minion` call).
 
 **Ships:**
 - `TIER_DEFAULTS` covering 2+ providers
@@ -511,45 +566,55 @@ flowchart LR
 
 ---
 
-### C9 — Dwight (Evaluator) + Retry Loop
+### C9 — Dwight (Evaluator) + Retry Loop + `/build` / `/eval`
 
 **Layer:** workflow (pre-graph)
 **Status:** planned
-**Depends on:** C6b, C8
-**Brainstorm/contract:** [`EVENT_CONTRACT.md`](contracts/EVENT_CONTRACT.md) (Evaluation events), [`lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md`](../lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md)
+**Depends on:** C6b, C6c, C8
+**Brainstorm/contract:** [`EVENT_CONTRACT.md`](contracts/EVENT_CONTRACT.md) (Evaluation events), [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md)
 
-Adds **Dwight Schrute (evaluator, Worker)** to grade pass/fail against the acceptance criteria Date Mike wrote. Dwight also classifies failure type: **code-fault** (implementation is wrong, plan was fine → retry Jim) vs **spec-fault** (plan was premised on something wrong, e.g., wrong runtime → bounce back to Pam to re-analyse). One retry per task. Surfaces `EvaluationStarted` / `EvaluationCompleted` events.
+Adds **Dwight Schrute (evaluator, Worker)** to grade pass/fail against the acceptance criteria Pam wrote, and wires the full **Pam → Jim → Dwight** loop behind `/build`. Dwight emits a structured `EvalVerdict` (`status`, `fault_type: code | spec | ambiguous`, `diagnostic`, `suggested_fix_owner`) and **deterministic routing** picks the next step — no LLM hop for the routing decision.
+
+**Cross-specialist retry escalation:**
+- `code-fault` → back to Jim with diagnostic. After **N=2** Jim attempts, escalate to Pam.
+- `spec-fault` → back to Pam to revise the plan section, then Jim re-runs.
+- `ambiguous` → Dwight asks Jim for clarification; if still ambiguous, Pam arbitrates.
+- After **M=2** Pam revisions on the same task, the task is marked failed and surfaced to Scott; Scott offers the user the option to **escalate the failing role to a bigger model** (Worker → Architect for Jim/Dwight; for Pam, a fresh planning attempt with explicit failure context). This composes with C19's deterministic HR escalation.
 
 **Ships:**
-- `evaluator` agent config seeded with Dwight's persona + by-the-book grading prompt
-- Retry loop wrapping build → evaluate inside Scott's `kick_off_build` tool
-- Failure-type classifier in Dwight's structured output (`fault_type: code | spec`)
-- Spec-fault routing back to Pam (in autopilot) or surfacing a question to user (in HITL)
-- `attempts.eval_score` / `eval_passed` / `eval_feedback` populated
+- `evaluator` agent config seeded with Dwight's persona + by-the-book grading prompt + `EvalVerdict` `output_type`
+- `/build <task>` slash + Scott's `kick_off_build` tool: orchestrates Pam → Jim → Dwight (sequential pre-C10; graph at C10)
+- `/eval <target>` slash: routes directly to Dwight for one-shot evaluation
+- Retry caps wired (Jim N=2, Pam M=2); failure surfacing event with model-upgrade prompt
+- `attempts.eval_score` / `eval_passed` / `eval_feedback` / `fault_type` populated
 - `pydantic_evals` integration for structured scoring
 
 **Evaluation:**
-- Code-fault path: ambiguous task; first attempt fails eval, retries, second passes
-- Spec-fault path: brief assumed Node was available but env has only Python; Dwight flags spec-fault → Pam re-analyses → Date Mike replans → Jim succeeds
-- **Acceptance checkpoint: single-task autonomy.** Scott routes a build prompt → Pam → Date Mike → Jim → Dwight → done (with at most one retry).
+- Code-fault path: ambiguous task; first Jim attempt fails eval, retries, second passes.
+- Spec-fault path: plan assumed Node but env has only Python; Dwight flags spec-fault → Pam revises plan → Jim succeeds.
+- Failure path: persistent code-fault → 2 Jim attempts fail → bounced to Pam → 2 Pam revisions fail → Scott surfaces failure to user with "escalate Jim to Architect tier?" option.
+- **Acceptance checkpoint: single-task autonomy.** Scott → Pam → Jim → Dwight → done with at most retry-cap-bounded recovery.
 
 ```mermaid
 flowchart LR
   subgraph agents[agents]
-    pm[Pam / analyst]
-    dm[Date Mike / planner]
+    sc[Scott / manager]
+    pm[Pam / planner]
     jm[Jim / builder]
     dw[Dwight / evaluator]
   end
   subgraph workflow[workflow]
     retry[retry controller]
+    esc[escalation prompt]
   end
-  jm --> dw
+  sc -->|"/build, kick_off_build"| pm
+  pm --> jm --> dw
   dw -->|pass| done([done])
   dw -->|code-fault| retry
-  retry -->|attempt+1| jm
+  retry -->|"attempt+1 (Jim N≤2)"| jm
   dw -->|spec-fault| pm
-  pm --> dm --> jm
+  retry -->|"after N attempts"| pm
+  pm -.->|"after M revisions"| esc --> sc
 ```
 
 ---
@@ -561,7 +626,7 @@ flowchart LR
 **Depends on:** C9
 **Brainstorm/contract:** [`PHILOSOPHY.md`](reference/PHILOSOPHY.md), [`IDEA.md`](reference/IDEA.md) §5
 
-Behaviour-preserving refactor onto `pydantic_graph`. A `nodes/` package with a uniform `BaseNode` (state-in / state-out). A `workflows/feature_by_feature.py` wires Pam → Date Mike → Jim → Dwight as graph nodes. The graph lives **inside** Scott's `kick_off_build` tool — Scott still drives via Pydantic AI tool delegation; the user-facing surface is unchanged. `RunCoordinator` delegates to the graph runner without changing the event contract.
+Behaviour-preserving refactor onto `pydantic_graph`. A `nodes/` package with a uniform `BaseNode` (state-in / state-out). A `workflows/feature_by_feature.py` wires Pam → Jim → Dwight as graph nodes (with the C9 retry/escalation routing as deterministic edges driven by `EvalVerdict.fault_type`). The graph lives **inside** Scott's `kick_off_build` tool — Scott still drives via Pydantic AI tool delegation; the user-facing surface is unchanged. `RunCoordinator` delegates to the graph runner without changing the event contract.
 
 **Ships:**
 - `nodes/` with `BaseNode` interface and the existing nodes wrapped
@@ -626,18 +691,25 @@ flowchart LR
 **Layer:** infra
 **Status:** planned
 **Depends on:** C11
-**Brainstorm/contract:** [`lab/brainstorm/2026-05-02-context-management-module.md`](../lab/brainstorm/2026-05-02-context-management-module.md)
+**Brainstorm/contract:** [`lab/brainstorm/2026-05-02-context-management-module.md`](../lab/brainstorm/2026-05-02-context-management-module.md), [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md) §Compaction
 
-A `ContextManager` interface behind Pydantic AI `history_processors`, called per-role. Supports token/message-count triggers and head/tail/segment-rollup strategies. Direct-LLM summarisation routed through the cost tracker (`call_type='direct_llm'`). Lands after the Notes CLI checkpoint because that benchmark is too small to trigger compaction.
+A `ContextManager` interface behind Pydantic AI `history_processors`, called per-role. Supports token/message-count triggers and head/tail/segment-rollup strategies. Direct-LLM summarisation via `pydantic_ai.direct.model_request_sync` (Scout tier), routed through the cost tracker (`call_type='direct_llm'`). Lands after the Notes CLI checkpoint because that benchmark is too small to trigger compaction.
+
+**Default policy (v0):** auto-compact threshold **175k tokens** (220k context window − 20k response reserve − margin). Configurable per role.
+
+**Mechanic relies on `instructions=` (not `system_prompt=`) in `agents/base.py`:** instructions are re-applied each run regardless of message history, so compaction safely strips old prompt copies from history without losing live instructions.
 
 **Ships:**
 - `ContextManager` module + `history_processor` adapters
-- Per-role config (`compact_at_tokens`, `strategy`, `summary_tier`)
-- `ContextCompacted` event + `attempts` audit trail
+- Per-role config (`compact_at_tokens` default 175000, `strategy`, `summary_tier`)
+- `/compact` slash command (manual trigger) + auto-compact at threshold
+- Preservation rules: keep user prompts verbatim, decisions, open todos, slash-command artifacts (plans, AGENTS.md content); drop tool noise and completed sub-task chatter
+- `ContextCompacted` event + `attempts` audit trail (`call_type='direct_llm'`)
 
 **Evaluation:**
-- Synthetic long conversation triggers compaction; task progress preserved
-- Summarisation cost recorded; total tokens drop on the next turn
+- Synthetic long conversation crosses 175k → auto-compaction fires; task progress preserved
+- `/compact` mid-conversation produces a tighter history while preserving open work
+- Summarisation cost recorded in `attempts`; total tokens drop on the next turn
 
 ```mermaid
 flowchart LR
@@ -693,51 +765,17 @@ flowchart LR
 
 ---
 
-### C14 — Holly Flax / Temp Agency (Dynamic Minion Spawning)
+### C14 — _Superseded by C6c_
 
-**Layer:** agents + tools
-**Status:** planned
-**Depends on:** C5, C13
-**Brainstorm/contract:** [`lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md`](../lab/brainstorm/2026-05-04-manager-specialist-minion-pattern.md), [`TOOLS_CONTRACT.md`](contracts/TOOLS_CONTRACT.md) §"Sub-Agent Toolgroup (C14)"
+**Status:** **superseded** (2026-05-05) by [C6c](#c6c--universal-spawn_minion--tool-layer-hardening)
+**Depends on:** —
+**Brainstorm/contract:** [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md)
 
-Adds **Holly Flax (recruiter, Scout)** as the centralized minion factory. Other agents don't spawn minions directly — they call Holly via a `consult_holly(need_description, suggested_tools)` tool. Holly crafts the persona/prompt, picks tools from the caller's whitelist, and instantiates the minion through `agents/factory.py` (preserving the rule that only the factory calls `Agent(...)`). The minion runs once with isolated message history, returns a structured `AgentResult`, and is discarded.
+The original C14 plan was a recruiter persona ("Holly Flax / Temp Agency") with a `consult_holly` tool and a centralised minion factory. The 2026-05-05 brainstorm replaced this with a **universal `spawn_minion` tool available to every agent** — same factory-mediated, depth-≤1, whitelist-bounded, budget-inherited guarantees, but no recruiter persona and no LLM hop to decide what kind of minion to spawn. That capability now ships in **C6c**.
 
-**Guardrails:**
-- **Depth ≤ 1** — minions cannot spawn minions (cannot call Holly themselves).
-- **Tool whitelist** — minion's available tools are bounded by the caller's. No privilege escalation.
-- **Budget inheritance** — minion runs against the caller's remaining run budget; over-cap refuses.
-- **Factory-mediated** — `is_minion=1`, `parent_role` set on the `agent_configs` row for audit.
+This ID is retained (IDs are stable) but no longer carries scope. Hook attachment at spawn time moves into C13 / C6c integration; `MinionSpawned` / `MinionReturned` events ship with C6c.
 
-**Ships:**
-- `agent_configs` row for `recruiter` (Holly, Scout) seeded
-- `tools/agents.py` with `consult_holly(need, suggested_tools)` (replaces the earlier `spawn_agent` framing)
-- `TOOL_REGISTRY["agents"]`
-- Hook attachment at spawn time
-- `MinionRecruited` / `MinionReturned` events (rename of `AgentSpawned` / `AgentReturned`)
-
-**Evaluation:**
-- Scott (or any specialist) calls `consult_holly("Look up the latest pydantic_graph API for cycles", ["web_search"])` → Holly spawns a research minion → returns a summary
-- Minion attempts to call Holly itself → refused (depth limit)
-- `post_run` hook (`ty check`) on the minion runs; failure re-dispatches deterministically
-
-```mermaid
-flowchart LR
-  subgraph agents[agents]
-    caller[caller agent]
-    holly[Holly / recruiter]
-    fac[config_loader]
-    minion[temp / minion]
-  end
-  subgraph tools[tools]
-    ch[consult_holly]
-  end
-  subgraph infra[infra]
-    hm[HookManager]
-  end
-  caller --> ch --> holly --> fac --> minion
-  minion -.post hooks.-> hm
-  minion -->|result| caller
-```
+**Future use of this slot:** if research surfaces a need for **runtime prompt design** (an LLM agent that crafts custom minion personas on demand for genuinely novel needs), it can land here. Defer until usage shows fixed-tool minions are insufficient.
 
 ---
 
@@ -966,7 +1004,7 @@ flowchart LR
 
 A second top-level workflow composition that reuses every node in `feature_by_feature` and inserts `human_checkpoint` nodes at key decision points. Uses the existing question primitive in `runtime/questions.py`. Selected via `harness run --mode hitl` or `/mode hitl`.
 
-**Mode-aware analyst handling.** In HITL, **Pam (analyst) is bypassed** — Scott himself emits clarification questions to the user via runtime question events instead of summoning Pam to probe the environment. Pam is autopilot-only. Date Mike, Jim, and Dwight are unchanged across modes; the difference is purely in how the requirements brief is sourced.
+**Mode-aware clarification.** In HITL, Scott emits clarifying questions to the user via runtime question events **before** delegating to Pam, so Pam receives a sharper brief. In autopilot, Scott runs an env-probe preamble himself and hands the synthesised brief to Pam directly. Pam, Jim, and Dwight are unchanged across modes; the difference is purely in how the brief is sourced.
 
 **Ships:**
 - `workflows/feature_by_feature_hitl.py`

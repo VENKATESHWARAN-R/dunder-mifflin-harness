@@ -1,6 +1,8 @@
 # Manager–Specialist–Minion: JAC's Default Agentic Setup
 
-> **Status:** Draft brainstorm · **Date:** 2026-05-04 · **Roadmap:** revises **C6**, adds **C6b**, refines **C9**, **C14**, **C15**, **C21**
+> **Status:** Superseded by [`2026-05-05-multi-agent-cast-final.md`](2026-05-05-multi-agent-cast-final.md) · **Date:** 2026-05-04 · **Roadmap:** revises **C6**, adds **C6b**, refines **C9**, **C14**, **C15**, **C21**
+>
+> _This note is preserved for trail-of-thinking. The 2026-05-05 revision drops the analyst (Pam-as-analyst) and recruiter (Holly) personas, renames Date Mike → Pam (planner), and replaces Holly with a universal `spawn_minion` primitive. See the superseding note for the live picture._
 
 ## What this note locks in
 
