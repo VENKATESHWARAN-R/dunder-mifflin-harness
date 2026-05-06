@@ -1,6 +1,6 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** developer documentation
 
-# Components (C0–C5)
+# Components (C0–C6)
 
 Each component is a discrete shipping unit. This document records what each one added, which files it touched, and how it integrates with the rest of the system.
 
@@ -123,3 +123,47 @@ Each component is a discrete shipping unit. This document records what each one 
 **What it does:** Introduces `src/jac/agents/` as the single site for `pydantic_ai.Agent(...)` construction. `config_loader` reads `agent_configs` for the `(run_id, role)` pair, resolves `allowed_tools` against `TOOL_REGISTRY`, builds MCP toolsets from `run_mcp_servers`, composes skills into the system prompt under `## Domain Knowledge`, calls `build_pydantic_model`, and returns a configured `Agent`. `ensure_default_run_config` seeds a default chat-role config idempotently. The coordinator now delegates agent construction entirely to the factory. The SDK seam (`from jac import build_agent`) is stable from this point.
 
 **Integration point:** `RunCoordinator._ensure_agent` calls `ensure_default_run_config` then `config_loader` on first use. Nothing outside `src/jac/agents/` calls `pydantic_ai.Agent(...)`. External embedders use `from jac import build_agent` or `from jac.agents import config_loader` without touching the CLI.
+
+---
+
+## C5a — Tool Approval Middleware
+
+**Layer:** agents, runtime, tools
+
+**Key files:**
+
+- `src/jac/agents/approval.py` — `make_approval_wrapper` middleware
+- `src/jac/agents/base.py` — wraps resolved local tools with middleware
+- `src/jac/tools/filesystem.py` — preview/apply split for edit/write support
+- `src/jac/runtime/approvals.py` — policy and decision model
+
+**What it does:** Adds a uniform approval gate for local tools by wrapping tool
+functions at load time. Read-only tools bypass approval; write/shell tools route
+through policy + event handshake. File writes emit preview events before apply,
+denials return typed `ToolResult` values (no exception leakage), and successful
+writes emit applied events.
+
+**Integration point:** `config_loader` composes tool wrappers so coordinator-level
+approval mode changes affect every local tool call without changing tool code.
+
+---
+
+## C6 — Scott (Manager) + Jim (Builder)
+
+**Layer:** agents, runtime, state
+
+**Key files:**
+
+- `src/jac/agents/personas.py` — manager/builder persona definitions
+- `src/jac/agents/seeds.py` — `ensure_manager_config`, `ensure_builder_config`
+- `src/jac/agents/tools.py` — `make_summon_jim_tool`
+- `src/jac/runtime/coordinator.py` — manager attempt lifecycle + delegation wiring
+- `src/jac/state/attempts.py` + `src/jac/state/migrations/002_c6_scott_jim.sql` — call-tree persistence
+
+**What it does:** Promotes Scott to default runtime role with Jim as delegated
+builder specialist. Scott can answer directly or call `summon_jim(task)`.
+Delegations create child rows in `attempts` with parent linkage to the manager
+attempt.
+
+**Integration point:** During manager runs, coordinator injects `summon_jim` as
+an extra tool while keeping all agent construction in the factory path.

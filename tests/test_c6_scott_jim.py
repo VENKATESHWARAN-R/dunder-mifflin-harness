@@ -6,7 +6,12 @@ import asyncio
 from pathlib import Path
 
 from jac.agents import ensure_builder_config, ensure_manager_config
+from jac.agents.tools import make_summon_jim_tool
 from jac.agents.personas import PERSONAS
+from jac.config import Settings
+from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
+from jac.runtime.events import EventBus
+from jac.runtime.session import SessionState
 from jac.state import open_state_store
 
 
@@ -155,3 +160,173 @@ def test_migration_002_applies(tmp_path: Path) -> None:
     assert "persona" in cols
     assert "display_name" in cols
     assert has_attempts
+
+
+def test_summon_jim_uses_active_approval_policy(
+    monkeypatch, tmp_path: Path
+) -> None:
+    async def scenario():
+        store = await open_state_store(tmp_path / "state.db")
+        try:
+            run_id = "r1"
+            await store.runs.create(run_id=run_id, prompt="build")
+            await ensure_manager_config(store, run_id)
+            await ensure_builder_config(store, run_id)
+
+            settings = Settings()
+            session = SessionState()
+            session.run_id = run_id
+            events = EventBus()
+            policy = ApprovalPolicy(mode=ApprovalMode.AUTO_EDIT)
+            captured: dict[str, object] = {}
+
+            class FakeResult:
+                output = "jim-complete"
+
+            class FakeAgent:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+                async def run(self, _task: str) -> FakeResult:
+                    return FakeResult()
+
+            async def fake_loader(**kwargs):
+                captured["approval_policy"] = kwargs.get("approval_policy")
+                return FakeAgent()
+
+            monkeypatch.setattr("jac.agents.base.config_loader", fake_loader)
+
+            summon_jim = make_summon_jim_tool(
+                store, settings, session, events, approval_policy=policy
+            )
+            output = await summon_jim("write tests")
+            assert output == "jim-complete"
+            assert captured["approval_policy"] is policy
+        finally:
+            await store.close()
+
+    _run(scenario())
+
+
+def test_summon_jim_records_parent_child_attempt_and_pass(tmp_path: Path) -> None:
+    async def scenario():
+        store = await open_state_store(tmp_path / "state.db")
+        try:
+            run_id = "r1"
+            await store.runs.create(run_id=run_id, prompt="build")
+            await ensure_manager_config(store, run_id)
+            await ensure_builder_config(store, run_id)
+
+            settings = Settings()
+            session = SessionState()
+            session.run_id = run_id
+            parent = await store.attempts.create(
+                run_id=run_id,
+                role="manager",
+                model="test-model",
+                tier="worker",
+            )
+            session.active_attempt_id = parent.attempt_id
+            events = EventBus()
+            policy = ApprovalPolicy(mode=ApprovalMode.INTERACTIVE)
+
+            class FakeResult:
+                output = "complete"
+
+            class FakeAgent:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+                async def run(self, _task: str) -> FakeResult:
+                    return FakeResult()
+
+            async def fake_loader(**_kwargs):
+                return FakeAgent()
+
+            # patch imported symbol target used by make_summon_jim_tool
+            import jac.agents.base as base_mod
+
+            base_loader = base_mod.config_loader
+            base_mod.config_loader = fake_loader
+            try:
+                summon_jim = make_summon_jim_tool(
+                    store, settings, session, events, approval_policy=policy
+                )
+                output = await summon_jim("write tests")
+                assert output == "complete"
+            finally:
+                base_mod.config_loader = base_loader
+
+            cur = await store.connection.execute(
+                "SELECT parent_attempt_id, status FROM attempts WHERE role = 'builder'"
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            assert row is not None
+            assert row["parent_attempt_id"] == parent.attempt_id
+            assert row["status"] == "passed"
+        finally:
+            await store.close()
+
+    _run(scenario())
+
+
+def test_summon_jim_marks_failed_attempt_on_error(tmp_path: Path) -> None:
+    async def scenario():
+        store = await open_state_store(tmp_path / "state.db")
+        try:
+            run_id = "r1"
+            await store.runs.create(run_id=run_id, prompt="build")
+            await ensure_manager_config(store, run_id)
+            await ensure_builder_config(store, run_id)
+            settings = Settings()
+            session = SessionState()
+            session.run_id = run_id
+            events = EventBus()
+            policy = ApprovalPolicy(mode=ApprovalMode.INTERACTIVE)
+
+            class FakeAgent:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, exc_type, exc, tb):
+                    return False
+
+                async def run(self, _task: str):
+                    raise RuntimeError("jim failed")
+
+            async def fake_loader(**_kwargs):
+                return FakeAgent()
+
+            import jac.agents.base as base_mod
+
+            base_loader = base_mod.config_loader
+            base_mod.config_loader = fake_loader
+            try:
+                summon_jim = make_summon_jim_tool(
+                    store, settings, session, events, approval_policy=policy
+                )
+                try:
+                    await summon_jim("break")
+                except RuntimeError:
+                    pass
+            finally:
+                base_mod.config_loader = base_loader
+
+            cur = await store.connection.execute(
+                "SELECT status FROM attempts WHERE role = 'builder' ORDER BY created_at DESC LIMIT 1"
+            )
+            row = await cur.fetchone()
+            await cur.close()
+            assert row is not None
+            assert row["status"] == "failed"
+        finally:
+            await store.close()
+
+    _run(scenario())

@@ -1,12 +1,17 @@
 import importlib
 import json
+import asyncio
 from pathlib import Path
 
 import pytest
 
 from jac.cli import main as cli_main
 from jac.cli import main as cli_public_main
+from jac.cli.app import ChatApp
 from jac.config import ConfigurationError
+from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
+from jac.runtime.coordinator import UserMessage
+from jac.runtime.session import SessionConfig, SessionState
 
 
 def test_cli_prints_agent_response(
@@ -365,3 +370,127 @@ def test_profile_add_writes_profile_scoped_env(
     assert settings["profiles"]["office"]["default_provider"] == "litellm"
     assert "JAC_PROFILE_OFFICE_LITELLM_API_BASE=https://litellm.example/v1" in env_text
     assert "JAC_PROFILE_OFFICE_LITELLM_API_KEY=office-key" in env_text
+
+
+def test_chatapp_from_resumed_runs_seed_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    class DummyState:
+        async def close(self) -> None:
+            return None
+
+    class DummyCoordinator:
+        def __init__(self) -> None:
+            self.session = object()
+            self.events = object()
+
+    async def fake_open_state_store(_path: Path) -> DummyState:
+        calls.append("open_state_store")
+        return DummyState()
+
+    async def fake_seed_workspace(_workspace: object, _state: object) -> None:
+        calls.append("seed_workspace")
+
+    async def fake_resume_run(**_kwargs: object) -> DummyCoordinator:
+        calls.append("resume_run")
+        return DummyCoordinator()
+
+    monkeypatch.setattr("jac.cli.app.open_state_store", fake_open_state_store)
+    monkeypatch.setattr("jac.cli.app.seed_workspace", fake_seed_workspace)
+    monkeypatch.setattr("jac.cli.app.resume_run", fake_resume_run)
+    monkeypatch.setattr(
+        "jac.cli.app.discover_workspace",
+        lambda _cwd: type("W", (), {"state_db_path": Path("/tmp/state.db")})(),
+    )
+
+    original_init = ChatApp.__init__
+    seen: dict[str, object] = {}
+
+    def fake_init(self, **kwargs: object) -> None:
+        seen.update(kwargs)
+
+    monkeypatch.setattr(ChatApp, "__init__", fake_init)
+    try:
+        asyncio.run(ChatApp.from_resumed("run-1"))
+    finally:
+        monkeypatch.setattr(ChatApp, "__init__", original_init)
+
+    assert calls == ["open_state_store", "seed_workspace", "resume_run"]
+    assert seen["state"] is not None
+
+
+def test_submit_message_retries_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    class DummyCoordinator:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.approval_policy = ApprovalPolicy(mode=ApprovalMode.INTERACTIVE)
+
+        async def submit_message(self, _message: UserMessage) -> str:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("boom")
+            return "ok"
+
+    class DummyPrompts:
+        async def ask_yn(self, _prompt: str) -> bool:
+            return True
+
+    session = SessionState(config=SessionConfig())
+    coordinator = DummyCoordinator()
+    app = ChatApp(session=session, coordinator=coordinator)
+    app.prompts = DummyPrompts()
+
+    asyncio.run(app._submit_message(UserMessage(text="hello")))
+    assert coordinator.calls == 2
+
+
+def test_destructive_shell_command_requires_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DummyPrompts:
+        async def ask_yn(self, _prompt: str) -> bool:
+            return False
+
+    class DummyRenderer:
+        def __init__(self) -> None:
+            self.warnings: list[str] = []
+            self.info: list[str] = []
+            self.console = type("C", (), {"clear": lambda self: None})()
+
+        def wire(self, _events: object) -> None:
+            return None
+
+        def print_warning(self, message: str) -> None:
+            self.warnings.append(message)
+
+        def print_info(self, message: str) -> None:
+            self.info.append(message)
+
+    called = {"run_shell": 0}
+
+    async def fake_run_shell(**_kwargs: object):
+        called["run_shell"] += 1
+        raise AssertionError("should not execute destructive command")
+
+    session = SessionState(config=SessionConfig())
+    app = ChatApp(session=session, renderer=DummyRenderer())
+    app.prompts = DummyPrompts()
+    monkeypatch.setattr("jac.cli.app.run_shell", fake_run_shell)
+
+    asyncio.run(app._handle_shell("rm -rf /tmp/demo"))
+    assert called["run_shell"] == 0
+
+
+def test_undo_command_restores_file(tmp_path: Path) -> None:
+    path = tmp_path / "demo.txt"
+    path.write_text("original", encoding="utf-8")
+
+    session = SessionState(config=SessionConfig())
+    app = ChatApp(session=session)
+    app._undo_stack.append((path, b"original"))
+    path.write_text("changed", encoding="utf-8")
+
+    dispatched = asyncio.run(app.commands.dispatch("undo", ""))
+
+    assert dispatched is True
+    assert path.read_text(encoding="utf-8") == "original"

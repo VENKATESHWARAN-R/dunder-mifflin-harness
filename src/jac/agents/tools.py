@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from jac.config import Settings
+    from jac.runtime.approvals import ApprovalPolicy
     from jac.runtime.events import EventBus
     from jac.runtime.session import SessionState
     from jac.state import StateStore
@@ -16,6 +17,7 @@ def make_summon_jim_tool(
     settings: Settings,
     session: SessionState,
     events: EventBus,
+    approval_policy: ApprovalPolicy,
 ):
     """Return a tool function that Scott can call to delegate to Jim."""
 
@@ -70,6 +72,7 @@ def make_summon_jim_tool(
             run_id=session.run_id,
             role="builder",
             events=events,
+            approval_policy=approval_policy,
             model_settings={
                 "temperature": float(
                     session.config.model_params.get("temperature", "0")

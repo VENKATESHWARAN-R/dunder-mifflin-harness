@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-04 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** developer documentation
 
 # Runtime Layer
 
@@ -34,9 +34,18 @@ Main entry point. Called once per user turn. Steps:
 5. Emits `AgentMessageCompleted` and updates `session.latest_cost_summary`.
 6. Returns the output string.
 
+As of C6, manager attempt lifecycle tracking is factored into two internal helpers:
+`_start_manager_attempt` and `_finish_manager_attempt`, which isolate attempt-row
+bookkeeping from the rest of turn orchestration.
+
 ### `_ensure_agent() -> Agent`
 
-Async. Called internally on the first turn (or after `reset_agent()`). If `state` is available: calls `ensure_default_run_config(state, run_id)` then `config_loader(state, settings, run_id, role=session.config.role)`. If `state` is `None`: calls `_build_fallback_agent()` which constructs a minimal agent directly without DB-backed config. Caches the result.
+Async. Called internally on the first turn (or after `reset_agent()`). If `state`
+is available: ensures manager + builder configs for the run, then calls
+`config_loader(state, settings, run_id, role=session.config.role, approval_policy=...)`.
+For manager role it also injects `summon_jim` as an extra tool. If `state` is
+`None`: calls `_build_fallback_agent()` which constructs a minimal agent directly
+without DB-backed config. Caches the result.
 
 ### `reset_agent()`
 
@@ -130,7 +139,7 @@ class SessionConfig:
     mode: RunMode                      # hitl | autopilot
     model: str | None                  # explicit model override (None = use tier)
     tier: ModelTier | None             # scout | worker | architect (None = use default)
-    role: str                          # default "chat"
+    role: str                          # default "manager"
     approval_mode: ApprovalMode        # interactive | auto-edit | yolo
     model_params: dict                 # {"temperature": 0.7, "max_tokens": 4096, ...}
     max_attachment_bytes: int

@@ -1,6 +1,6 @@
 # CLI Design
 
-> **Status:** Locked · **Last revised:** 2026-05-04 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-06 · **Type:** contract
 
 ## Purpose
 
@@ -46,7 +46,10 @@ Until graph workflows exist, one-shot and chat mode use the same runtime coordin
 
 Plain text is sent to the runtime as a user message.
 
-Slash commands are local commands. They configure the session or inspect state and are not sent to the model.
+Slash commands are local commands by default. They configure the session or inspect
+state and are not sent to the model unless explicitly defined as model-routed
+workflow entrypoints in the roadmap/contracts (for example, `/plan` and `/init`
+at C6b).
 
 ```text
 /help
@@ -103,7 +106,9 @@ Full command set:
 | `/clear` | Clear the terminal screen (session state unchanged) |
 | `/capabilities` | Show active model, tier, mode, approval policy, tools, MCP servers, and skills |
 
-Aliases are single-letter shortcuts for the most common commands. All slash commands mutate `SessionConfig` or local session state — none send data to the model directly.
+Aliases are single-letter shortcuts for the most common commands. Most slash
+commands mutate `SessionConfig` or local session state. Model-routed slash commands
+must be explicitly listed in this contract and handled as first-class runtime flows.
 
 Avoid cosmetic commands until the backend has enough behavior to justify them.
 
@@ -190,6 +195,7 @@ When adding a new CLI feature:
 
 1. Decide whether it is a runtime behavior or a presentation behavior.
 2. Add runtime events or request types first if the backend needs to communicate it.
-3. Keep slash commands as session/runtime mutations, not hidden backend shortcuts.
+3. Keep slash commands as session/runtime mutations by default. If a slash command
+   is model-routed, document it explicitly in this contract and roadmap entry.
 4. Add focused parser, policy, or renderer tests before wiring the REPL.
 5. Avoid adding UI features that do not improve control, transparency, or debugging.

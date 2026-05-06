@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** developer documentation
 
 # Agents Layer
 
@@ -24,10 +24,12 @@ async def config_loader(
     state: StateStore,
     settings: Settings,
     run_id: str,
-    role: str = "chat",
+    role: str = "manager",
     output_type: type | None = None,
     events: EventBus | None = None,
+    approval_policy: ApprovalPolicy | None = None,
     model_settings: dict | None = None,
+    extra_tools: Sequence[ToolFn] | None = None,
 ) -> Agent: ...
 ```
 
@@ -45,9 +47,13 @@ Queries `state.run_mcp_servers` for active rows matching `run_id` and `role` (or
 - `transport = "streamable-http"` → `MCPServerStreamableHTTP`
 - `transport = "sse"` → `MCPServerSSE`
 
-**Step 3 — Resolve allowed tools**
+**Step 3 — Resolve allowed tools (with approval middleware)**
 
-Iterates `allowed_tools` and looks up each entry in `TOOL_REGISTRY`. Entries prefixed with `mcp:` are skipped (handled in step 2). An entry not found in `TOOL_REGISTRY` raises `UnknownToolError`. The result is a flat list of tool functions to pass to the agent.
+Iterates `allowed_tools` and looks up each entry in `TOOL_REGISTRY`. Entries prefixed
+with `mcp:` are skipped (handled in step 2). Local tools are wrapped via
+`make_approval_wrapper` using the active `ApprovalPolicy`. An entry not found in
+`TOOL_REGISTRY` raises `UnknownToolError`. Any caller-provided `extra_tools` are
+appended after resolved local tools.
 
 **Step 4 — Compose system prompt with skills**
 
@@ -88,6 +94,10 @@ async def ensure_default_run_config(
 ```
 
 Idempotent: returns the existing row if `(run_id, role)` already exists in `agent_configs`, otherwise creates one with the provided defaults. Called by `RunCoordinator._ensure_agent` before the first turn of every session. Safe to call multiple times.
+
+For C6 manager-specialist behavior, role-specific seed helpers (`ensure_manager_config`,
+`ensure_builder_config`) are used by the coordinator so Scott and Jim rows are always
+present before manager turns.
 
 ## `AgentConfig` dataclass (`src/jac/agents/base.py`)
 

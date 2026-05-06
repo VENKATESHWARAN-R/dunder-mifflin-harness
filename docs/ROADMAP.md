@@ -783,7 +783,7 @@ This ID is retained (IDs are stable) but no longer carries scope. Hook attachmen
 
 **Layer:** agents + state
 **Status:** planned
-**Depends on:** C14
+**Depends on:** C6c
 **Brainstorm/contract:** [`STATE_SCHEMA.md`](contracts/STATE_SCHEMA.md) (`agent_instances`, `agent_teams`, `agent_messages`)
 
 Activates the reserved tables. Multiple agent instances run within one `run_id` and coordinate via the `agent_messages` queue (bug reports, handoffs, broadcasts). Strategies: `parallel`, `sequential`, `mixed`. **Acceptance checkpoint:** multi-agent autonomy — a builder/tester pair runs concurrently, the tester posts a bug report, the builder picks it up.

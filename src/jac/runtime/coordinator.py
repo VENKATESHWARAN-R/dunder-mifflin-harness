@@ -110,7 +110,11 @@ class RunCoordinator:
         if role == "manager":
             extra_tools = [
                 make_summon_jim_tool(
-                    self.state, self.settings, self.session, self.events
+                    self.state,
+                    self.settings,
+                    self.session,
+                    self.events,
+                    self.approval_policy,
                 )
             ]
 
@@ -207,6 +211,34 @@ class RunCoordinator:
         )
         self._run_persisted = True
 
+    async def _start_manager_attempt(self, run_id: str) -> str | None:
+        """Create the manager attempt row for the current turn."""
+        if self.state is None:
+            return None
+        tier = str(self.session.config.tier or self.settings.default_tier)
+        selection = self.settings.resolve_model_selection(
+            model_override=self.session.config.model,
+            tier=tier,
+        )
+        scott_row = await self.state.attempts.create(
+            run_id=run_id,
+            role="manager",
+            model=selection.model_ref,
+            tier=tier,
+            call_type="agent",
+        )
+        self.session.active_attempt_id = scott_row.attempt_id
+        return scott_row.attempt_id
+
+    async def _finish_manager_attempt(self, attempt_id: str | None, *, passed: bool) -> None:
+        """Update the manager attempt status for the current turn."""
+        if self.state is None or attempt_id is None:
+            return
+        await self.state.attempts.update_status(
+            attempt_id,
+            "passed" if passed else "failed",
+        )
+
     async def submit_message(self, message: UserMessage) -> str:
         """Run one prompt through the backend and emit runtime events."""
         run_id = self.session.run_id
@@ -224,21 +256,7 @@ class RunCoordinator:
             if warning_message:
                 await self.events.emit(WarningRaised(message=warning_message))
             agent = await self._ensure_agent()
-            if self.state is not None:
-                tier = str(self.session.config.tier or self.settings.default_tier)
-                selection = self.settings.resolve_model_selection(
-                    model_override=self.session.config.model,
-                    tier=tier,
-                )
-                scott_row = await self.state.attempts.create(
-                    run_id=run_id,
-                    role="manager",
-                    model=selection.model_ref,
-                    tier=tier,
-                    call_type="agent",
-                )
-                scott_attempt_id = scott_row.attempt_id
-                self.session.active_attempt_id = scott_attempt_id
+            scott_attempt_id = await self._start_manager_attempt(run_id)
             async with agent:
                 result = await agent.run(
                     prompt, message_history=self._message_history or None
@@ -249,14 +267,12 @@ class RunCoordinator:
             )
             if self.state is not None:
                 await self.state.runs.update_status(run_id, "failed")
-                if scott_attempt_id is not None:
-                    await self.state.attempts.update_status(scott_attempt_id, "failed")
+                await self._finish_manager_attempt(scott_attempt_id, passed=False)
             raise
         finally:
             self.session.active_attempt_id = None
 
-        if self.state is not None and scott_attempt_id is not None:
-            await self.state.attempts.update_status(scott_attempt_id, "passed")
+        await self._finish_manager_attempt(scott_attempt_id, passed=True)
 
         output = result.output
         self._message_history = list(result.all_messages())

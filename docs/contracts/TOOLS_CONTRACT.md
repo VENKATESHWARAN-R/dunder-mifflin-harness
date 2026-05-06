@@ -1,6 +1,6 @@
 # Tools Contract
 
-> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-06 · **Type:** contract
 
 This document is the authoritative reference for writing agent tools in JAC.
 Read it before adding a new tool. Any tool that doesn't follow this contract will be
@@ -255,28 +255,20 @@ output, not just new bytes since the last read.
 
 ---
 
-## Sub-Agent Toolgroup (C14)
+## Sub-Agent Tooling Direction (C6c+)
 
-The `spawn_agent` toolgroup lands at component **C14** in [`docs/ROADMAP.md`](../ROADMAP.md).
-It supports spawning custom sub-agents from within an agent tool call. This is distinct
-from workflow-level delegation (which goes through `pydantic_graph` edges). Sub-agents
-are used for:
+The prior C14 recruiter-based `spawn_agent` design is superseded in the roadmap.
+The current direction is a universal `spawn_minion` capability (C6c) available to
+all agents with shared invariants:
 
-- **Context isolation**: a sub-agent starts with a clean message history, preventing the
-  parent's long history from bleeding into a focused sub-task.
-- **Parallel sub-tasks**: multiple sub-agents run concurrently on independent tasks and
-  return structured results to the parent.
+- Depth bound (`depth <= 1`) to prevent recursive fan-out.
+- Tool whitelist bounded by the caller's allowance.
+- Usage/cost budget inheritance from the caller.
+- Factory-mediated instantiation (no ad-hoc `Agent(...)` calls outside the factory).
 
-The toolgroup registers as:
-
-```python
-"agents": [spawn_agent],  # spawn_agent(role, task, context_scope, hooks=...) -> AgentResult
-```
-
-The `spawn_agent` tool goes through the same `config_loader` factory as workflow agents and
-is tracked in the `attempts` table. Hooks attached at spawn time are run by the HookManager
-(C13). Do **not** add ad-hoc agent instantiation anywhere else in anticipation of this — the
-factory remains the only construction site.
+When C6c ships, document the concrete tool signature and return model in this
+section and keep the invariants above unchanged unless the roadmap/contracts are
+explicitly revised.
 
 ---
 

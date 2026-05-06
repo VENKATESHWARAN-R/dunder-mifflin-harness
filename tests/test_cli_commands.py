@@ -26,3 +26,21 @@ def test_slash_command_registry_reports_unknown() -> None:
         return await registry.dispatch("missing")
 
     assert asyncio.run(scenario()) is False
+
+
+def test_slash_command_registry_dispatches_alias() -> None:
+    async def scenario() -> list[str]:
+        seen: list[str] = []
+        registry = SlashCommandRegistry()
+
+        async def handler(args: str) -> None:
+            seen.append(args)
+
+        registry.register("help", handler, "Show help")
+        registry.alias("h", "help")
+        dispatched = await registry.dispatch("h", "topic")
+
+        assert dispatched
+        return seen
+
+    assert asyncio.run(scenario()) == ["topic"]

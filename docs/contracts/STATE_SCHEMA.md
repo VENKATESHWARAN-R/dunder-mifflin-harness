@@ -1,6 +1,6 @@
 # State Schema Contract
 
-> **Status:** Locked · **Last revised:** 2026-05-04 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-06 · **Type:** contract
 
 **Schema version:** 1.3  
 **Storage:** SQLite (single file, local-first, crash-safe)
@@ -83,7 +83,7 @@ CREATE TABLE attempts (
     -- agent | direct_llm
     -- direct_llm = single model call without full agent loop (Scott's direct replies, routing decisions)
     role                TEXT NOT NULL DEFAULT 'builder',
-    -- which persona made this attempt: manager | analyst | planner | builder | evaluator | recruiter | minion:...
+    -- which persona made this attempt: manager | planner | builder | evaluator | minion:...
     model               TEXT NOT NULL,   -- exact model id, e.g. anthropic:claude-sonnet-4-6
     tier                TEXT NOT NULL,   -- scout | worker | architect
     tokens_in           INTEGER NOT NULL DEFAULT 0,
@@ -101,7 +101,11 @@ CREATE TABLE attempts (
 
 **Note on `call_type`:** Some agent calls don't spin up a full agent loop — e.g., Scott replying directly to a trivial chat message, or a routing decision. These are recorded with `call_type = 'direct_llm'` for cost and audit.
 
-**Note on `parent_attempt_id`:** Reconstructs the call tree for cost rollup and audit. When Scott calls `summon_jim`, Jim's attempt row sets `parent_attempt_id = Scott's attempt_id`. Holly's minion attempts set `parent_attempt_id` to the calling agent's attempt. A null `parent_attempt_id` means the attempt was the top-level call in the run (always Scott).
+**Note on `parent_attempt_id`:** Reconstructs the call tree for cost rollup and
+audit. When Scott calls `summon_jim`, Jim's attempt row sets
+`parent_attempt_id = Scott's attempt_id`. For C6c and later, minion attempts set
+`parent_attempt_id` to the calling agent's attempt. A null `parent_attempt_id`
+means the attempt was the top-level call in the run (typically Scott).
 
 ---
 
@@ -115,16 +119,16 @@ CREATE TABLE agent_configs (
     config_id           TEXT PRIMARY KEY,
     run_id              TEXT NOT NULL REFERENCES runs(run_id),
     role                TEXT NOT NULL,
-    -- v0 roles: manager | analyst | planner | builder | evaluator | recruiter
+    -- v0 roles: manager | planner | builder | evaluator
     -- future roles: support | security | dba | tester | reviewer (added when those personas ship)
     -- minion roles: prefixed 'minion:' e.g. 'minion:web_research' (ensures UNIQUE is preserved)
     persona             TEXT,           -- nullable; full character name e.g. 'Michael Scott'
     display_name        TEXT,           -- nullable; short name shown in events e.g. 'Scott'
     is_minion           INTEGER NOT NULL DEFAULT 0,  -- 0 = native specialist, 1 = temp/minion (depth ≤ 1)
-    parent_role         TEXT,           -- nullable; role of the agent that recruited this minion via Holly
+    parent_role         TEXT,           -- nullable; role of the agent that spawned this minion
     depth               INTEGER NOT NULL DEFAULT 0,
-    -- 0 = native specialist (Scott, Pam, Date Mike, Jim, Dwight, Holly)
-    -- 1 = minion spawned by Holly; minions cannot spawn further (enforced at runtime)
+    -- 0 = native specialist (Scott, Pam, Jim, Dwight)
+    -- 1 = spawned minion; minions cannot spawn further (enforced at runtime)
     model_tier          TEXT NOT NULL,  -- scout | worker | architect
     model_override      TEXT,           -- nullable; overrides tier default if set
     system_prompt       TEXT NOT NULL,
@@ -141,18 +145,19 @@ CREATE TABLE agent_configs (
 | Persona | Role | Default tier | Rationale |
 |---|---|---|---|
 | Michael Scott | `manager` | worker | Tool-routing across many options needs reliable reasoning; Scout is too weak. |
-| Pam Beesly | `analyst` | worker | Env probing is shell-tool-driven; moderate reasoning is enough. |
-| Date Mike | `planner` | architect | End-to-end plans + pseudo-code; reasoning quality has the highest cost-of-error multiplier here. |
-| Jim Halpert | `builder` | worker | Follows Date Mike's plan; plan does the thinking. |
+| Pam Beesly | `planner` | architect | End-to-end planning and decomposition have the highest cost-of-error multiplier. |
+| Jim Halpert | `builder` | worker | Executes scoped implementation tasks from the plan loop. |
 | Dwight Schrute | `evaluator` | worker | Grading against structured acceptance criteria is well-scoped. |
-| Holly Flax | `recruiter` | scout | Matching a need to a minion config is cheap classification. |
 
 **Note on `allowed_tools`:** Stores MCP server IDs and local tool names as a JSON array.
 Example: `["filesystem", "shell", "git", "mcp:playwright"]`
 MCP server entries are prefixed with `mcp:` to distinguish them from local tools.
 The agent instantiation layer resolves these to actual tool/toolset objects at runtime.
 
-**Note on minion roles:** Minion `role` values are prefixed with `minion:` (e.g., `minion:web_research`, `minion:env_probe`) to preserve the `UNIQUE(run_id, role)` constraint while allowing multiple distinct minions per run. Holly assigns the role string when creating the temp.
+**Note on minion roles:** Minion `role` values are prefixed with `minion:` (for
+example, `minion:web_research`, `minion:env_probe`) to preserve the
+`UNIQUE(run_id, role)` constraint while allowing multiple distinct minions per
+run. The spawning agent assigns the role string.
 
 ---
 
@@ -383,8 +388,8 @@ roadmap components that need them ship. Component IDs reference [`docs/ROADMAP.m
 | `run_mcp_servers` | C5 | Run-start config; mid-run toggle command added at C18. |
 | `run_skills` | C5 | Run-start config; mid-run toggle command added at C18. |
 | `attempts` | C6 | Scott + Jim call tree recorded. Cost fields (`tokens_in/out`, `cost`) and `CostUpdated` events wired fully at C7. |
-| `tasks` | C6b | Date Mike (planner) emits a structured task list. Moved from C6 — C6 has no planner. |
-| `context_store` | C6b | Pam writes the requirements brief to `shared` scope; Date Mike reads it. Moved from C11. |
+| `tasks` | C6b | Pam (planner) emits a structured task list. |
+| `context_store` | C11 | Reserved until multi-task/context routing requires shared cross-agent state. |
 | `mcp_servers` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; live transports added at C17. |
 | `skills` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; dynamic injection added at C16. |
 | `agent_instances` | C15 | Reserved until multi-agent runs land. |

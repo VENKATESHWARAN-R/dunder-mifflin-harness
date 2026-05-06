@@ -121,6 +121,7 @@ class ChatApp:
         resolved_settings = settings or Settings()
         workspace = discover_workspace(Path.cwd())
         state = await open_state_store(workspace.state_db_path)
+        await seed_workspace(workspace, state)
         try:
             coordinator = await resume_run(
                 state=state, settings=resolved_settings, run_id=run_id
