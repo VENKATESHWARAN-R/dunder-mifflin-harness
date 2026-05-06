@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** user guide
+> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** user guide
 
 # Configuration
 
@@ -29,7 +29,7 @@ Global settings apply whenever no project-level config is found.
 <repo>/.agents/
   settings.json         # project defaults (commit this)
   settings.local.json   # local overrides (gitignored)
-  .env                  # project-scoped API keys (gitignored)
+  .env.local            # project-scoped API keys (gitignored)
   skills/               # project-scoped skills
   mcp/                  # project-scoped MCP server configs
   state.db              # state database for this project
@@ -107,7 +107,9 @@ Both global and project `settings.json` files use the same schema.
 | `openrouter` | `OPENROUTER_API_KEY` |
 | `litellm` | `LITELLM_API_BASE`, `LITELLM_API_KEY` |
 
-You can place these in `~/.jac/.env` (global) or `<repo>/.agents/.env` (project). JAC loads `.env` files automatically on startup.
+You can place these in `~/.jac/.env` (global) or
+`<repo>/.agents/.env.local` (project). JAC loads dotenv files automatically on
+startup.
 
 ## Profiles
 

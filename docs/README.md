@@ -65,7 +65,7 @@ Contributor and AI-agent reference — what is built, how layers connect, where 
 |---|---|
 | [dev/README.md](dev/README.md) | Index + "when to update" guidance. |
 | [dev/architecture.md](dev/architecture.md) | Layer diagram, dependency rules, end-to-end data flow. |
-| [dev/components.md](dev/components.md) | C0–C5 component map: what each shipped and key files. |
+| [dev/components.md](dev/components.md) | C0–C6 component map: what each shipped and key files. |
 | [dev/state-layer.md](dev/state-layer.md) | SQLite repos, schema activation, migration pattern, seeder. |
 | [dev/agents-layer.md](dev/agents-layer.md) | Agent factory deep-dive: config_loader, tool resolution, skills. |
 | [dev/runtime-layer.md](dev/runtime-layer.md) | RunCoordinator, EventBus, SessionState, approvals, model factory. |

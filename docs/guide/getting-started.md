@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** user guide
+> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** user guide
 
 # Getting Started
 
@@ -6,7 +6,7 @@ This guide walks you from zero to a working JAC session. By the end you will hav
 
 ## Requirements
 
-- Python 3.12 or newer
+- Python 3.13 or newer
 - [`uv`](https://docs.astral.sh/uv/) — the package manager used throughout
 
 Install `uv` if you do not already have it:
@@ -83,7 +83,11 @@ cd /path/to/your/project
 jac init
 ```
 
-This writes `.agents/settings.json` and `.agents/.env` into the current directory. Project settings take precedence over global settings. Commit `.agents/settings.json` to share config with your team; add `.agents/.env` to `.gitignore` (the wizard does this automatically).
+This writes `.agents/settings.json` into the current directory. If you pass
+`--env-local`, it also writes `.agents/.env.local`. Project settings take
+precedence over global settings. Commit `.agents/settings.json` to share config
+with your team; keep `.agents/.env.local` gitignored (the wizard does this
+automatically).
 
 See [configuration.md](configuration.md) for full details on the workspace hierarchy and all available settings.
 

@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** user guide
+> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** user guide
 
 # Usage
 
@@ -26,7 +26,7 @@ jac chat
 - Type a message and press **Enter** to send it.
 - Press **Ctrl+C** to cancel an in-flight request without exiting.
 - Press **Ctrl+D** or type `/quit` to exit the session.
-- The run ID is printed at the start of each session — keep it if you want to resume later.
+- Use `/context` to view the run ID if you want to resume later.
 
 The REPL supports multi-line input. The prompt_toolkit input session maintains persistent history across launches at `~/.jac/input_history`.
 
@@ -38,7 +38,7 @@ Every session is persisted in the state database. Resume the most recent run:
 jac resume
 ```
 
-Resume a specific run by ID (shown at the start of each session):
+Resume a specific run by ID:
 
 ```bash
 jac resume <run_id>
@@ -82,7 +82,9 @@ The command runs in the terminal and its output is displayed inline. Inline shel
 
 ## Slash commands
 
-Slash commands mutate your local session configuration. They are dispatched locally and are never sent to the model.
+Slash commands mutate your local session configuration. In current shipped
+behavior they are dispatched locally (model-routed slash flows are planned for
+later components).
 
 | Command | Description |
 |---|---|
@@ -95,6 +97,11 @@ Slash commands mutate your local session configuration. They are dispatched loca
 | `/params [key value]` | Show all model params, or set a specific param (e.g. `/params temperature 0.2`) |
 | `/context` | Show session context: run ID, working directory, attached files, message count |
 | `/cost` | Show cost summary for the current session |
+| `/history [n]` | Show the most recent `n` messages (default: 10) |
+| `/save [file]` | Save the current session transcript as Markdown |
+| `/undo` | Revert the last file edit applied in this session |
+| `/clear` | Clear the terminal screen (session state unchanged) |
+| `/capabilities` | Show active model/tier/mode/approval, tools, MCP servers, and skills |
 
 ### Examples
 
@@ -117,6 +124,10 @@ JAC agents can call tools (filesystem, shell) on your behalf. The approval mode 
 | `interactive` | Prompts before every tool use. You approve or deny each action. Default mode. |
 | `auto-edit` | Automatically approves file edits; still prompts for shell commands. |
 | `yolo` | Automatically approves everything — no prompts. Use with care. |
+
+Approval mode governs agent-requested tool calls. User-typed inline shell
+commands (`!cmd`) are handled directly by the CLI and use destructive-command
+confirmation instead.
 
 Switch approval mode mid-session:
 

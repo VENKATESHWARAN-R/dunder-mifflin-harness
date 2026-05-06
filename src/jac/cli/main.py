@@ -84,7 +84,7 @@ Interactive chat shortcuts:
 \b
 Runtime override examples:
   jac --model <name> --mode hitl --approval interactive
-  jac run --model <name> --mode autopilot "summarize this file"
+  jac chat --model <name> --mode autopilot --approval auto-edit
 """
 
 KNOWN_TOP_LEVEL_COMMANDS = {

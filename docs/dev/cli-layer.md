@@ -25,6 +25,7 @@ Click command group. Entry point for all user-facing commands.
 | `jac chat` | Interactive alias for `jac` |
 | `jac resume [RUN_ID]` | Calls `ChatApp.from_resumed(run_id)`, then `app.run_resumed()`. If `RUN_ID` is omitted, queries `state.runs.list_recent(limit=1)` and resumes the most-recent session. |
 | `jac init [--global]` | Initialises project/global workspace and provider config |
+| `jac profile [current\|list\|use\|add]` | Manage named provider/model profiles |
 | `jac doctor` / `jac config` | Prints workspace health diagnostics |
 
 ---
@@ -43,8 +44,9 @@ Composition root for the interactive session. Owns the lifecycle of all session-
 
 **`ChatApp.from_resumed(run_id, settings)`** — factory for resumed sessions:
 1. Opens `StateStore`
-2. Calls `resume_run(state, settings, run_id)` to reconstruct the coordinator with message history
-3. Wires renderer and commands as above
+2. Runs `seed_workspace(...)` for deterministic file→DB refresh
+3. Calls `resume_run(state, settings, run_id)` to reconstruct the coordinator with message history
+4. Wires renderer and commands as above
 
 **`app.run()`**:
 1. Calls `renderer.render_welcome(model, tier, mode)` — shows config inline

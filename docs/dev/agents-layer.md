@@ -2,7 +2,9 @@
 
 # Agents Layer
 
-The agents layer lives in `src/jac/agents/`. It is the **single site** where `pydantic_ai.Agent(...)` is called. No other module in the codebase constructs a Pydantic AI agent.
+The agents layer lives in `src/jac/agents/`. It is the **primary site** where
+`pydantic_ai.Agent(...)` is called. Runtime keeps a small fallback agent path
+for no-state operation.
 
 See also: [`docs/contracts/MCP_INTEGRATION.md`](../contracts/MCP_INTEGRATION.md) — binding spec for the config_loader contract. [`docs/contracts/TOOLS_CONTRACT.md`](../contracts/TOOLS_CONTRACT.md) — required reading before adding a tool.
 

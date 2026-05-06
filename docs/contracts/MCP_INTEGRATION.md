@@ -1,6 +1,6 @@
 # MCP Integration
 
-> **Status:** Locked · **Last revised:** 2026-05-03 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-06 · **Type:** contract
 
 ## Purpose
 
@@ -60,22 +60,20 @@ def build_mcp_toolsets(server_rows: list[dict]) -> list:
 
 ---
 
-## `allowed_tools` Resolution
+## Local Tool Resolution
 
-`agent_configs.allowed_tools` is a JSON array that can contain two kinds of entries:
+`agent_configs.allowed_tools` is a JSON array for local tool registry entries.
 
 | Entry format | Meaning |
 |---|---|
-| `"filesystem"` | Local Python tool by name — resolved to a `Tool(fn)` object |
-| `"mcp:playwright"` | MCP server by name — looked up in `mcp_servers` table |
+| `"filesystem"` | Local Python tool group name — resolved to wrapped tool callables |
+| `"shell"` | Local Python tool group name — resolved to wrapped tool callables |
 
-The `config_loader` node resolves this array in two passes:
-1. Strip `mcp:` prefix entries → query `mcp_servers WHERE name = ?` → build MCP toolsets
-2. Plain name entries → look up in the local tool registry → collect `Tool(fn)` objects
-3. Both lists are merged into `toolsets=[...]` and `tools=[...]` on the agent
+The `config_loader` node resolves local entries from `TOOL_REGISTRY` and ignores
+`mcp:*` entries in this field.
 
-This means adding a new MCP server is: register it in `mcp_servers`, add `"mcp:server-name"`
-to the relevant `agent_configs.allowed_tools`, and it's live on the next run.
+MCP toolsets are resolved from run-scoped enablement rows (`run_mcp_servers`
+joined with `mcp_servers`) and attached to the agent as `toolsets=[...]`.
 
 ---
 
@@ -176,8 +174,8 @@ Files are the source of truth; the DB is the resolved index. See
 `docs/contracts/WORKSPACE.md` for the file format and seeding policy.
 
 Adding an MCP server is therefore: write `~/.jac/mcp/<name>.json` (or the
-project equivalent), restart the harness, reference it as `mcp:<name>` in
-`agent_configs.allowed_tools`. No code change required.
+project equivalent), restart the harness so it is seeded into `mcp_servers`,
+then enable it for the run via `run_mcp_servers`. No agent-code change required.
 
 ---
 
@@ -190,7 +188,6 @@ Until remote MCP integration lands at C17, only local tools are resolved through
 |---|---|---|
 | `filesystem` | C3 | Read, write, edit files within the project sandbox |
 | `shell` | C4 | Run shell commands (subject to approval policy) |
-| `git` | C4 | Git operations: commit, status, diff, log |
 
 These are registered as Python `Tool(fn)` objects in a local tool registry. They satisfy
 `allowed_tools` entries without any MCP overhead.

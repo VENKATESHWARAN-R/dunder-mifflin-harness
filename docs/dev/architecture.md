@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** developer documentation
 
 # Architecture
 
@@ -27,7 +27,7 @@
 │  config_loader           │     │  StateStore · RunsRepo         │
 │  ensure_default_run_cfg  │◄────│  MessagesRepo · SkillsRepo     │
 │  AgentConfig             │     │  McpServersRepo                │
-│  (only Agent() site)     │     │  AgentConfigsRepo              │
+│  (primary Agent() site)  │     │  AgentConfigsRepo              │
 └──────────┬───────────────┘     │  RunMcpServersRepo             │
            │ resolves tools       │  RunSkillsRepo                 │
            ▼                     └────────────────────────────────┘
@@ -108,7 +108,7 @@ Approvals and questions are **not** plain events. They use dedicated request/res
 | Approval primitives | `src/jac/runtime/approvals.py` |
 | Question primitives | `src/jac/runtime/questions.py` |
 | Model factory | `src/jac/runtime/models.py` |
-| Agent factory (only Agent() site) | `src/jac/agents/base.py` |
+| Agent factory (primary Agent() site) | `src/jac/agents/base.py` |
 | Default config seeder | `src/jac/agents/seeds.py` |
 | Agent package exports | `src/jac/agents/__init__.py` |
 | Tool registry + helpers | `src/jac/tools/__init__.py` |

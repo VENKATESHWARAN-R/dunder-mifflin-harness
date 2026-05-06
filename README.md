@@ -129,11 +129,17 @@ Interactive slash commands:
 /params [temperature|max_tokens] <value>
 /context
 /cost
+/history [n]
+/save [file]
+/undo
+/clear
+/capabilities
 /quit
 ```
 
 Use `@path` to attach files and `!command` to run local shell commands from
-chat. Shell commands are routed through the approval policy.
+chat. User-typed shell commands run directly (with destructive-command
+confirmation); approval policy applies to agent-requested tool calls.
 
 ## Where things live
 
