@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -50,6 +52,30 @@ class _ProcessInfo:
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 
+def _subprocess_options() -> dict[str, bool]:
+    """Return platform-specific subprocess options for safe cancellation."""
+    if os.name == "posix":
+        return {"start_new_session": True}
+    return {}
+
+
+def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    """Terminate the shell and any descendants that inherited its process group."""
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+        except OSError:
+            pass
+
+    try:
+        process.kill()
+    except ProcessLookupError:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Agent tools
 # ---------------------------------------------------------------------------
@@ -70,6 +96,7 @@ async def run_shell(
         cwd=str(resolved_cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **_subprocess_options(),
     )
 
     timed_out = False
@@ -79,7 +106,7 @@ async def run_shell(
         )
     except TimeoutError:
         timed_out = True
-        process.kill()
+        _kill_process_tree(process)
         stdout_bytes, stderr_bytes = await process.communicate()
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
