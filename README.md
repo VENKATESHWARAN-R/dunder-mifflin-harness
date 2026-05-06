@@ -110,6 +110,7 @@ jac "say hello"                  # one-shot prompt
 jac run "summarize @README.md"   # explicit one-shot form
 jac chat                         # interactive REPL
 jac --model openai:gpt-5.4 "hi"  # one-call model override
+jac --debug chat                 # verbose developer trace output
 jac doctor                       # non-secret setup diagnostics
 jac config                       # alias for current diagnostics
 jac profile current              # show active profile
@@ -126,6 +127,7 @@ Interactive slash commands:
 /tier [scout|worker|architect]
 /mode [autopilot|hitl]
 /approval [interactive|auto-edit|yolo]
+/debug [on|off]
 /params [temperature|max_tokens] <value>
 /context
 /cost

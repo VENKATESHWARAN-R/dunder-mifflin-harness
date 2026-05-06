@@ -97,6 +97,7 @@ Full command set:
 | `/tier [scout\|worker\|architect]` (alias `/t`) | Show or set preferred model tier |
 | `/mode [autopilot\|hitl]` | Show or set session run mode |
 | `/approval [interactive\|auto-edit\|yolo]` | Show or set approval policy |
+| `/debug [on\|off]` | Show or set verbose developer tracing |
 | `/params [key value]` | Show or set model parameters (`temperature`, `max_tokens`) |
 | `/context` (alias `/x`) | Show run ID, cwd, message count, and attached files |
 | `/cost` | Show current run cost summary |

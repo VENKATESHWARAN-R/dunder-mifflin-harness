@@ -67,6 +67,8 @@ class ChatApp:
         self.session = session
         self.events = events or EventBus()
         self.renderer = renderer or Renderer()
+        if hasattr(self.renderer, "set_debug"):
+            self.renderer.set_debug(self.session.config.debug)
         self.prompts = PromptViews(self.renderer.console)
         self.state = state
         if coordinator is None:
@@ -217,6 +219,25 @@ class ChatApp:
                 return
             self.session.config.mode = RunMode(value)
             self.renderer.print_info(f"Mode set to: {value}")
+
+        async def debug_command(args: str) -> None:
+            value = args.strip().lower()
+            if not value:
+                current = "on" if self.session.config.debug else "off"
+                self.renderer.print_info(f"Debug mode: {current}")
+                return
+            if value not in {"on", "off"}:
+                self.renderer.print_error(
+                    "Unknown debug mode.\n"
+                    "Valid options: on, off\n"
+                    "Example: /debug on"
+                )
+                return
+            enabled = value == "on"
+            self.session.config.debug = enabled
+            if hasattr(self.renderer, "set_debug"):
+                self.renderer.set_debug(enabled)
+            self.renderer.print_info(f"Debug mode set to: {'on' if enabled else 'off'}")
 
         async def approval_command(args: str) -> None:
             value = args.strip()
@@ -372,6 +393,10 @@ class ChatApp:
         self.commands.register(
             "mode", mode_command, "Show or set run mode",
             example="/mode autopilot",
+        )
+        self.commands.register(
+            "debug", debug_command, "Show or set verbose debug tracing",
+            example="/debug on",
         )
         self.commands.register(
             "approval", approval_command, "Show or set approval mode",

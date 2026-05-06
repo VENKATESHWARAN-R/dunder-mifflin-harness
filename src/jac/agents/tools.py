@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from time import perf_counter
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ def make_summon_jim_tool(
         """
         from jac.agents.base import config_loader
         from jac.agents.personas import PERSONAS
-        from jac.runtime.events import AgentDelegated, AttemptRecorded
+        from jac.runtime.events import AgentDelegated, AttemptRecorded, LlmCallCompleted
 
         jim_persona = PERSONAS["builder"]
 
@@ -80,6 +81,7 @@ def make_summon_jim_tool(
             },
         )
 
+        started_at = perf_counter()
         try:
             async with jim_agent:
                 result = await jim_agent.run(task)
@@ -88,6 +90,22 @@ def make_summon_jim_tool(
             raise
 
         output = result.output
+        usage = result.usage() if hasattr(result, "usage") else None
+        duration_ms = int((perf_counter() - started_at) * 1000)
+        if usage is not None:
+            await events.emit(
+                LlmCallCompleted(
+                    role="builder",
+                    model=selection.model_ref,
+                    tier=tier,
+                    call_type="agent",
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    requests=usage.requests,
+                    tool_calls=usage.tool_calls,
+                    duration_ms=duration_ms,
+                )
+            )
         await state.attempts.update_status(jim_attempt.attempt_id, "passed")
         return output
 

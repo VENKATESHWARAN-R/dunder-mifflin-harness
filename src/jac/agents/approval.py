@@ -36,7 +36,13 @@ from jac.runtime.approvals import (
 from jac.runtime.approvals import (
     RiskLevel as ApprovalRiskLevel,
 )
-from jac.runtime.events import EventBus, FileEditApplied, FileEditPreviewed
+from jac.runtime.events import (
+    EventBus,
+    FileEditApplied,
+    FileEditPreviewed,
+    ToolCallCompleted,
+    ToolCallRequested,
+)
 from jac.tools.filesystem import PreparedEdit, compute_edit, preview_write
 from jac.tools.types import (
     RiskLevel as ToolRiskLevel,
@@ -60,8 +66,17 @@ def make_approval_wrapper(fn: Any, events: EventBus, policy: ApprovalPolicy) -> 
 
     @functools.wraps(fn)
     async def wrapper(**kwargs: Any) -> Any:
+        await events.emit(ToolCallRequested(tool_name=fn.__name__, params=_details_for(fn.__name__, kwargs)))
         if meta.risk_level == ToolRiskLevel.READ_ONLY:
-            return await fn(**kwargs)
+            result = await fn(**kwargs)
+            await events.emit(
+                ToolCallCompleted(
+                    tool_name=fn.__name__,
+                    display_content=_tool_display_content(result),
+                    is_error=_tool_is_error(result),
+                )
+            )
+            return result
 
         prepared_edit: PreparedEdit | None = None
         prospective_diff: str | None = None
@@ -93,10 +108,26 @@ def make_approval_wrapper(fn: Any, events: EventBus, policy: ApprovalPolicy) -> 
         policy.record_response(request, response)
 
         if response.decision == ApprovalDecision.REDIRECT:
-            return _redirect_result(return_type, response, fn.__name__)
+            redirected = _redirect_result(return_type, response, fn.__name__)
+            await events.emit(
+                ToolCallCompleted(
+                    tool_name=fn.__name__,
+                    display_content=_tool_display_content(redirected),
+                    is_error=True,
+                )
+            )
+            return redirected
 
         if not response.approved:
-            return _denial_result(return_type, response, fn.__name__)
+            denied = _denial_result(return_type, response, fn.__name__)
+            await events.emit(
+                ToolCallCompleted(
+                    tool_name=fn.__name__,
+                    display_content=_tool_display_content(denied),
+                    is_error=True,
+                )
+            )
+            return denied
 
         if prepared_edit is not None:
             from jac.tools.filesystem import apply_edit
@@ -114,6 +145,13 @@ def make_approval_wrapper(fn: Any, events: EventBus, policy: ApprovalPolicy) -> 
             if applied_path is not None:
                 await events.emit(FileEditApplied(path=applied_path))
 
+        await events.emit(
+            ToolCallCompleted(
+                tool_name=fn.__name__,
+                display_content=_tool_display_content(result),
+                is_error=_tool_is_error(result),
+            )
+        )
         return result
 
     return wrapper
@@ -247,3 +285,18 @@ def _path_from_result_or_kwargs(
     if isinstance(raw, str) and raw:
         return Path(raw)
     return None
+
+
+def _tool_is_error(result: Any) -> bool:
+    if isinstance(result, ToolResult):
+        return result.status not in {ToolStatus.OK, ToolStatus.TRUNCATED}
+    return False
+
+
+def _tool_display_content(result: Any) -> str:
+    if isinstance(result, ToolResult):
+        if result.error:
+            return result.error
+        warnings = f" warnings={len(result.warnings)}" if result.warnings else ""
+        return f"status={result.status}{warnings}"
+    return ""

@@ -39,6 +39,7 @@ class SessionConfig:
     max_attachment_bytes: int = 200_000
     shell_timeout_seconds: float = 10.0
     shell_max_output_chars: int = 20_000
+    debug: bool = False
 
 
 @dataclass(slots=True)

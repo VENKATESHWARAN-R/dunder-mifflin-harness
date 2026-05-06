@@ -15,10 +15,12 @@ from jac.runtime.events import (
     AgentDelegated,
     AgentMessageCompleted,
     AgentTextDelta,
+    AttemptRecorded,
     CostUpdated,
     EventBus,
     FileEditApplied,
     FileEditPreviewed,
+    LlmCallCompleted,
     NodeCompleted,
     NodeFailed,
     NodeStarted,
@@ -37,6 +39,7 @@ class Renderer:
     def __init__(self, console: Console | None = None) -> None:
         self.console = console or Console()
         self._stream_buffer: list[str] = []
+        self._debug = False
 
     def wire(self, events: EventBus) -> None:
         """Register event handlers."""
@@ -55,6 +58,8 @@ class Renderer:
         events.on(WarningRaised, self._on_warning)
         events.on(RunFailed, self._on_run_failed)
         events.on(AgentDelegated, self._on_agent_delegated)
+        events.on(AttemptRecorded, self._on_attempt_recorded)
+        events.on(LlmCallCompleted, self._on_llm_call_completed)
 
     async def _on_agent_text(self, event: AgentTextDelta) -> None:
         self._stream_buffer.append(event.text)
@@ -65,7 +70,10 @@ class Renderer:
 
     async def _on_tool_requested(self, event: ToolCallRequested) -> None:
         self.flush_stream()
-        self.console.print(f"[cyan]tool[/cyan] {event.tool_name}")
+        if self._debug:
+            self.console.print(f"[cyan]tool start[/cyan] {event.tool_name}")
+        else:
+            self.console.print(f"[cyan]running tool:[/cyan] {event.tool_name}")
         if event.params:
             self.console.print(
                 Panel(str(event.params), border_style="cyan", expand=False)
@@ -77,6 +85,9 @@ class Renderer:
             self.console.print(
                 Panel(event.display_content, border_style=style, expand=False)
             )
+        elif self._debug:
+            status = "error" if event.is_error else "ok"
+            self.console.print(f"[dim]tool done:[/dim] {event.tool_name} ({status})")
 
     async def _on_node_started(self, event: NodeStarted) -> None:
         self.flush_stream()
@@ -129,6 +140,26 @@ class Renderer:
     async def _on_cost_updated(self, event: CostUpdated) -> None:
         self.console.print(f"[dim]  ↳ {event.summary}[/dim]")
 
+    async def _on_attempt_recorded(self, event: AttemptRecorded) -> None:
+        if not self._debug:
+            return
+        parent = event.parent_attempt_id[:8] if event.parent_attempt_id else "-"
+        self.console.print(
+            "[dim]attempt:[/dim] "
+            f"{event.role} {event.call_type} id={event.attempt_id[:8]} parent={parent}"
+        )
+
+    async def _on_llm_call_completed(self, event: LlmCallCompleted) -> None:
+        if not self._debug:
+            return
+        self.console.print(
+            "[dim]llm:[/dim] "
+            f"{event.role} {event.model} ({event.tier}) "
+            f"in={event.input_tokens} out={event.output_tokens} "
+            f"req={event.requests} tools={event.tool_calls} "
+            f"dur={event.duration_ms}ms type={event.call_type}"
+        )
+
     async def _on_warning(self, event: WarningRaised) -> None:
         self.console.print(f"[yellow]warning:[/yellow] {event.message}")
 
@@ -158,8 +189,10 @@ class Renderer:
         config_parts = [
             f"model: {model or 'default'}",
             f"tier: {tier or 'worker'}",
-            f"mode: {mode or 'autopilot'}",
+            f"mode: {mode or 'hitl'}",
         ]
+        if self._debug:
+            config_parts.append("debug: on")
         self.console.print(f"[dim]{' · '.join(config_parts)}[/dim]")
         self.console.print("[dim]Type a message to start · /help for commands · ctrl+d to exit[/dim]")
         self.console.print()
@@ -220,3 +253,7 @@ class Renderer:
     def print_value(self, title: str, value: Any) -> None:
         """Render a small titled value panel."""
         self.console.print(Panel(str(value), title=title, expand=False))
+
+    def set_debug(self, enabled: bool) -> None:
+        """Enable verbose developer-oriented runtime tracing."""
+        self._debug = enabled

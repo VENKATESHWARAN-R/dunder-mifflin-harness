@@ -38,12 +38,14 @@ async def run_prompt(
     *,
     settings: Settings | None = None,
     model: str | None = None,
+    debug: bool = False,
 ) -> str:
     """Run a single prompt through the runtime coordinator."""
     resolved_settings = settings or Settings()
     session = SessionState(
         config=SessionConfig(
             model=model,
+            debug=debug,
             max_attachment_bytes=resolved_settings.max_attachment_bytes,
             shell_timeout_seconds=resolved_settings.shell_timeout_seconds,
             shell_max_output_chars=resolved_settings.shell_max_output_chars,
@@ -77,7 +79,7 @@ Usage patterns:
 
 \b
 Interactive chat shortcuts:
-  /help (/h), /model (/m), /tier (/t), /mode, /approval, /params
+  /help (/h), /model (/m), /tier (/t), /mode, /approval, /debug, /params
   /context (/x), /cost, /history, /save, /undo, /clear, /quit (/q)
   @path — attach file · !cmd — run shell · esc+enter — newline · tab — complete
 
@@ -126,11 +128,18 @@ KNOWN_TOP_LEVEL_COMMANDS = {
     default=None,
     help="Approval mode override for agent-requested actions.",
 )
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help="Enable verbose developer tracing (tool calls and LLM usage).",
+)
 @click.argument("args", nargs=-1, type=click.UNPROCESSED)
 def _command(
     model: str | None,
     mode: str | None,
     approval_mode: str | None,
+    debug: bool,
     args: tuple[str, ...],
 ) -> None:
     """Run a prompt or dispatch CLI subcommands."""
@@ -138,11 +147,12 @@ def _command(
     command_args = list(args)
     if command_args and command_args[0] in {"chat", "run", "resume"}:
         command_name = command_args[0]
-        remaining, model, mode, approval_mode = _extract_inline_options(
+        remaining, model, mode, approval_mode, debug = _extract_inline_options(
             command_args[1:],
             model=model,
             mode=mode,
             approval_mode=approval_mode,
+            debug=debug,
         )
         command_args = [command_name, *remaining]
 
@@ -153,6 +163,7 @@ def _command(
                 model=model,
                 mode=mode,
                 approval_mode=approval_mode,
+                debug=debug,
             )
         )
         return
@@ -178,6 +189,7 @@ def _command(
                 model=model,
                 mode=mode,
                 approval_mode=approval_mode,
+                debug=debug,
             )
         )
         return
@@ -192,6 +204,7 @@ def _command(
                     model=model,
                     mode=mode,
                     approval_mode=approval_mode,
+                    debug=debug,
                 )
             )
         except LookupError as exc:
@@ -204,7 +217,9 @@ def _command(
     if not prompt_args:
         raise click.ClickException('Usage: jac run "<prompt>"')
     prompt = " ".join(prompt_args)
-    output = asyncio.run(run_prompt(prompt, settings=settings, model=model))
+    output = asyncio.run(
+        run_prompt(prompt, settings=settings, model=model, debug=debug)
+    )
     click.echo(output)
 
 
@@ -226,9 +241,12 @@ async def _run_chat(
     model: str | None,
     mode: str | None,
     approval_mode: str | None,
+    debug: bool,
 ) -> None:
     app = await ChatApp.open(settings=settings)
-    _apply_overrides(app, model=model, mode=mode, approval_mode=approval_mode)
+    _apply_overrides(
+        app, model=model, mode=mode, approval_mode=approval_mode, debug=debug
+    )
     try:
         await app.run()
     finally:
@@ -242,6 +260,7 @@ async def _run_resume(
     model: str | None,
     mode: str | None,
     approval_mode: str | None,
+    debug: bool,
 ) -> None:
     if run_id is None:
         workspace = discover_workspace(Path.cwd())
@@ -257,7 +276,9 @@ async def _run_resume(
         click.echo(f"Resuming session: {run_id[:12]}…")
 
     app = await ChatApp.from_resumed(run_id, settings=settings)
-    _apply_overrides(app, model=model, mode=mode, approval_mode=approval_mode)
+    _apply_overrides(
+        app, model=model, mode=mode, approval_mode=approval_mode, debug=debug
+    )
     try:
         await app.run_resumed()
     finally:
@@ -270,6 +291,7 @@ def _apply_overrides(
     model: str | None,
     mode: str | None,
     approval_mode: str | None,
+    debug: bool,
 ) -> None:
     if model:
         app.session.config.model = model
@@ -280,6 +302,9 @@ def _apply_overrides(
         approval = ApprovalMode(approval_mode)
         app.session.config.approval_mode = approval
         app.approvals.mode = approval
+    app.session.config.debug = debug
+    if hasattr(app.renderer, "set_debug"):
+        app.renderer.set_debug(debug)
 
 
 def _extract_inline_options(
@@ -288,7 +313,8 @@ def _extract_inline_options(
     model: str | None,
     mode: str | None,
     approval_mode: str | None,
-) -> tuple[list[str], str | None, str | None, str | None]:
+    debug: bool,
+) -> tuple[list[str], str | None, str | None, str | None, bool]:
     """Accept simple options after `chat` or `run` for ergonomic commands."""
     remaining: list[str] = []
     index = 0
@@ -318,9 +344,13 @@ def _extract_inline_options(
             approval_mode = item.split("=", 1)[1]
             index += 1
             continue
+        if item == "--debug":
+            debug = True
+            index += 1
+            continue
         remaining.append(item)
         index += 1
-    return remaining, model, mode, approval_mode
+    return remaining, model, mode, approval_mode, debug
 
 
 def _run_init(args: list[str], *, settings: Settings) -> None:

@@ -83,6 +83,32 @@ def test_run_accepts_mode_after_subcommand(
     assert captured.out == "ok\n"
 
 
+def test_run_accepts_debug_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: dict[str, object] = {}
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("JAC_CONFIG_DIR", str(tmp_path / ".jac"))
+
+    async def fake_run_prompt(prompt: str, **kwargs: object) -> str:
+        seen["prompt"] = prompt
+        seen["debug"] = kwargs.get("debug")
+        return "ok"
+
+    cli_module = importlib.import_module("jac.cli.main")
+    monkeypatch.setattr(cli_module, "run_prompt", fake_run_prompt)
+
+    exit_code = cli_main(["--debug", "run", "say", "hi"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert seen["prompt"] == "say hi"
+    assert seen["debug"] is True
+    assert captured.out == "ok\n"
+
+
 def test_prompt_requires_run_subcommand(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -494,3 +520,13 @@ def test_undo_command_restores_file(tmp_path: Path) -> None:
 
     assert dispatched is True
     assert path.read_text(encoding="utf-8") == "original"
+
+
+def test_debug_command_toggles_debug_mode() -> None:
+    session = SessionState(config=SessionConfig())
+    app = ChatApp(session=session)
+
+    dispatched = asyncio.run(app.commands.dispatch("debug", "on"))
+
+    assert dispatched is True
+    assert app.session.config.debug is True

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from time import perf_counter
 
 import logfire
 from logfire.exceptions import LogfireConfigError
@@ -20,7 +21,9 @@ from jac.runtime.approvals import ApprovalPolicy
 from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
+    CostUpdated,
     EventBus,
+    LlmCallCompleted,
     RunCompleted,
     RunFailed,
     RunStarted,
@@ -251,6 +254,7 @@ class RunCoordinator:
             await self.state.messages.append(run_id, "user", message.text)
 
         scott_attempt_id: str | None = None
+        started_at = perf_counter()
         try:
             warning_message = self._configure_observability()
             if warning_message:
@@ -275,6 +279,33 @@ class RunCoordinator:
         await self._finish_manager_attempt(scott_attempt_id, passed=True)
 
         output = result.output
+        usage = result.usage() if hasattr(result, "usage") else None
+        tier = str(self.session.config.tier or self.settings.default_tier)
+        selection = self.settings.resolve_model_selection(
+            model_override=self.session.config.model,
+            tier=tier,
+        )
+        duration_ms = int((perf_counter() - started_at) * 1000)
+        if usage is not None:
+            summary = (
+                f"{usage.input_tokens} in · {usage.output_tokens} out · "
+                f"{usage.requests} req · {usage.tool_calls} tool calls"
+            )
+            self.session.latest_cost_summary = summary
+            await self.events.emit(CostUpdated(summary=summary))
+            await self.events.emit(
+                LlmCallCompleted(
+                    role="manager",
+                    model=selection.model_ref,
+                    tier=tier,
+                    call_type="agent",
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    requests=usage.requests,
+                    tool_calls=usage.tool_calls,
+                    duration_ms=duration_ms,
+                )
+            )
         self._message_history = list(result.all_messages())
         await self.events.emit(AgentTextDelta(text=output))
         await self.events.emit(AgentMessageCompleted(message=output))

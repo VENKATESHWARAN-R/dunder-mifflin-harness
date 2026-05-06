@@ -94,6 +94,7 @@ later components).
 | `/tier [scout\|worker\|architect]` | Show or set the model tier |
 | `/mode [autopilot\|hitl]` | Show or set the run mode |
 | `/approval [interactive\|auto-edit\|yolo]` | Show or set the approval mode |
+| `/debug [on\|off]` | Show or set verbose developer tracing |
 | `/params [key value]` | Show all model params, or set a specific param (e.g. `/params temperature 0.2`) |
 | `/context` | Show session context: run ID, working directory, attached files, message count |
 | `/cost` | Show cost summary for the current session |
@@ -114,6 +115,14 @@ later components).
 ```
 
 Changes made with slash commands take effect on the next message. Changing the model or tier clears the cached agent so the new settings are picked up immediately.
+
+For startup-time tracing, launch with `--debug`:
+
+```bash
+jac --debug
+jac chat --debug
+jac resume --debug
+```
 
 ## Approval modes
 

@@ -155,6 +155,19 @@ class AttemptRecorded(RuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class LlmCallCompleted(RuntimeEvent):
+    role: str
+    model: str
+    tier: str
+    call_type: str
+    input_tokens: int
+    output_tokens: int
+    requests: int
+    tool_calls: int
+    duration_ms: int
+
+
+@dataclass(frozen=True, slots=True)
 class CostUpdated(RuntimeEvent):
     summary: str
 
