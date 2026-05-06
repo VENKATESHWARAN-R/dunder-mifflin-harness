@@ -38,6 +38,21 @@ As of C6, manager attempt lifecycle tracking is factored into two internal helpe
 `_start_manager_attempt` and `_finish_manager_attempt`, which isolate attempt-row
 bookkeeping from the rest of turn orchestration.
 
+### `submit_slash_run(...) -> object`
+
+Dedicated one-turn path for model-routed slash commands (`/plan`, `/init`).
+It accepts a target `role`, runtime prompt, mode key, optional `output_type`,
+and optional persisted user prompt text (for example `"/plan ..."` literal).
+
+Flow:
+
+1. Persists the slash prompt to `messages` as a user turn.
+2. Builds a role-scoped agent with `config_loader(..., instructions_addendum=...)`.
+3. Runs one model turn and persists the final assistant artifact.
+4. Records a role-specific attempt row (`manager` or `planner`).
+5. Replaces in-memory history with `filter_tool_noise(result.all_messages())` so
+   intermediate tool call/return parts do not leak into subsequent turns.
+
 ### `_ensure_agent() -> Agent`
 
 Async. Called internally on the first turn (or after `reset_agent()`). If `state`
@@ -97,6 +112,8 @@ await events.emit(AgentTextDelta(text="hello"))
 | `ShellCommandCompleted` | `command`, `exit_code`, `output` | Shell tools |
 | `CostUpdated` | `run_id`, `input_tokens`, `output_tokens`, `cost_usd` | Coordinator |
 | `WarningRaised` | `message` | Any layer |
+| `PlanGenerated` | `summary`, `dev_strategy`, `task_count` | CLI slash handler (`/plan`) |
+| `WorkspaceSurveyCompleted` | `agents_md_path`, `line_count` | CLI slash handler (`/init`) |
 
 **Approval and question flow:**
 
@@ -145,6 +162,7 @@ class SessionConfig:
     max_attachment_bytes: int
     shell_timeout_seconds: float
     shell_max_output_chars: int
+    slash_mode: str | None             # transient slash-mode marker (init/plan)
 ```
 
 `ModelTier` enum values: `scout`, `worker`, `architect`.

@@ -57,6 +57,7 @@ async def config_loader(
     approval_policy: ApprovalPolicy | None = None,
     model_settings: Any = None,
     extra_tools: Sequence[ToolFn] | None = None,
+    instructions_addendum: str | None = None,
 ) -> Agent:
     """Build a Pydantic AI Agent from persisted config.
 
@@ -85,6 +86,8 @@ async def config_loader(
     composed_prompt = await _compose_system_prompt(
         state, cfg.system_prompt, run_id, role
     )
+    if instructions_addendum:
+        composed_prompt = f"{composed_prompt}\n\n---\n\n{instructions_addendum}"
 
     selection = settings.resolve_model_selection(
         model_override=cfg.model_override,

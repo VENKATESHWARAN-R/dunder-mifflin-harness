@@ -10,6 +10,7 @@ from jac.agents.seeds import (
     ensure_builder_config,
     ensure_default_run_config,
     ensure_manager_config,
+    ensure_planner_config,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "ensure_builder_config",
     "ensure_default_run_config",
     "ensure_manager_config",
+    "ensure_planner_config",
 ]

@@ -14,6 +14,7 @@ from jac.state.run_skills import ActiveSkillRow, RunSkillRow, RunSkillsRepo
 from jac.state.runs import RunRow, RunsRepo
 from jac.state.seeder import SeedResult, seed_workspace
 from jac.state.skills import SkillRow, SkillsRepo
+from jac.state.tasks import TaskRow, TasksRepo
 
 __all__ = [
     "AttemptRow",
@@ -35,6 +36,8 @@ __all__ = [
     "SeedResult",
     "SkillRow",
     "SkillsRepo",
+    "TaskRow",
+    "TasksRepo",
     "StateStore",
     "open_state_store",
     "seed_workspace",

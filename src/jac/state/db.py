@@ -16,6 +16,7 @@ from jac.state.run_mcp_servers import RunMcpServersRepo
 from jac.state.run_skills import RunSkillsRepo
 from jac.state.runs import RunsRepo
 from jac.state.skills import SkillsRepo
+from jac.state.tasks import TasksRepo
 
 _MIGRATION_PATTERN = re.compile(r"^(\d{3})_.+\.sql$")
 
@@ -33,6 +34,7 @@ class StateStore:
         self.run_mcp_servers = RunMcpServersRepo(connection)
         self.run_skills = RunSkillsRepo(connection)
         self.attempts = AttemptsRepo(connection)
+        self.tasks = TasksRepo(connection)
 
     @property
     def connection(self) -> aiosqlite.Connection:

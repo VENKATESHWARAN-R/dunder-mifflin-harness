@@ -388,7 +388,7 @@ roadmap components that need them ship. Component IDs reference [`docs/ROADMAP.m
 | `run_mcp_servers` | C5 | Run-start config; mid-run toggle command added at C18. |
 | `run_skills` | C5 | Run-start config; mid-run toggle command added at C18. |
 | `attempts` | C6 | Scott + Jim call tree recorded. Cost fields (`tokens_in/out`, `cost`) and `CostUpdated` events wired fully at C7. |
-| `tasks` | C6b | Pam (planner) emits a structured task list. |
+| `tasks` | C6b ✓ | Pam (planner) emits a structured task list. |
 | `context_store` | C11 | Reserved until multi-task/context routing requires shared cross-agent state. |
 | `mcp_servers` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; live transports added at C17. |
 | `skills` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; dynamic injection added at C16. |

@@ -34,6 +34,7 @@ class SessionConfig:
     model: str | None = None
     tier: ModelTier | None = None
     role: str = "manager"
+    slash_mode: str | None = None
     approval_mode: ApprovalMode = ApprovalMode.INTERACTIVE
     model_params: dict[str, str] = field(default_factory=dict)
     max_attachment_bytes: int = 200_000

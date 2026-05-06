@@ -1,10 +1,11 @@
 # Roadmap — JAC
 
-> **Status:** Living · **Last revised:** 2026-05-05 · **Type:** component plan, in dependency order
+> **Status:** Living · **Last revised:** 2026-05-06 · **Type:** component plan, in dependency order
 >
 > _2026-05-04: C5a (tool approval middleware) shipped — see Done section._
 > _2026-05-04: CLI-UX batch shipped — tab completions, toolbar, aliases, new slash commands, arrow-key approvals, REDIRECT decision, undo stack, destructive-shell guard, retry prompt — see Done section._
 > _2026-05-04: C6 (Scott + Jim, `summon_jim`, `attempts` call tree) shipped — see Done section._
+> _2026-05-06: C6b (Pam planner + slash-mode addendums, `/plan`, `/init`, tasks activation) shipped — see Done section._
 > _2026-05-05: Multi-agent cast finalized — see [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md). C6b rewritten (Pam as planner, drops analyst), C6c added (universal `spawn_minion` + tool result interception + `read_file_smart`), C9 rewritten (Dwight + retry caps + cross-specialist escalation + `/build`/`/eval` slash), C12 refined (175k threshold), **C14 superseded** by C6c (no Holly persona)._
 
 JAC is built component by component, not slice by slice. Each entry below is a self-contained module with a stable ID (`C0`..`Cn`). Order reflects **dependency**, not calendar — `Cn+1` assumes `Cn` is in place.
@@ -396,7 +397,7 @@ flowchart LR
 ### C6b — Pam (Planner) + Slash-Mode Addendums
 
 **Layer:** agents
-**Status:** planned
+**Status:** done (2026-05-06)
 **Depends on:** C6
 **Brainstorm/contract:** [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md)
 
@@ -404,7 +405,9 @@ Adds **Pam Beesly (planner, Architect)** as the only specialist between Scott an
 
 The prior "analyst Pam" persona is dropped — Scott handles env probing himself. The "Date Mike" planner persona is renamed into Pam (one Pam, one role).
 
-This component also lights up **dynamic system-prompt addendums** via Pydantic AI's `@agent.system_prompt` decorator, so slash commands can put Scott (or Pam) into a focused mode without a new agent. Two modes ship here: `init` and `plan`.
+This component also lights up **dynamic system-prompt addendums** via
+factory-side prompt composition, so slash commands can put Scott (or Pam) into
+a focused mode without a new agent. Two modes ship here: `init` and `plan`.
 
 **Ships:**
 - Seed `agent_configs` row for `planner` (Pam, Architect). Drop the planned `analyst` row.
@@ -1392,6 +1395,18 @@ Cross-cutting UX pass on `src/jac/cli/`. Not a numbered component — improves t
 - [x] Default session role is `manager` (`SessionConfig` / factory defaults); `config_loader` / `AgentConfig` carry persona fields
 - [x] `tests/test_c6_scott_jim.py` — migration, attempts FK, persistence
 - [x] **Deferred to C7:** populate `tokens_in` / `tokens_out` / `cost` / `duration_ms` on `attempts` rows and usage rollup (`ctx.usage`) — schema defaults remain until cost tracking ships
+
+---
+
+### C6b — Pam (Planner) + Slash-Mode Addendums (2026-05-06)
+
+- [x] Added planner persona (Pam) with default Architect tier and idempotent planner seeding
+- [x] Added slash-mode prompt addendum registry and factory-level `instructions_addendum` support
+- [x] Added `/plan` and `/init` slash flows via `RunCoordinator.submit_slash_run`
+- [x] Activated `tasks` repository and task persistence from structured planner output
+- [x] Added in-memory message-history filter for slash runs (drops tool call/return chatter)
+- [x] Added `PlanGenerated` and `WorkspaceSurveyCompleted` runtime events and renderer support
+- [x] Added C6b test coverage in `tests/test_c6b_planner_and_slash_modes.py`
 
 ---
 

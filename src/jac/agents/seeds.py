@@ -8,6 +8,7 @@ from typing import Any
 from jac.agents.base import AgentConfig
 from jac.agents.personas import (
     JIM_SYSTEM_PROMPT,
+    PAM_SYSTEM_PROMPT,
     PERSONAS,
     SCOTT_SYSTEM_PROMPT,
 )
@@ -111,6 +112,29 @@ async def ensure_builder_config(
         model_tier=tier,
         model_override=model_override,
         system_prompt=JIM_SYSTEM_PROMPT,
+        allowed_tools=["filesystem", "shell"],
+    )
+
+
+async def ensure_planner_config(
+    state: StateStore,
+    run_id: str,
+    *,
+    model_tier: str | None = None,
+    model_override: str | None = None,
+) -> AgentConfig:
+    """Idempotently seed the planner (Pam) agent_configs row."""
+    p = PERSONAS["planner"]
+    tier = model_tier or p.default_tier
+    return await _ensure_role_config(
+        state,
+        run_id,
+        role="planner",
+        persona=p.persona,
+        display_name=p.display_name,
+        model_tier=tier,
+        model_override=model_override,
+        system_prompt=PAM_SYSTEM_PROMPT,
         allowed_tools=["filesystem", "shell"],
     )
 

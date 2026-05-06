@@ -183,6 +183,19 @@ class WarningRaised(RuntimeEvent):
     message: str
 
 
+@dataclass(frozen=True, slots=True)
+class PlanGenerated(RuntimeEvent):
+    summary: str
+    dev_strategy: str
+    task_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class WorkspaceSurveyCompleted(RuntimeEvent):
+    agents_md_path: Path
+    line_count: int
+
+
 class EventBus:
     """Async typed event bus with explicit approval/question handshakes."""
 

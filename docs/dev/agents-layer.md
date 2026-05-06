@@ -32,6 +32,7 @@ async def config_loader(
     approval_policy: ApprovalPolicy | None = None,
     model_settings: dict | None = None,
     extra_tools: Sequence[ToolFn] | None = None,
+    instructions_addendum: str | None = None,
 ) -> Agent: ...
 ```
 
@@ -61,7 +62,14 @@ appended after resolved local tools.
 
 Queries `state.run_skills` for active rows matching `run_id` and `role` (or `agent_role IS NULL`), ordered by `domain ASC, name ASC`. The skill contents are appended to the system prompt under a `## Domain Knowledge` header, each skill as a named subsection. If no skills are active, the system prompt is used unchanged.
 
-**Step 5 — Build model and return Agent**
+**Step 5 — Append optional mode addendum, then build model and return Agent**
+
+When `instructions_addendum` is provided (for slash-mode runs such as `/plan`
+or `/init`), it is appended after the base prompt + skill block with a section
+divider. This keeps per-run mode text out of normal turns while preserving the
+same static `instructions=` composition pattern.
+
+**Step 6 — Build model and return Agent**
 
 Calls `settings.resolve_model_selection(model_override=..., tier=...)` to get a `ModelSelection`, then `build_pydantic_model(selection, settings)` to get a pydantic_ai `Model`. Finally constructs and returns:
 
@@ -98,8 +106,8 @@ async def ensure_default_run_config(
 Idempotent: returns the existing row if `(run_id, role)` already exists in `agent_configs`, otherwise creates one with the provided defaults. Called by `RunCoordinator._ensure_agent` before the first turn of every session. Safe to call multiple times.
 
 For C6 manager-specialist behavior, role-specific seed helpers (`ensure_manager_config`,
-`ensure_builder_config`) are used by the coordinator so Scott and Jim rows are always
-present before manager turns.
+`ensure_builder_config`, `ensure_planner_config`) are used by the coordinator so
+Scott, Jim, and Pam rows are always present before manager turns.
 
 ## `AgentConfig` dataclass (`src/jac/agents/base.py`)
 

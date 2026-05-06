@@ -12,11 +12,13 @@ from jac.cli.parser import ParsedInputKind, parse_input
 from jac.cli.prompts import PromptViews
 from jac.cli.renderer import Renderer
 from jac.config import Settings
+from jac.agents.plans import Plan
 from jac.runtime.approvals import (
     ApprovalMode,
     ApprovalPolicy,
 )
 from jac.runtime.events import (
+    PlanGenerated,
     ApprovalRequested,
     EventBus,
     FileEditPreviewed,
@@ -24,6 +26,7 @@ from jac.runtime.events import (
     ShellCommandCompleted,
     ShellCommandStarted,
     WarningRaised,
+    WorkspaceSurveyCompleted,
 )
 from jac.runtime.coordinator import RunCoordinator, UserMessage, resume_run
 from jac.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
@@ -380,6 +383,65 @@ class ChatApp:
 
             self.renderer.print_value("Capabilities", "\n".join(lines))
 
+        async def plan_command(args: str) -> None:
+            task = args.strip()
+            if not task:
+                self.renderer.print_error("Usage: /plan <task description>")
+                return
+            self.session.config.slash_mode = "plan"
+            try:
+                plan = await self.coordinator.submit_slash_run(
+                    role="planner",
+                    prompt=task,
+                    addendum_mode="plan",
+                    output_type=Plan,
+                    persist_user_prompt=f"/plan {task}",
+                )
+            finally:
+                self.session.config.slash_mode = None
+
+            assert isinstance(plan, Plan)
+            if self.state is not None:
+                await self.state.tasks.create_many(
+                    self.session.run_id,
+                    [planned.model_dump() for planned in plan.tasks],
+                )
+            await self.events.emit(
+                PlanGenerated(
+                    summary=plan.summary,
+                    dev_strategy=plan.dev_strategy,
+                    task_count=len(plan.tasks),
+                )
+            )
+            self.renderer.render_plan(plan)
+
+        async def init_command(_args: str) -> None:
+            self.session.config.slash_mode = "init"
+            try:
+                result = await self.coordinator.submit_slash_run(
+                    role="manager",
+                    prompt="Survey this workspace and write an AGENTS.md at the project root.",
+                    addendum_mode="init",
+                    persist_user_prompt="/init",
+                )
+            finally:
+                self.session.config.slash_mode = None
+
+            agents_path = self.session.config.cwd / "AGENTS.md"
+            line_count = 0
+            if agents_path.exists():
+                try:
+                    line_count = len(agents_path.read_text().splitlines())
+                except OSError:
+                    line_count = 0
+            await self.events.emit(
+                WorkspaceSurveyCompleted(
+                    agents_md_path=agents_path,
+                    line_count=line_count,
+                )
+            )
+            self.renderer.print_info(str(result))
+
         self.commands.register("help", help_command, "Show available commands")
         self.commands.register("quit", quit_command, "Exit the chat loop")
         self.commands.register(
@@ -420,6 +482,18 @@ class ChatApp:
         self.commands.register("undo", undo_command, "Revert the last file edit")
         self.commands.register(
             "capabilities", capabilities_command, "Show active tools and configuration"
+        )
+        self.commands.register(
+            "plan",
+            plan_command,
+            "Generate a structured implementation plan",
+            example="/plan add a /search command",
+        )
+        self.commands.register(
+            "init",
+            init_command,
+            "Survey workspace and write AGENTS.md",
+            example="/init",
         )
 
         # Short aliases

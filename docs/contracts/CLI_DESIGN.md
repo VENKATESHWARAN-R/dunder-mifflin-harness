@@ -106,10 +106,13 @@ Full command set:
 | `/undo` | Revert the last file edit applied during this session |
 | `/clear` | Clear the terminal screen (session state unchanged) |
 | `/capabilities` | Show active model, tier, mode, approval policy, tools, MCP servers, and skills |
+| `/plan <task>` | Model-routed planner run (Pam) that returns a structured plan and persists tasks |
+| `/init` | Model-routed manager run (Scott) that surveys the repo and writes `AGENTS.md` |
 
 Aliases are single-letter shortcuts for the most common commands. Most slash
-commands mutate `SessionConfig` or local session state. Model-routed slash commands
-must be explicitly listed in this contract and handled as first-class runtime flows.
+commands mutate `SessionConfig` or local session state and do not send input to
+the model. Model-routed slash commands must be explicitly listed in this
+contract and handled as first-class runtime flows.
 
 Avoid cosmetic commands until the backend has enough behavior to justify them.
 

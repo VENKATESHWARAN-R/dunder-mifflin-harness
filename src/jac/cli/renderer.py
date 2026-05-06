@@ -11,6 +11,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from jac import __version__
+from jac.agents.plans import Plan
 from jac.runtime.events import (
     AgentDelegated,
     AgentMessageCompleted,
@@ -30,6 +31,7 @@ from jac.runtime.events import (
     ToolCallCompleted,
     ToolCallRequested,
     WarningRaised,
+    WorkspaceSurveyCompleted,
 )
 
 
@@ -60,6 +62,7 @@ class Renderer:
         events.on(AgentDelegated, self._on_agent_delegated)
         events.on(AttemptRecorded, self._on_attempt_recorded)
         events.on(LlmCallCompleted, self._on_llm_call_completed)
+        events.on(WorkspaceSurveyCompleted, self._on_workspace_survey_completed)
 
     async def _on_agent_text(self, event: AgentTextDelta) -> None:
         self._stream_buffer.append(event.text)
@@ -163,6 +166,13 @@ class Renderer:
     async def _on_warning(self, event: WarningRaised) -> None:
         self.console.print(f"[yellow]warning:[/yellow] {event.message}")
 
+    async def _on_workspace_survey_completed(
+        self, event: WorkspaceSurveyCompleted
+    ) -> None:
+        self.print_info(
+            f"AGENTS.md updated: {event.agents_md_path} ({event.line_count} lines)"
+        )
+
     async def _on_run_failed(self, event: RunFailed) -> None:
         self.flush_stream()
         self.console.print(f"[red]run failed:[/red] {event.message}")
@@ -253,6 +263,29 @@ class Renderer:
     def print_value(self, title: str, value: Any) -> None:
         """Render a small titled value panel."""
         self.console.print(Panel(str(value), title=title, expand=False))
+
+    def render_plan(self, plan: Plan) -> None:
+        """Render a planner output in a compact panel + table."""
+        self.console.print(
+            Panel(
+                f"{plan.summary}\n\n[bold]Strategy:[/bold] {plan.dev_strategy}",
+                title="Plan",
+                expand=False,
+            )
+        )
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Title")
+        table.add_column("Complexity", width=10)
+        table.add_column("Acceptance")
+        for index, task in enumerate(plan.tasks, start=1):
+            table.add_row(
+                str(index),
+                task.title,
+                task.complexity,
+                task.acceptance_criteria,
+            )
+        self.console.print(table)
 
     def set_debug(self, enabled: bool) -> None:
         """Enable verbose developer-oriented runtime tracing."""

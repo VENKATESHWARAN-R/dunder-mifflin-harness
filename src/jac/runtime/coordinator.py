@@ -29,6 +29,7 @@ from jac.runtime.events import (
     RunStarted,
     WarningRaised,
 )
+from jac.runtime.history import filter_tool_noise
 from jac.runtime.models import build_pydantic_model
 from jac.runtime.session import SessionState
 from jac.state import StateStore
@@ -139,7 +140,11 @@ class RunCoordinator:
     async def _ensure_agent(self) -> Agent:
         if self._agent is None:
             if self.state is not None:
-                from jac.agents import ensure_builder_config, ensure_manager_config
+                from jac.agents import (
+                    ensure_builder_config,
+                    ensure_manager_config,
+                    ensure_planner_config,
+                )
 
                 expected_tier = str(
                     self.session.config.tier or self.settings.default_tier
@@ -154,6 +159,11 @@ class RunCoordinator:
                     self.state,
                     self.session.run_id,
                     model_tier=expected_tier,
+                    model_override=self.session.config.model,
+                )
+                await ensure_planner_config(
+                    self.state,
+                    self.session.run_id,
                     model_override=self.session.config.model,
                 )
                 if (
@@ -175,6 +185,14 @@ class RunCoordinator:
                     await self.state.agent_configs.update(
                         b_row.config_id,
                         model_tier=expected_tier,
+                        model_override=self.session.config.model,
+                    )
+                p_row = await self.state.agent_configs.get_by_run_and_role(
+                    self.session.run_id, "planner"
+                )
+                if p_row is not None and p_row.model_override != self.session.config.model:
+                    await self.state.agent_configs.update(
+                        p_row.config_id,
                         model_override=self.session.config.model,
                     )
             self._agent = await self.build_agent()
@@ -313,6 +331,130 @@ class RunCoordinator:
 
         if self.state is not None:
             await self.state.messages.append(run_id, "assistant", output)
+            await self.state.runs.update_status(run_id, "running")
+        return output
+
+    async def submit_slash_run(
+        self,
+        *,
+        role: str,
+        prompt: str,
+        addendum_mode: str,
+        output_type: type | None = None,
+        persist_user_prompt: str | None = None,
+    ) -> object:
+        """Run one prompt through a specified role with a mode addendum."""
+        from jac.agents import config_loader
+        from jac.agents.modes import MODE_PROMPTS
+        from jac.agents.tools import make_summon_jim_tool
+
+        if self.state is None:
+            raise RuntimeError("slash runs require a state-backed session")
+
+        run_id = self.session.run_id
+        persisted_prompt = persist_user_prompt or prompt
+        await self._ensure_run_persisted(persisted_prompt)
+        await self.events.emit(RunStarted(run_id=run_id, prompt=persisted_prompt))
+        if self.state is not None:
+            await self.state.messages.append(run_id, "user", persisted_prompt)
+
+        started_at = perf_counter()
+        attempt_id: str | None = None
+        try:
+            warning_message = self._configure_observability()
+            if warning_message:
+                await self.events.emit(WarningRaised(message=warning_message))
+            extra_tools = None
+            if role == "manager":
+                extra_tools = [
+                    make_summon_jim_tool(
+                        self.state,
+                        self.settings,
+                        self.session,
+                        self.events,
+                        self.approval_policy,
+                    )
+                ]
+            temperature = float(self.session.config.model_params.get("temperature", "0"))
+            agent = await config_loader(
+                state=self.state,
+                settings=self.settings,
+                run_id=run_id,
+                role=role,
+                output_type=output_type,
+                events=self.events,
+                approval_policy=self.approval_policy,
+                model_settings={"temperature": temperature},
+                extra_tools=extra_tools,
+                instructions_addendum=MODE_PROMPTS.get(addendum_mode),
+            )
+            if self.state is not None:
+                cfg = await self.state.agent_configs.get_by_run_and_role(run_id, role)
+                if cfg is not None:
+                    selection = self.settings.resolve_model_selection(
+                        model_override=cfg.model_override,
+                        tier=cfg.model_tier,
+                    )
+                    attempt = await self.state.attempts.create(
+                        run_id=run_id,
+                        role=role,
+                        model=selection.model_ref,
+                        tier=cfg.model_tier,
+                        call_type="agent",
+                        parent_attempt_id=self.session.active_attempt_id,
+                    )
+                    attempt_id = attempt.attempt_id
+            async with agent:
+                result = await agent.run(prompt, message_history=self._message_history or None)
+        except Exception as exc:
+            await self.events.emit(
+                RunFailed(run_id=run_id, message=str(exc), exception=exc)
+            )
+            if self.state is not None:
+                await self.state.runs.update_status(run_id, "failed")
+                if attempt_id is not None:
+                    await self.state.attempts.update_status(attempt_id, "failed")
+            raise
+
+        if self.state is not None and attempt_id is not None:
+            await self.state.attempts.update_status(attempt_id, "passed")
+
+        output = result.output
+        output_text = output if isinstance(output, str) else str(output)
+        usage = result.usage() if hasattr(result, "usage") else None
+        if usage is not None:
+            summary = (
+                f"{usage.input_tokens} in · {usage.output_tokens} out · "
+                f"{usage.requests} req · {usage.tool_calls} tool calls"
+            )
+            self.session.latest_cost_summary = summary
+            await self.events.emit(CostUpdated(summary=summary))
+            tier = str(self.session.config.tier or self.settings.default_tier)
+            selection = self.settings.resolve_model_selection(
+                model_override=self.session.config.model,
+                tier=tier,
+            )
+            duration_ms = int((perf_counter() - started_at) * 1000)
+            await self.events.emit(
+                LlmCallCompleted(
+                    role=role,
+                    model=selection.model_ref,
+                    tier=tier,
+                    call_type="agent",
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    requests=usage.requests,
+                    tool_calls=usage.tool_calls,
+                    duration_ms=duration_ms,
+                )
+            )
+
+        self._message_history = filter_tool_noise(list(result.all_messages()))
+        await self.events.emit(AgentTextDelta(text=output_text))
+        await self.events.emit(AgentMessageCompleted(message=output_text))
+        await self.events.emit(RunCompleted(run_id=run_id, output=output_text))
+        if self.state is not None:
+            await self.state.messages.append(run_id, "assistant", output_text)
             await self.state.runs.update_status(run_id, "running")
         return output
 
