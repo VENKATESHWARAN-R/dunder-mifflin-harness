@@ -6,7 +6,13 @@ This file provides guidance to AI Agents when working with code in this reposito
 
 JAC ("Just Another CLI") is an R&D harness exploring whether a multi-agent system with tiered model routing can match Anthropic's long-running coding harness at 3–5× lower cost. The repo directory is `dunder-mifflin-harness` (a nod to the predecessor project), but the product is **JAC**.
 
-The project is in **early implementation**. C0–C5, C5a, and C6 have shipped: CLI/runtime foundation, SQLite persistence, workspace + file seeding (`jac init`, `jac doctor`), file tools, shell tools, the agent factory (`src/jac/agents/`) — the single `pydantic_ai.Agent(...)` construction site — tool approval middleware, and Scott (manager) + Jim (builder) with `summon_jim` delegation and `attempts` call-tree rows. Active DB tables: `runs`, `messages`, `skills`, `mcp_servers`, `agent_configs`, `run_mcp_servers`, `run_skills`, `attempts` (populated for manager/builder turns; token/cost columns filled at C7). See `docs/ROADMAP.md` for the full component plan and `docs/ROADMAP.md#done` for per-component ship notes.
+This file is intentionally stable guidance. Do not treat it as the source of
+truth for shipped component status, active tables, or milestone progress.
+Use:
+
+- `docs/ROADMAP.md` for shipped/planned component status
+- `docs/contracts/STATE_SCHEMA.md` for table definitions + activation sequence
+- `docs/dev/*.md` for "what is currently built" in each layer
 
 ## Commands
 
@@ -46,7 +52,7 @@ lab/            # experiments (brainstorm/, scripts/, notebooks/, specimens/)
 
 - `src/jac/cli/` — terminal adapter only: Click commands, prompt_toolkit input, slash commands, Rich rendering, prompt views.
 - `src/jac/runtime/` — UI-agnostic runtime: events, sessions, approvals, questions, `RunCoordinator`.
-- `src/jac/agents/` — agent factory: the **only** site that calls `pydantic_ai.Agent(...)`. `config_loader` reads DB config and builds agents.
+- `src/jac/agents/` — agent factory: primary managed site for agent construction. `config_loader` reads DB config and builds agents.
 - `src/jac/tools/` — shared local tool helpers (filesystem attachments, shell execution).
 - `src/jac/config.py` — env-backed settings.
 - `lab/` — research workspace; the `lab` dependency group covers extras only used here.
@@ -98,7 +104,9 @@ Use the `brainstrom` skill for free-form design sessions. When a discussion fina
 
 ## Database Scope
 
-Active tables (post-C5): `runs`, `messages`, `skills`, `mcp_servers`, `agent_configs`, `run_mcp_servers`, `run_skills`. Remaining tables exist in the schema but are not yet populated — they activate as their owning components arrive. Check `docs/contracts/STATE_SCHEMA.md` Activation Sequence before writing to any new table.
+Do not encode "currently active tables" in this file. Always check
+`docs/contracts/STATE_SCHEMA.md` (Activation Sequence) before writing to a new
+table or changing persistence behavior.
 
 When proposing state changes:
 - Schema changes (fields, relationships) → update `STATE_SCHEMA.md` first, write a new numbered migration alongside the code.
@@ -126,6 +134,41 @@ The planned harness is three layers: **Nodes** (atomic LLM/deterministic units) 
 - **Not everything is an agent.** Simple one-off tasks use direct LLM calls (`pydantic_ai.direct`). These are still recorded in the `attempts` table with `call_type = 'direct_llm'` for cost tracking.
 - **Tools are MCP-first.** Agent tool access is configured via `allowed_tools` in `agent_configs` as a JSON array of tool names and MCP server IDs. Local tools only until remote MCP transports come online at C17.
 - **Agent teams (C15).** Multiple agent instances can run in parallel within a run and coordinate via the `agent_messages` queue. Schema is defined now; wiring lands at C15.
+
+## Change-impact doc checklist
+
+When code changes, update docs by impact area (not just by file touched):
+
+- **CLI/user-visible behavior changed** (flags, commands, output, defaults, safety prompts):
+  - `docs/contracts/CLI_DESIGN.md` (Locked)
+  - `docs/guide/usage.md`, `docs/guide/getting-started.md`, `docs/guide/configuration.md` (user guides)
+  - `README.md` (quickstart/command snippets)
+  - relevant `docs/dev/cli-layer.md` / `docs/dev/runtime-layer.md`
+- **Runtime events/request-response semantics changed**:
+  - `docs/contracts/EVENT_CONTRACT.md` (Locked)
+  - relevant `docs/dev/runtime-layer.md`, `docs/dev/cli-layer.md`
+- **Agent/tool wiring changed** (`config_loader`, approval wrapper, delegation, MCP/skills wiring):
+  - `docs/contracts/TOOLS_CONTRACT.md`, `docs/contracts/MCP_INTEGRATION.md` (Locked)
+  - `docs/dev/agents-layer.md`, `docs/dev/runtime-layer.md`
+- **State/schema/persistence changed** (tables, columns, activation, status semantics):
+  - `docs/contracts/STATE_SCHEMA.md` (Locked, first)
+  - new migration in `src/jac/state/migrations/`
+  - `docs/dev/state-layer.md`
+- **Workspace/init/doctor/seeding changed**:
+  - `docs/contracts/WORKSPACE.md` (Locked)
+  - `docs/guide/getting-started.md`, `docs/guide/configuration.md`
+  - `docs/dev/cli-layer.md`, `docs/dev/state-layer.md`
+- **Roadmap scope/status changed**:
+  - `docs/ROADMAP.md` (Living)
+  - if docs inventory changed, update `docs/README.md` and `docs/dev/README.md`
+
+## Where to verify before/after changes
+
+- **Current shipped scope & ordering:** `docs/ROADMAP.md`
+- **Binding behavior contracts:** `docs/contracts/*.md` (check status + last revised)
+- **What is actually built:** `docs/dev/*.md` (then verify against `src/jac/**`)
+- **User-facing truth:** `README.md` + `docs/guide/*.md`
+- **Tests as executable spec:** `tests/` (especially CLI/runtime/agents/state files for touched area)
 
 ## Developer Docs
 
