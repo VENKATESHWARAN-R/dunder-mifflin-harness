@@ -13,6 +13,7 @@ from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
 from jac.runtime.events import EventBus
 from jac.runtime.session import SessionState
 from jac.state import open_state_store
+from jac.tools.cache import ToolResultCache
 
 
 def _run(coro):
@@ -200,7 +201,13 @@ def test_summon_jim_uses_active_approval_policy(
             monkeypatch.setattr("jac.agents.base.config_loader", fake_loader)
 
             summon_jim = make_summon_jim_tool(
-                store, settings, session, events, approval_policy=policy
+                store,
+                settings,
+                session,
+                events,
+                approval_policy=policy,
+                tool_result_cache=ToolResultCache(),
+                summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
             )
             output = await summon_jim("write tests")
             assert output == "jim-complete"
@@ -256,7 +263,13 @@ def test_summon_jim_records_parent_child_attempt_and_pass(tmp_path: Path) -> Non
             base_mod.config_loader = fake_loader
             try:
                 summon_jim = make_summon_jim_tool(
-                    store, settings, session, events, approval_policy=policy
+                    store,
+                    settings,
+                    session,
+                    events,
+                    approval_policy=policy,
+                    tool_result_cache=ToolResultCache(),
+                    summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
                 )
                 output = await summon_jim("write tests")
                 assert output == "complete"
@@ -310,7 +323,13 @@ def test_summon_jim_marks_failed_attempt_on_error(tmp_path: Path) -> None:
             base_mod.config_loader = fake_loader
             try:
                 summon_jim = make_summon_jim_tool(
-                    store, settings, session, events, approval_policy=policy
+                    store,
+                    settings,
+                    session,
+                    events,
+                    approval_policy=policy,
+                    tool_result_cache=ToolResultCache(),
+                    summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
                 )
                 try:
                     await summon_jim("break")

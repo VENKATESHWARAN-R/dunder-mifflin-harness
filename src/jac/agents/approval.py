@@ -21,6 +21,7 @@ The wrapper preserves `__name__`, `__doc__`, and `__annotations__` via
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import inspect
 from pathlib import Path
@@ -68,7 +69,7 @@ def make_approval_wrapper(fn: Any, events: EventBus, policy: ApprovalPolicy) -> 
     async def wrapper(**kwargs: Any) -> Any:
         await events.emit(ToolCallRequested(tool_name=fn.__name__, params=_details_for(fn.__name__, kwargs)))
         if meta.risk_level == ToolRiskLevel.READ_ONLY:
-            result = await fn(**kwargs)
+            result = await _call_with_timeout(fn(**kwargs), meta.timeout_seconds)
             await events.emit(
                 ToolCallCompleted(
                     tool_name=fn.__name__,
@@ -134,7 +135,7 @@ def make_approval_wrapper(fn: Any, events: EventBus, policy: ApprovalPolicy) -> 
 
             result = apply_edit(prepared_edit)
         else:
-            result = await fn(**kwargs)
+            result = await _call_with_timeout(fn(**kwargs), meta.timeout_seconds)
 
         if (
             meta.category == "file_write"
@@ -155,6 +156,18 @@ def make_approval_wrapper(fn: Any, events: EventBus, policy: ApprovalPolicy) -> 
         return result
 
     return wrapper
+
+
+async def _call_with_timeout(coro: Any, timeout: float | None) -> Any:
+    if timeout is None:
+        return await coro
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        return ToolResult(
+            status=ToolStatus.TIMEOUT,
+            error=f"tool timed out after {timeout}s",
+        )
 
 
 def _resolve_return_type(fn: Any) -> type:
@@ -241,7 +254,7 @@ def _risk_for(level: ToolRiskLevel) -> ApprovalRiskLevel:
 def _details_for(tool_name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
     """Surface a small subset of args to the renderer/log without dumping
     everything (file content, full env, etc.)."""
-    if tool_name in {"write_file", "edit_file", "read_file"}:
+    if tool_name in {"write_file", "edit_file", "read_file", "read_file_smart"}:
         return {"path": kwargs.get("path", "")}
     if tool_name in {"run_shell", "run_shell_background"}:
         return {

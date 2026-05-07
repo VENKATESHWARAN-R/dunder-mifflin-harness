@@ -13,6 +13,7 @@ from jac.tools.types import (
     DirEntry,
     FileEditResult,
     FileReadResult,
+    FileReadSmartResult,
     FileWriteResult,
     GrepMatch,
     GrepResult,
@@ -21,6 +22,7 @@ from jac.tools.types import (
     ToolApprovalMeta,
     ToolStatus,
 )
+from jac.tools.summarize import estimate_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +248,76 @@ setattr(
         risk_level=RiskLevel.READ_ONLY,
         reversible=True,
         description_fn=lambda path, **_: f"Read `{path}`",
+        timeout_seconds=30.0,
+    ),
+)
+
+
+SMART_FULL_TOKENS = 4_000
+SMART_LARGE_TOKENS = 20_000
+
+
+async def read_file_smart(path: str) -> FileReadSmartResult:
+    """Read a file with size-aware guidance for large-context files."""
+    p = Path(path)
+    try:
+        stat = p.stat()
+    except FileNotFoundError:
+        return FileReadSmartResult(
+            status=ToolStatus.NOT_FOUND,
+            error=f"file not found: {path}",
+            path=path,
+        )
+    except PermissionError:
+        return FileReadSmartResult(
+            status=ToolStatus.PERMISSION_DENIED,
+            error=f"permission denied: {path}",
+            path=path,
+        )
+    except OSError as exc:
+        return FileReadSmartResult(status=ToolStatus.ERROR, error=str(exc), path=path)
+
+    estimated_tokens_bound = max(1, stat.st_size // 4)
+    if estimated_tokens_bound > SMART_LARGE_TOKENS:
+        try:
+            with p.open("r", encoding="utf-8", errors="replace") as handle:
+                line_count = sum(1 for _ in handle)
+        except OSError:
+            line_count = 0
+        return FileReadSmartResult(
+            path=path,
+            content="",
+            lines_total=line_count,
+            lines_returned=0,
+            truncated=True,
+            large=True,
+            metadata_only=True,
+            warnings=[
+                f"file is ~{estimated_tokens_bound} tokens; reading full content would consume too much context. "
+                "Use read_file(path, start_line=..., end_line=...), grep_files for targeted lookups, "
+                "or spawn_minion for focused summarization.",
+            ],
+        )
+
+    base = await read_file(path)
+    if base.status != ToolStatus.OK:
+        return FileReadSmartResult(**base.model_dump())
+    return FileReadSmartResult(
+        **base.model_dump(),
+        large=estimate_tokens(base.content) > SMART_FULL_TOKENS,
+        metadata_only=False,
+    )
+
+
+setattr(
+    read_file_smart,
+    "approval",
+    ToolApprovalMeta(
+        category="file_read",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda path, **_: f"Smart-read `{path}`",
+        timeout_seconds=30.0,
     ),
 )
 

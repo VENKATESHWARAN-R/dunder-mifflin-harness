@@ -71,6 +71,25 @@ class MyToolResult(ToolResult):
 Pydantic serializes this to JSON for the agent. Design the fields so the JSON is
 readable — the LLM sees it directly.
 
+### Result interception for large outputs (C6c)
+
+Local tools run through this wrapper chain:
+
+`raw_tool -> approval wrapper -> result filter wrapper -> agent`
+
+When a tool response serializes above ~4k estimated tokens, the result filter:
+
+- stores the verbatim JSON payload in a per-run in-memory cache
+- returns `SummarizedToolResult` to the agent:
+  - `summary`: Scout-generated condensed output
+  - `summarized`: `true`
+  - `original_tokens`: estimated original token count
+  - `full_result_handle`: lookup key for `fetch_full_result`
+  - `note`: guidance to call `fetch_full_result(handle=...)`
+
+`fetch_full_result` is marked `category="cache_passthrough"` and is excluded from
+result re-summarization.
+
 ### Error handling rules
 
 - Never raise exceptions out of a tool function. Catch `OSError`, `PermissionError`,
@@ -128,6 +147,18 @@ description_fn=lambda command, cwd=None, **_: (
 - Keep it short — one line, under ~80 chars
 - Prefer showing the key argument (path, command) over showing all arguments
 - Use f-string formatting — it is rendered in a Rich panel in the terminal
+
+### Timeout policy
+
+`ToolApprovalMeta.timeout_seconds` can override the agent default tool timeout.
+
+| Tool | Timeout |
+|---|---|
+| Agent default (`Agent(tool_timeout=...)`) | 180s |
+| `read_file` / `read_file_smart` | 30s |
+| `spawn_minion` | internal 240s default (300s hard cap) |
+
+`None` means "use the agent default".
 
 ---
 
@@ -266,9 +297,20 @@ all agents with shared invariants:
 - Usage/cost budget inheritance from the caller.
 - Factory-mediated instantiation (no ad-hoc `Agent(...)` calls outside the factory).
 
-When C6c ships, document the concrete tool signature and return model in this
-section and keep the invariants above unchanged unless the roadmap/contracts are
-explicitly revised.
+Concrete C6c surface:
+
+- `spawn_minion(task, tools=None, tier='scout', timeout_sec=240) -> str`
+- `fetch_full_result(handle) -> ToolResult(content=...)`
+- `read_file_smart(path) -> FileReadSmartResult`
+
+`spawn_minion` invariants:
+
+- minion depth is capped at 1 (`depth <= 1`)
+- explicit `tools` must be a subset of caller's `allowed_tools`
+- implicit `tools=None` inherits caller tools with destructive groups rewritten:
+  - `filesystem` -> `filesystem:read`
+  - `shell` -> `shell:read`
+- minion attempts are recorded as `call_type='minion'` with `parent_attempt_id`
 
 ---
 

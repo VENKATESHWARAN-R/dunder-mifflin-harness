@@ -155,6 +155,24 @@ class AttemptRecorded(RuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class MinionSpawned(RuntimeEvent):
+    parent_role: str
+    minion_role: str
+    task_summary: str
+    tools: list[str]
+    tier: str
+    depth: int
+
+
+@dataclass(frozen=True, slots=True)
+class MinionReturned(RuntimeEvent):
+    parent_role: str
+    minion_role: str
+    duration_ms: int
+    success: bool
+
+
+@dataclass(frozen=True, slots=True)
 class LlmCallCompleted(RuntimeEvent):
     role: str
     model: str

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from time import perf_counter
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,9 @@ def make_summon_jim_tool(
     session: SessionState,
     events: EventBus,
     approval_policy: ApprovalPolicy,
+    *,
+    tool_result_cache,
+    summariser,
 ):
     """Return a tool function that Scott can call to delegate to Jim."""
 
@@ -29,6 +33,7 @@ def make_summon_jim_tool(
             task: Full description of the coding task for Jim to execute.
         """
         from jac.agents.base import config_loader
+        from jac.agents.spawn import native_agent_extras
         from jac.agents.personas import PERSONAS
         from jac.runtime.events import AgentDelegated, AttemptRecorded, LlmCallCompleted
 
@@ -67,6 +72,21 @@ def make_summon_jim_tool(
             )
         )
 
+        jim_cfg = await state.agent_configs.get_by_run_and_role(session.run_id, "builder")
+        jim_allowed = json.loads(jim_cfg.allowed_tools) if jim_cfg else []
+        extras = native_agent_extras(
+            state=state,
+            settings=settings,
+            session=session,
+            events=events,
+            approval_policy=approval_policy,
+            cache=tool_result_cache,
+            summariser=summariser,
+            parent_role="builder",
+            parent_depth=0,
+            parent_allowed_tools=jim_allowed,
+        )
+
         jim_agent = await config_loader(
             state=state,
             settings=settings,
@@ -74,6 +94,9 @@ def make_summon_jim_tool(
             role="builder",
             events=events,
             approval_policy=approval_policy,
+            extra_tools=extras,
+            tool_result_cache=tool_result_cache,
+            summariser=summariser,
             model_settings={
                 "temperature": float(
                     session.config.model_params.get("temperature", "0")

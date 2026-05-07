@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
 
 from jac.agents.approval import make_approval_wrapper
+from jac.agents.result_filter import make_result_filter_wrapper
 from jac.config import Settings
 from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
 from jac.runtime.events import EventBus, NodeCompleted, NodeStarted
@@ -17,6 +18,11 @@ from jac.runtime.models import build_pydantic_model
 from jac.state import StateStore
 from jac.tools import TOOL_REGISTRY
 from jac.tools.types import ToolFn
+from jac.tools.types import ToolApprovalMeta
+
+if TYPE_CHECKING:
+    from jac.tools.cache import ToolResultCache
+    from jac.tools.summarize import Summariser
 
 
 class AgentConfigNotFound(RuntimeError):
@@ -58,6 +64,9 @@ async def config_loader(
     model_settings: Any = None,
     extra_tools: Sequence[ToolFn] | None = None,
     instructions_addendum: str | None = None,
+    tool_result_cache: ToolResultCache | None = None,
+    summariser: Summariser | None = None,
+    tool_timeout_seconds: float = 180.0,
 ) -> Agent:
     """Build a Pydantic AI Agent from persisted config.
 
@@ -79,7 +88,13 @@ async def config_loader(
     cfg = await _load_config(state, run_id, role)
     mcp_toolsets = await _build_mcp_toolsets(state, run_id, role)
     local_tools = list(
-        _resolve_local_tools(cfg.allowed_tools, effective_events, effective_policy)
+        _resolve_local_tools(
+            cfg.allowed_tools,
+            effective_events,
+            effective_policy,
+            tool_result_cache=tool_result_cache,
+            summariser=summariser,
+        )
     )
     if extra_tools:
         local_tools.extend(extra_tools)
@@ -102,6 +117,7 @@ async def config_loader(
         toolsets=mcp_toolsets,
         output_type=output_type or str,
         model_settings=model_settings,
+        tool_timeout=tool_timeout_seconds,
     )
 
     if events is not None:
@@ -169,6 +185,9 @@ def _resolve_local_tools(
     allowed_tools: list[str],
     events: EventBus,
     policy: ApprovalPolicy,
+    *,
+    tool_result_cache: ToolResultCache | None = None,
+    summariser: Summariser | None = None,
 ) -> list[ToolFn]:
     local_tools: list[ToolFn] = []
     unknown: list[str] = []
@@ -179,9 +198,19 @@ def _resolve_local_tools(
         if tools is None:
             unknown.append(name)
         else:
-            local_tools.extend(
-                make_approval_wrapper(fn, events, policy) for fn in tools
-            )
+            for fn in tools:
+                wrapped = make_approval_wrapper(fn, events, policy)
+                meta: ToolApprovalMeta | None = getattr(wrapped, "approval", None)
+                if (
+                    tool_result_cache is not None
+                    and summariser is not None
+                    and meta is not None
+                    and meta.category not in {"cache_passthrough", "agent_spawn"}
+                ):
+                    wrapped = make_result_filter_wrapper(
+                        wrapped, tool_result_cache, summariser
+                    )
+                local_tools.append(wrapped)
     if unknown:
         known = ", ".join(sorted(TOOL_REGISTRY))
         raise UnknownToolError(

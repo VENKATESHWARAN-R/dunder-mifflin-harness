@@ -80,7 +80,7 @@ CREATE TABLE attempts (
     run_id              TEXT NOT NULL REFERENCES runs(run_id),
     parent_attempt_id   TEXT REFERENCES attempts(attempt_id),  -- nullable; set when a specialist or minion is called from a parent agent
     call_type           TEXT NOT NULL DEFAULT 'agent',
-    -- agent | direct_llm
+    -- agent | direct_llm | minion
     -- direct_llm = single model call without full agent loop (Scott's direct replies, routing decisions)
     role                TEXT NOT NULL DEFAULT 'builder',
     -- which persona made this attempt: manager | planner | builder | evaluator | minion:...
@@ -99,7 +99,10 @@ CREATE TABLE attempts (
 );
 ```
 
-**Note on `call_type`:** Some agent calls don't spin up a full agent loop — e.g., Scott replying directly to a trivial chat message, or a routing decision. These are recorded with `call_type = 'direct_llm'` for cost and audit.
+**Note on `call_type`:**
+- `agent` = standard full agent run.
+- `direct_llm` = single model call without full agent loop (for example Scott direct replies/routing).
+- `minion` = single-shot child agent spawned by `spawn_minion`; `parent_attempt_id` points to the spawning attempt.
 
 **Note on `parent_attempt_id`:** Reconstructs the call tree for cost rollup and
 audit. When Scott calls `summon_jim`, Jim's attempt row sets

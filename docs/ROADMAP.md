@@ -446,7 +446,7 @@ flowchart LR
 ### C6c — Universal `spawn_minion` + Tool-Layer Hardening
 
 **Layer:** agents + tools
-**Status:** planned
+**Status:** done (2026-05-06)
 **Depends on:** C6b
 **Brainstorm/contract:** [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md), [`TOOLS_CONTRACT.md`](contracts/TOOLS_CONTRACT.md)
 
@@ -1407,6 +1407,18 @@ Cross-cutting UX pass on `src/jac/cli/`. Not a numbered component — improves t
 - [x] Added in-memory message-history filter for slash runs (drops tool call/return chatter)
 - [x] Added `PlanGenerated` and `WorkspaceSurveyCompleted` runtime events and renderer support
 - [x] Added C6b test coverage in `tests/test_c6b_planner_and_slash_modes.py`
+
+---
+
+### C6c — Universal `spawn_minion` + Tool-Layer Hardening (2026-05-06)
+
+- [x] Added universal `spawn_minion` + `fetch_full_result` native extras in `src/jac/agents/spawn.py`
+- [x] Added `read_file_smart`, per-tool timeout metadata, and 30s `read_file*` timeout policy
+- [x] Added result interception wrapper with Scout summarization and per-run `ToolResultCache`
+- [x] Wired `tool_timeout=180s` and result-filter integration in `config_loader`
+- [x] Updated coordinator and `summon_jim` wiring so native specialists include C6c extras
+- [x] Added `MinionSpawned` / `MinionReturned` runtime events
+- [x] Added C6c-focused tests in `tests/test_c6c_spawn_minion_and_tool_hardening.py`
 
 ---
 

@@ -5,6 +5,7 @@ from jac.tools.filesystem import (
     grep_files,
     list_directory,
     read_file,
+    read_file_smart,
     search_files,
     write_file,
 )
@@ -27,13 +28,20 @@ from jac.tools.types import ToolFn
 TOOL_REGISTRY: dict[str, list[ToolFn]] = {
     "filesystem": [
         read_file,
+        read_file_smart,
         write_file,
         edit_file,
         list_directory,
         search_files,
         grep_files,
     ],
-    "filesystem:read": [read_file, list_directory, search_files, grep_files],
+    "filesystem:read": [
+        read_file,
+        read_file_smart,
+        list_directory,
+        search_files,
+        grep_files,
+    ],
     "shell": [run_shell, run_shell_background, list_processes, read_process_output],
     "shell:read": [list_processes, read_process_output],
 }
@@ -41,6 +49,7 @@ TOOL_REGISTRY: dict[str, list[ToolFn]] = {
 __all__ = [
     "TOOL_REGISTRY",
     "read_file",
+    "read_file_smart",
     "write_file",
     "edit_file",
     "list_directory",

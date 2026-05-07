@@ -21,6 +21,11 @@ RunCoordinator(
 )
 ```
 
+Run-scoped C6c helpers owned by the coordinator:
+
+- `_tool_result_cache` — in-memory handles for summarized tool outputs.
+- `_summariser` — Scout direct-call summarizer used by result-filter wrappers.
+
 **Key methods:**
 
 ### `submit_message(UserMessage) -> str`
@@ -58,7 +63,9 @@ Flow:
 Async. Called internally on the first turn (or after `reset_agent()`). If `state`
 is available: ensures manager + builder configs for the run, then calls
 `config_loader(state, settings, run_id, role=session.config.role, approval_policy=...)`.
-For manager role it also injects `summon_jim` as an extra tool. If `state` is
+For manager role it injects `summon_jim` and native extras (`spawn_minion`,
+`fetch_full_result`). Other native specialist roles also receive native extras.
+If `state` is
 `None`: calls `_build_fallback_agent()` which constructs a minimal agent directly
 without DB-backed config. Caches the result.
 
@@ -114,6 +121,8 @@ await events.emit(AgentTextDelta(text="hello"))
 | `WarningRaised` | `message` | Any layer |
 | `PlanGenerated` | `summary`, `dev_strategy`, `task_count` | CLI slash handler (`/plan`) |
 | `WorkspaceSurveyCompleted` | `agents_md_path`, `line_count` | CLI slash handler (`/init`) |
+| `MinionSpawned` | `parent_role`, `minion_role`, `task_summary`, `tools`, `tier`, `depth` | `spawn_minion` |
+| `MinionReturned` | `parent_role`, `minion_role`, `duration_ms`, `success` | `spawn_minion` |
 
 **Approval and question flow:**
 

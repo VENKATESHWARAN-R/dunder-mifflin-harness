@@ -57,6 +57,12 @@ class ToolApprovalMeta(BaseModel):
     description_fn: Callable[..., str]
     """Called with the tool's kwargs at call time → human-readable action string for approval prompt."""
 
+    timeout_seconds: float | None = None
+    """Per-tool timeout enforced by the approval wrapper via asyncio.wait_for.
+
+    None means the tool uses the agent-wide default tool timeout.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Filesystem result types
@@ -84,6 +90,13 @@ class FileReadResult(ToolResult):
     lines_total: int = 0
     lines_returned: int = 0
     truncated: bool = False
+
+
+class FileReadSmartResult(FileReadResult):
+    """Result of `read_file_smart` with size-guidance flags."""
+
+    large: bool = False
+    metadata_only: bool = False
 
 
 class FileWriteResult(ToolResult):
@@ -162,6 +175,16 @@ class ProcessOutputResult(ToolResult):
     stderr: str = ""
     running: bool = False
     exit_code: int | None = None  # None while still running
+
+
+class SummarizedToolResult(ToolResult):
+    """Result envelope returned when a large tool output is summarized."""
+
+    summary: str
+    summarized: bool = True
+    original_tokens: int
+    full_result_handle: str
+    note: str | None = None
 
 
 # ---------------------------------------------------------------------------

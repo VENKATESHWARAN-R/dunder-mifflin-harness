@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 from time import perf_counter
 
 import logfire
@@ -37,6 +38,8 @@ from jac.tools.filesystem import (
     FileAttachment,
     format_attachments_for_prompt,
 )
+from jac.tools.cache import ToolResultCache
+from jac.tools.summarize import build_scout_summariser
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +81,8 @@ class RunCoordinator:
         self._logfire_configured = False
         self._run_persisted = False
         self._message_history: list[ModelMessage] = []
+        self._tool_result_cache = ToolResultCache()
+        self._summariser = build_scout_summariser(settings)
 
     def _build_fallback_agent(self) -> Agent:
         """Build the agent inline when no state store is available."""
@@ -107,20 +112,36 @@ class RunCoordinator:
         if self.state is None:
             return self._build_fallback_agent()
         from jac.agents import config_loader
+        from jac.agents.spawn import native_agent_extras
         from jac.agents.tools import make_summon_jim_tool
 
         role = self.session.config.role
-        extra_tools = None
+        cfg = await self.state.agent_configs.get_by_run_and_role(self.session.run_id, role)
+        parent_allowed = json.loads(cfg.allowed_tools) if cfg else []
+        extra_tools = native_agent_extras(
+            state=self.state,
+            settings=self.settings,
+            session=self.session,
+            events=self.events,
+            approval_policy=self.approval_policy,
+            cache=self._tool_result_cache,
+            summariser=self._summariser,
+            parent_role=role,
+            parent_depth=0,
+            parent_allowed_tools=parent_allowed,
+        )
         if role == "manager":
-            extra_tools = [
+            extra_tools.append(
                 make_summon_jim_tool(
                     self.state,
                     self.settings,
                     self.session,
                     self.events,
                     self.approval_policy,
+                    tool_result_cache=self._tool_result_cache,
+                    summariser=self._summariser,
                 )
-            ]
+            )
 
         return await config_loader(
             state=self.state,
@@ -130,6 +151,8 @@ class RunCoordinator:
             events=self.events,
             approval_policy=self.approval_policy,
             extra_tools=extra_tools,
+            tool_result_cache=self._tool_result_cache,
+            summariser=self._summariser,
             model_settings={
                 "temperature": float(
                     self.session.config.model_params.get("temperature", "0")
@@ -345,6 +368,7 @@ class RunCoordinator:
     ) -> object:
         """Run one prompt through a specified role with a mode addendum."""
         from jac.agents import config_loader
+        from jac.agents.spawn import native_agent_extras
         from jac.agents.modes import MODE_PROMPTS
         from jac.agents.tools import make_summon_jim_tool
 
@@ -364,17 +388,32 @@ class RunCoordinator:
             warning_message = self._configure_observability()
             if warning_message:
                 await self.events.emit(WarningRaised(message=warning_message))
-            extra_tools = None
+            cfg = await self.state.agent_configs.get_by_run_and_role(run_id, role)
+            parent_allowed = json.loads(cfg.allowed_tools) if cfg else []
+            extra_tools = native_agent_extras(
+                state=self.state,
+                settings=self.settings,
+                session=self.session,
+                events=self.events,
+                approval_policy=self.approval_policy,
+                cache=self._tool_result_cache,
+                summariser=self._summariser,
+                parent_role=role,
+                parent_depth=0,
+                parent_allowed_tools=parent_allowed,
+            )
             if role == "manager":
-                extra_tools = [
+                extra_tools.append(
                     make_summon_jim_tool(
                         self.state,
                         self.settings,
                         self.session,
                         self.events,
                         self.approval_policy,
+                        tool_result_cache=self._tool_result_cache,
+                        summariser=self._summariser,
                     )
-                ]
+                )
             temperature = float(self.session.config.model_params.get("temperature", "0"))
             agent = await config_loader(
                 state=self.state,
@@ -387,6 +426,8 @@ class RunCoordinator:
                 model_settings={"temperature": temperature},
                 extra_tools=extra_tools,
                 instructions_addendum=MODE_PROMPTS.get(addendum_mode),
+                tool_result_cache=self._tool_result_cache,
+                summariser=self._summariser,
             )
             if self.state is not None:
                 cfg = await self.state.agent_configs.get_by_run_and_role(run_id, role)

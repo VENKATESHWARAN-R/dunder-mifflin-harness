@@ -50,13 +50,19 @@ Queries `state.run_mcp_servers` for active rows matching `run_id` and `role` (or
 - `transport = "streamable-http"` → `MCPServerStreamableHTTP`
 - `transport = "sse"` → `MCPServerSSE`
 
-**Step 3 — Resolve allowed tools (with approval middleware)**
+**Step 3 — Resolve allowed tools (with approval + result interception middleware)**
 
 Iterates `allowed_tools` and looks up each entry in `TOOL_REGISTRY`. Entries prefixed
 with `mcp:` are skipped (handled in step 2). Local tools are wrapped via
-`make_approval_wrapper` using the active `ApprovalPolicy`. An entry not found in
-`TOOL_REGISTRY` raises `UnknownToolError`. Any caller-provided `extra_tools` are
-appended after resolved local tools.
+`make_approval_wrapper` using the active `ApprovalPolicy`. When a run-scoped
+`ToolResultCache` + `Summariser` are provided, local tools are additionally wrapped by
+`make_result_filter_wrapper` so large JSON results are summarized and cached by handle.
+An entry not found in `TOOL_REGISTRY` raises `UnknownToolError`. Any caller-provided
+`extra_tools` are appended after resolved local tools.
+
+Special categories skipped from result filtering:
+- `cache_passthrough` (`fetch_full_result`)
+- `agent_spawn` (`spawn_minion`)
 
 **Step 4 — Compose system prompt with skills**
 
@@ -81,7 +87,19 @@ Agent(
     toolsets=mcp_toolsets,
     output_type=output_type,
     model_settings=model_settings,
+    tool_timeout=tool_timeout_seconds,
 )
+## C6c native extras and minions
+
+`src/jac/agents/spawn.py` provides:
+
+- `make_spawn_minion_tool(...)` — creates depth-1 minion rows in `agent_configs`,
+  records `attempts.call_type='minion'`, emits `MinionSpawned`/`MinionReturned`,
+  and runs child agents with `usage=ctx.usage`.
+- `make_fetch_full_result_tool(cache)` — retrieves verbatim cached outputs by handle.
+- `native_agent_extras(...)` — bundles both tools for native specialists.
+
+`src/jac/agents/result_filter.py` provides the large-output interception wrapper.
 ```
 
 If an `EventBus` is provided, `config_loader` emits `NodeStarted(node_name="config_loader")` before step 1 and `NodeCompleted` after step 5.
