@@ -1,12 +1,12 @@
 # Roadmap — JAC
 
-> **Status:** Living · **Last revised:** 2026-05-06 · **Type:** component plan, in dependency order
+> **Status:** Living · **Last revised:** 2026-05-07 · **Type:** component plan, in dependency order
 >
 > _2026-05-04: C5a (tool approval middleware) shipped — see Done section._
 > _2026-05-04: CLI-UX batch shipped — tab completions, toolbar, aliases, new slash commands, arrow-key approvals, REDIRECT decision, undo stack, destructive-shell guard, retry prompt — see Done section._
 > _2026-05-04: C6 (Scott + Jim, `summon_jim`, `attempts` call tree) shipped — see Done section._
 > _2026-05-06: C6b (Pam planner + slash-mode addendums, `/plan`, `/init`, tasks activation) shipped — see Done section._
-> _2026-05-05: Multi-agent cast finalized — see [`lab/brainstorm/2026-05-05-multi-agent-cast-final.md`](../lab/brainstorm/2026-05-05-multi-agent-cast-final.md). C6b rewritten (Pam as planner, drops analyst), C6c added (universal `spawn_minion` + tool result interception + `read_file_smart`), C9 rewritten (Dwight + retry caps + cross-specialist escalation + `/build`/`/eval` slash), C12 refined (175k threshold), **C14 superseded** by C6c (no Holly persona)._
+> _2026-05-07: C7 (usage tracking, `/usage`, `SessionUsageUpdated`, toolbar usage line) shipped — see Done section._
 
 JAC is built component by component, not slice by slice. Each entry below is a self-contained module with a stable ID (`C0`..`Cn`). Order reflects **dependency**, not calendar — `Cn+1` assumes `Cn` is in place.
 
@@ -32,7 +32,7 @@ flowchart TB
   end
   subgraph runtime[runtime — events, sessions, coordinator]
     C0r[C0 Runtime core]
-    C7v[C7 Cost tracking]
+    C7v[C7 Usage tracking]
     C18v[C18 Mid-run toggles]
   end
   subgraph workflow[workflow — graphs, modes]
@@ -496,23 +496,25 @@ flowchart LR
 
 ---
 
-### C7 — Cost Tracking & `/cost`
+### C7 — Usage Tracking & `/usage`
 
 **Layer:** runtime
-**Status:** planned
-**Depends on:** C6, C6b
-**Brainstorm/contract:** [`STATE_SCHEMA.md`](contracts/STATE_SCHEMA.md) (`attempts`)
+**Status:** done (2026-05-07)
+**Depends on:** C6, C6b, C6c
+**Brainstorm/contract:** [`STATE_SCHEMA.md`](contracts/STATE_SCHEMA.md) (`attempts`), [`EVENT_CONTRACT.md`](contracts/EVENT_CONTRACT.md) (`SessionUsageUpdated`), [`CLI_DESIGN.md`](contracts/CLI_DESIGN.md)
 
-Per-call model, token, duration, and cost records captured into `attempts` (with `call_type='agent'` / `'direct_llm'` / `'minion'`, plus `parent_attempt_id` for the call tree). `CostUpdated` events emitted at run end and on model changes. `/cost` renders a tree-shaped breakdown (Scott → Pam → Jim → Dwight, plus minions under their parents) with per-tier and per-persona totals. Minion costs roll up automatically via Pydantic AI's `usage=ctx.usage` parameter.
+Per-attempt **token** usage (no dollar rollup in this component) is persisted on `attempts` as **deltas** per row, including `call_type='direct_llm'` for the Scout summariser. `SessionUsageUpdated` carries cumulative session counters and last-call context size; it is emitted from **root** completions only (`submit_message`, `submit_slash_run`). The CLI exposes `/usage` (alias `/cost`), extends `/context` with a growth table, adds a second toolbar line for live usage, and resets cumulative counters on `/clear` (future `/compact` must not reuse that reset).
 
 **Ships:**
-- Cost-tracking wrapper around model calls
-- Structured `CostUpdated` event (replacing the summary string)
-- `/cost` slash command + Rich panel renderer
+- Migration `003_c7_usage.sql` (`requests`, `tool_calls` on `attempts`)
+- `jac.data.model_specs.toml` + `runtime/model_specs.py` for model max context
+- `attempts.update_usage`, `tree_for_run`, `totals_for_run`
+- `SessionUsageUpdated` event + renderer one-liner
+- `/usage` (alias `/cost`), `/context` growth view, `/clear` usage reset
 
 **Evaluation:**
-- Run a small task; `/cost` shows tokens, cost per role, total
-- `attempts` rows match the rendered totals
+- Run a small task; `/usage` shows a tree and per-role totals; `SUM(tokens_in)` across rows matches the root run's usage accounting
+- Toolbar updates after each prompt; `/clear` zeroes cumulative counters
 
 ```mermaid
 flowchart LR
@@ -520,7 +522,7 @@ flowchart LR
     a[Agent / direct LLM call]
   end
   subgraph runtime[runtime]
-    ct[cost wrapper]
+    ct[usage capture]
     bus[event bus]
   end
   subgraph state[state]
@@ -528,7 +530,7 @@ flowchart LR
   end
   a --> ct
   ct --> att
-  ct -->|CostUpdated| bus
+  ct -->|SessionUsageUpdated| bus
 ```
 
 ---
@@ -550,7 +552,7 @@ Provider-agnostic tier map (Scout / Worker / Architect) wired into `config_loade
 
 **Evaluation:**
 - Switch tier mid-session; next turn uses new model (visible in `attempts`)
-- `/cost` shows ≥2 tiers exercised in a single run
+- `/usage` shows ≥2 tiers exercised in a single run
 
 ```mermaid
 flowchart LR
@@ -1355,7 +1357,7 @@ Move components here when shipped, with the date.
 
 Cross-cutting UX pass on `src/jac/cli/`. Not a numbered component — improves the existing C0 foundation.
 
-- [x] **Input layer** (`input.py`): `DedupFileHistory` skips consecutive duplicates; `JacCompleter` completes slash command names (with descriptions), command arguments (`/tier`, `/mode`, `/approval`, `/params`), and `@`-prefixed file paths; `bottom_toolbar` shows `model · tier · mode · approval` live; `(esc+enter for newline)` placeholder; Ctrl+R history search via prompt_toolkit emacs defaults
+- [x] **Input layer** (`input.py`): `DedupFileHistory` skips consecutive duplicates; `JacCompleter` completes slash command names (with descriptions), command arguments (`/tier`, `/mode`, `/approval`, `/params`), and `@`-prefixed file paths; `bottom_toolbar` shows `model · tier · mode · approval` plus a second line for cumulative tokens and context headroom (C7); `(esc+enter for newline)` placeholder; Ctrl+R history search via prompt_toolkit emacs defaults
 - [x] **Slash commands** (`commands.py`): `SlashCommand` gains optional `example` field; `SlashCommandRegistry` gains `alias()` and `descriptions()`; `help_text()` shows examples, aliases, keyboard shortcuts, and input prefix reference
 - [x] **New slash commands** (`app.py`): `/clear`, `/history [n]`, `/save [file]`, `/undo`, `/capabilities`
 - [x] **Aliases**: `/h`→`/help`, `/q`→`/quit`, `/m`→`/model`, `/t`→`/tier`, `/x`→`/context`, `/?`→`/help`
@@ -1365,7 +1367,7 @@ Cross-cutting UX pass on `src/jac/cli/`. Not a numbered component — improves t
 - [x] **Retry on failure** (`app.py`): `RunFailed` is caught; `ask_yn("Retry?")` re-submits once
 - [x] **Consolidated attachment warnings** (`app.py`): multiple `@path` failures emitted as a single `WarningRaised` block
 - [x] **Auto-resume** (`main.py`): `jac resume` with no ID selects most-recent run from DB; `run_resumed()` shows a context preview of last 3 turns
-- [x] **Richer welcome banner** (`renderer.py`): shows `model · tier · mode` at session start; `CostUpdated` rendered as compact one-liner instead of full panel; `render_resume_context` and `render_message_history` methods added
+- [x] **Richer welcome banner** (`renderer.py`): shows `model · tier · mode` at session start; `SessionUsageUpdated` rendered as compact one-liner instead of full panel; `render_resume_context` and `render_message_history` methods added
 - [x] **REDIRECT approval decision** (`runtime/approvals.py`, `agents/approval.py`, `cli/prompts.py`): new `ApprovalDecision.REDIRECT` with `redirect_message` field on `ApprovalResponse`; approval wrapper returns feedback as tool result so model can adjust and retry; approval prompt is now async with arrow-key navigation; `ask_yn` also async
 - [x] 3 new tests for REDIRECT in `tests/test_agent_approval.py`; all existing tests passing
 
@@ -1394,7 +1396,7 @@ Cross-cutting UX pass on `src/jac/cli/`. Not a numbered component — improves t
 - [x] `RunCoordinator` — seeds manager + builder configs per run; `build_agent` attaches `summon_jim` when `session.config.role == "manager"`; `submit_message` creates Scott attempt, sets `active_attempt_id` for the turn
 - [x] Default session role is `manager` (`SessionConfig` / factory defaults); `config_loader` / `AgentConfig` carry persona fields
 - [x] `tests/test_c6_scott_jim.py` — migration, attempts FK, persistence
-- [x] **Deferred to C7:** populate `tokens_in` / `tokens_out` / `cost` / `duration_ms` on `attempts` rows and usage rollup (`ctx.usage`) — schema defaults remain until cost tracking ships
+- [x] **C7 shipped (2026-05-07):** `tokens_in` / `tokens_out` / `requests` / `tool_calls` / `duration_ms` populated on `attempts`; `SessionUsageUpdated`; `/usage`; summariser `direct_llm` rows + `ctx.usage.incr` merge
 
 ---
 

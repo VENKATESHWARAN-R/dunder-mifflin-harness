@@ -11,7 +11,7 @@ from jac.cli.input import InputSession
 from jac.cli.parser import ParsedInputKind, parse_input
 from jac.cli.prompts import PromptViews
 from jac.cli.renderer import Renderer
-from jac.config import Settings
+from jac.config import DEFAULT_MODEL, Settings
 from jac.agents.plans import Plan
 from jac.runtime.approvals import (
     ApprovalMode,
@@ -23,12 +23,14 @@ from jac.runtime.events import (
     EventBus,
     FileEditPreviewed,
     QuestionRequested,
+    SessionUsageUpdated,
     ShellCommandCompleted,
     ShellCommandStarted,
     WarningRaised,
     WorkspaceSurveyCompleted,
 )
 from jac.runtime.coordinator import RunCoordinator, UserMessage, resume_run
+from jac.runtime.model_specs import spec_for
 from jac.runtime.session import ModelTier, RunMode, SessionConfig, SessionState
 from jac.state import StateStore, open_state_store, seed_workspace
 from jac.tools.shell import run_shell
@@ -97,11 +99,26 @@ class ChatApp:
             self.settings.config_dir / "input_history",
             command_source=lambda: self.commands.descriptions(),
             session_config_source=lambda: self.session.config,
+            session_usage_source=self._session_usage_dict,
         )
 
         self.renderer.wire(self.events)
         self._wire_requests()
         self._register_commands()
+
+    def _session_usage_dict(self) -> dict[str, object]:
+        model_ref = self.session.config.model or DEFAULT_MODEL
+        mx = spec_for(model_ref).max_context
+        pct = (self.session.last_context_tokens / mx) if mx else 0.0
+        return {
+            "tokens_in": self.session.cumulative_tokens_in,
+            "tokens_out": self.session.cumulative_tokens_out,
+            "requests": self.session.cumulative_requests,
+            "tool_calls": self.session.cumulative_tool_calls,
+            "last_context_tokens": self.session.last_context_tokens,
+            "context_max": mx,
+            "context_pct": pct,
+        }
 
     @classmethod
     async def open(cls, settings: Settings | None = None) -> "ChatApp":
@@ -291,21 +308,49 @@ class ChatApp:
             message_count: int | None = None
             if self.state is not None:
                 message_count = await self.state.messages.count_for_run(run_id)
-            header = f"run_id: {run_id}"
-            if message_count is not None:
-                header += f" ({message_count} messages)"
-            body = f"{header}\ncwd: {self.session.config.cwd}"
             paths = "\n".join(str(path) for path in self.session.attached_paths)
-            if paths:
-                body += f"\n\nattached files:\n{paths}"
-            self.renderer.print_value("Context", body)
+            attempt_rows: list = []
+            if self.state is not None:
+                attempt_rows = await self.state.attempts.list_for_run(run_id)
+            model_ref = self.session.config.model or DEFAULT_MODEL
+            mx = spec_for(model_ref).max_context
+            self.renderer.render_context_growth(
+                run_id=run_id,
+                message_count=message_count,
+                cwd=str(self.session.config.cwd),
+                attached=paths,
+                last_ctx=self.session.last_context_tokens,
+                model_max=mx,
+                attempt_rows=attempt_rows,
+            )
 
-        async def cost_command(_args: str) -> None:
-            summary = self.session.latest_cost_summary or "No cost data reported yet."
-            self.renderer.print_value("Cost", summary)
+        async def usage_command(_args: str) -> None:
+            if self.state is None:
+                self.renderer.print_error("State store not configured.")
+                return
+            tree = await self.state.attempts.tree_for_run(self.session.run_id)
+            totals = await self.state.attempts.totals_for_run(self.session.run_id)
+            model_ref = self.session.config.model or DEFAULT_MODEL
+            mx = spec_for(model_ref).max_context
+            self.renderer.render_usage_breakdown(tree, totals, mx)
 
         async def clear_command(_args: str) -> None:
             self.renderer.console.clear()
+            self.session.reset_usage_counters()
+            model_ref = self.session.config.model or DEFAULT_MODEL
+            mx = spec_for(model_ref).max_context
+            await self.events.emit(
+                SessionUsageUpdated(
+                    tokens_in=0,
+                    tokens_out=0,
+                    requests=0,
+                    tool_calls=0,
+                    last_context_tokens=0,
+                    context_max=mx,
+                    context_pct=0.0,
+                    model=model_ref,
+                )
+            )
 
         async def history_command(args: str) -> None:
             n = 10
@@ -479,8 +524,17 @@ class ChatApp:
             example="/params temperature 0.2",
         )
         self.commands.register("context", context_command, "Show session context")
-        self.commands.register("cost", cost_command, "Show current cost summary")
-        self.commands.register("clear", clear_command, "Clear the terminal screen")
+        self.commands.register(
+            "usage",
+            usage_command,
+            "Show token usage tree for the current run",
+        )
+        self.commands.alias("cost", "usage")
+        self.commands.register(
+            "clear",
+            clear_command,
+            "Clear the terminal and reset session usage counters",
+        )
         self.commands.register(
             "history",
             history_command,

@@ -1,6 +1,6 @@
 # CLI Design
 
-> **Status:** Locked · **Last revised:** 2026-05-06 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-07 · **Type:** contract
 
 ## Purpose
 
@@ -99,12 +99,12 @@ Full command set:
 | `/approval [interactive\|auto-edit\|yolo]` | Show or set approval policy |
 | `/debug [on\|off]` | Show or set verbose developer tracing |
 | `/params [key value]` | Show or set model parameters (`temperature`, `max_tokens`) |
-| `/context` (alias `/x`) | Show run ID, cwd, message count, and attached files |
-| `/cost` | Show current run cost summary |
+| `/context` (alias `/x`) | Show run ID, cwd, message count, attached files, last context vs model max, headroom, and per-attempt growth |
+| `/usage` (alias `/cost`) | Show token usage tree and per-role totals for the current run |
 | `/history [n]` | Show last `n` messages from the session (default: 10) |
 | `/save [file]` | Export session transcript as Markdown |
 | `/undo` | Revert the last file edit applied during this session |
-| `/clear` | Clear the terminal screen (session state unchanged) |
+| `/clear` | Clear the terminal **and** reset cumulative session usage counters (toolbar + `/usage` baseline). `/compact` (C12) must **not** use this reset path. |
 | `/capabilities` | Show active model, tier, mode, approval policy, tools, MCP servers, and skills |
 | `/plan <task>` | Model-routed planner run (Pam) that returns a structured plan and persists tasks |
 | `/init` | Model-routed manager run (Scott) that surveys the repo and writes `AGENTS.md` |
@@ -123,7 +123,7 @@ The prompt_toolkit session provides:
 - **Tab completion** for slash command names (with one-line description), slash command arguments (`/tier`, `/mode`, `/approval`, `/params`), and `@`-prefixed file paths.
 - **Reverse history search** via Ctrl+R (prompt_toolkit default emacs binding).
 - **Multiline input** via Esc+Enter.
-- **Bottom toolbar** showing the current `model · tier · mode · approval` at all times.
+- **Bottom toolbar** (two lines): line 1 — `model · tier · mode · approval`; line 2 — cumulative session tokens in/out, request count, and last context size vs model max (from `jac.data.model_specs.toml`).
 - **Placeholder hint** `(esc+enter for newline)` when the input buffer is empty.
 - **History deduplication**: consecutive identical entries are not written to disk.
 

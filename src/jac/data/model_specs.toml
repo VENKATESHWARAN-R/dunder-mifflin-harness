@@ -1,0 +1,18 @@
+# Model specs shipped with JAC. Update when providers ship new models.
+# Schema: [models."<provider>:<model_id>"] keyed entries with `max_context` (input tokens).
+# Provider/model id matches Pydantic AI's `model_ref` form used in `runtime/models.py`.
+
+[defaults]
+max_context = 200000
+
+[models."anthropic:claude-opus-4-7"]
+max_context = 200000
+
+[models."anthropic:claude-sonnet-4-6"]
+max_context = 200000
+
+[models."anthropic:claude-haiku-4-5"]
+max_context = 200000
+
+[models."anthropic:claude-haiku-4-5-20251001"]
+max_context = 200000

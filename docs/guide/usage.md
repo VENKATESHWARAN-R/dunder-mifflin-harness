@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** user guide
+> **Status:** Reference · **Last revised:** 2026-05-07 · **Type:** user guide
 
 # Usage
 
@@ -26,7 +26,10 @@ jac chat
 - Type a message and press **Enter** to send it.
 - Press **Ctrl+C** to cancel an in-flight request without exiting.
 - Press **Ctrl+D** or type `/quit` to exit the session.
-- Use `/context` to view the run ID if you want to resume later.
+- Use `/context` for run ID, cwd, message count, **last context vs model max**, headroom, and a per-attempt growth table.
+- Use `/usage` (or `/cost`) for a Rich tree of attempts in the current run plus per-role token totals.
+- The bottom toolbar shows cumulative session tokens and context headroom on line 2.
+- `/clear` clears the screen **and** resets the cumulative usage counters shown in the toolbar (future `/compact` will not reset them).
 
 The REPL supports multi-line input. The prompt_toolkit input session maintains persistent history across launches at `~/.jac/input_history`.
 

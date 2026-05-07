@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
+
+from pydantic_ai.usage import RunUsage
 
 from jac.agents import ensure_builder_config, ensure_manager_config
 from jac.agents.tools import make_summon_jim_tool
@@ -189,7 +192,16 @@ def test_summon_jim_uses_active_approval_policy(monkeypatch, tmp_path: Path) -> 
                 async def __aexit__(self, exc_type, exc, tb):
                     return False
 
-                async def run(self, _task: str) -> FakeResult:
+                async def run(self, _task: str, *, usage=None):
+                    if usage is not None:
+                        usage.incr(
+                            RunUsage(
+                                input_tokens=5,
+                                output_tokens=1,
+                                requests=1,
+                                tool_calls=0,
+                            )
+                        )
                     return FakeResult()
 
             async def fake_loader(**kwargs):
@@ -205,9 +217,10 @@ def test_summon_jim_uses_active_approval_policy(monkeypatch, tmp_path: Path) -> 
                 events,
                 approval_policy=policy,
                 tool_result_cache=ToolResultCache(),
-                summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
+                summariser=lambda _c, _h, _ctx=None: asyncio.sleep(0, result="summary"),
             )
-            output = await summon_jim("write tests")
+            ctx = SimpleNamespace(usage=RunUsage())
+            output = await summon_jim(ctx, "write tests")
             assert output == "jim-complete"
             assert captured["approval_policy"] is policy
         finally:
@@ -250,7 +263,16 @@ def test_summon_jim_records_parent_child_attempt_and_pass(
                 async def __aexit__(self, exc_type, exc, tb):
                     return False
 
-                async def run(self, _task: str) -> FakeResult:
+                async def run(self, _task: str, *, usage=None):
+                    if usage is not None:
+                        usage.incr(
+                            RunUsage(
+                                input_tokens=5,
+                                output_tokens=1,
+                                requests=1,
+                                tool_calls=0,
+                            )
+                        )
                     return FakeResult()
 
             async def fake_loader(**_kwargs):
@@ -265,9 +287,10 @@ def test_summon_jim_records_parent_child_attempt_and_pass(
                 events,
                 approval_policy=policy,
                 tool_result_cache=ToolResultCache(),
-                summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
+                summariser=lambda _c, _h, _ctx=None: asyncio.sleep(0, result="summary"),
             )
-            output = await summon_jim("write tests")
+            ctx = SimpleNamespace(usage=RunUsage())
+            output = await summon_jim(ctx, "write tests")
             assert output == "complete"
 
             cur = await store.connection.execute(
@@ -305,7 +328,7 @@ def test_summon_jim_marks_failed_attempt_on_error(monkeypatch, tmp_path: Path) -
                 async def __aexit__(self, exc_type, exc, tb):
                     return False
 
-                async def run(self, _task: str):
+                async def run(self, _task: str, *, usage=None):
                     raise RuntimeError("jim failed")
 
             async def fake_loader(**_kwargs):
@@ -319,10 +342,11 @@ def test_summon_jim_marks_failed_attempt_on_error(monkeypatch, tmp_path: Path) -
                 events,
                 approval_policy=policy,
                 tool_result_cache=ToolResultCache(),
-                summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
+                summariser=lambda _c, _h, _ctx=None: asyncio.sleep(0, result="summary"),
             )
+            ctx = SimpleNamespace(usage=RunUsage())
             try:
-                await summon_jim("break")
+                await summon_jim(ctx, "break")
             except RuntimeError:
                 pass
 

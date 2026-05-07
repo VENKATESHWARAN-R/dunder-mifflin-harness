@@ -1,7 +1,7 @@
 """SQLite-backed persistence layer (C1 + C2)."""
 
 from jac.state.agent_configs import AgentConfigRow, AgentConfigsRepo
-from jac.state.attempts import AttemptRow, AttemptsRepo
+from jac.state.attempts import AttemptNode, AttemptRow, AttemptsRepo, RunTotals
 from jac.state.db import StateStore, open_state_store
 from jac.state.mcp_servers import McpServerRow, McpServersRepo
 from jac.state.messages import MessageRow, MessagesRepo
@@ -17,8 +17,10 @@ from jac.state.skills import SkillRow, SkillsRepo
 from jac.state.tasks import TaskRow, TasksRepo
 
 __all__ = [
+    "AttemptNode",
     "AttemptRow",
     "AttemptsRepo",
+    "RunTotals",
     "ActiveMcpServerRow",
     "ActiveSkillRow",
     "AgentConfigRow",

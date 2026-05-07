@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-03 · **Type:** developer/sdk guide
+> **Status:** Reference · **Last revised:** 2026-05-07 · **Type:** developer/sdk guide
 
 # SDK Guide
 
@@ -170,7 +170,7 @@ Key events you can subscribe to:
 | `FileEditPreviewed` | File edit is about to be applied |
 | `FileEditApplied` | File edit was applied |
 | `ApprovalRequested` | Agent is waiting for user approval |
-| `CostUpdated` | Token/cost summary updated |
+| `SessionUsageUpdated` | Cumulative token usage + context headroom updated |
 | `WarningRaised` | Non-fatal warning from runtime |
 
 ## No-CLI note

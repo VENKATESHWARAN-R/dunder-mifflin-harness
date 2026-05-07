@@ -1416,7 +1416,7 @@ wheels = [
 
 [[package]]
 name = "jac"
-version = "0.3.8"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -1451,7 +1451,7 @@ requires-dist = [
     { name = "logfire", specifier = ">=4.31.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pydantic-ai-slim", extras = ["a2a", "anthropic", "cli", "duckduckgo", "evals", "fastmcp", "google", "logfire", "openai", "mistral", "openrouter"], specifier = ">=1.73.0" },
+    { name = "pydantic-ai-slim", extras = ["a2a", "anthropic", "cli", "duckduckgo", "evals", "fastmcp", "google", "logfire", "mistral", "openai", "openrouter"], specifier = ">=1.73.0" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "rich", specifier = ">=14.3.3" },
 ]

@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-04 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-07 · **Type:** developer documentation
 
 # CLI Layer
 
@@ -107,7 +107,7 @@ All registered commands:
 | `/approval [value]` | — | Show or set `session.config.approval_mode`; updates `ApprovalPolicy.mode` |
 | `/params [key value]` | — | Show or set `session.config.model_params`; resets agent |
 | `/context` | `/x` | Show run ID, cwd, message count, attached files |
-| `/cost` | — | Show `session.latest_cost_summary` |
+| `/usage` (alias `/cost`) | — | Rich tree + per-role totals from `attempts` |
 | `/history [n]` | — | Load last `n` messages from DB and call `renderer.render_message_history()` |
 | `/save [file]` | — | Export all messages from DB as Markdown |
 | `/undo` | — | Pop `_undo_stack`, restore original file bytes |
@@ -133,7 +133,7 @@ Rich console. Stateless — no business logic, only presentation. Wired to `Even
 | `FileEditApplied` | `[green]file edited:[/green] <path>` |
 | `ShellCommandStarted` | Panel with command, cwd, timeout |
 | `ShellCommandCompleted` | Panel with exit code, stdout, stderr |
-| `CostUpdated` | Compact one-liner: `↳ <summary>` in dim |
+| `SessionUsageUpdated` | Compact one-liner: cumulative tokens + ctx headroom in dim |
 | `WarningRaised` | `[yellow]warning:[/yellow] <message>` |
 | `RunFailed` | `[red]run failed:[/red] <message>` |
 | `AgentDelegated` | `→ Handing to <name>…` in dim |

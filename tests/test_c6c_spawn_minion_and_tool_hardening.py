@@ -66,7 +66,7 @@ def test_result_filter_summarises_above_threshold() -> None:
 
     setattr(fake_tool, "approval", getattr(read_file_smart, "approval"))
 
-    async def summariser(_content: str, _hint: str) -> str:
+    async def summariser(_content: str, _hint: str, _ctx=None) -> str:
         return "summarised"
 
     wrapped = make_result_filter_wrapper(
@@ -121,7 +121,7 @@ def test_spawn_minion_refuses_when_parent_is_minion(tmp_path: Path) -> None:
                 events=EventBus(),
                 approval_policy=ApprovalPolicy(mode=ApprovalMode.INTERACTIVE),
                 cache=ToolResultCache(),
-                summariser=lambda _c, _h: asyncio.sleep(0, result="ok"),
+                summariser=lambda _c, _h, _ctx=None: asyncio.sleep(0, result="ok"),
                 parent_role="minion:abc",
                 parent_depth=1,
                 parent_allowed_tools=["filesystem:read"],
@@ -174,7 +174,7 @@ def test_spawn_minion_emits_events(tmp_path: Path, monkeypatch) -> None:
                 events=events,
                 approval_policy=ApprovalPolicy(mode=ApprovalMode.INTERACTIVE),
                 cache=ToolResultCache(),
-                summariser=lambda _c, _h: asyncio.sleep(0, result="ok"),
+                summariser=lambda _c, _h, _ctx=None: asyncio.sleep(0, result="ok"),
                 parent_role="manager",
                 parent_depth=0,
                 parent_allowed_tools=["filesystem:read"],
@@ -201,7 +201,7 @@ def test_native_agent_extras_attaches_two_tools() -> None:
         events=EventBus(),
         approval_policy=ApprovalPolicy(mode=ApprovalMode.INTERACTIVE),
         cache=ToolResultCache(),
-        summariser=lambda _c, _h: asyncio.sleep(0, result="ok"),
+        summariser=lambda _c, _h, _ctx=None: asyncio.sleep(0, result="ok"),
         parent_role="manager",
         parent_depth=0,
         parent_allowed_tools=["filesystem:read"],

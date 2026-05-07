@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import (
@@ -18,6 +18,14 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
+
+
+def _fmt_k_tokens(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1000:
+        return f"{n / 1000:.1f}k"
+    return str(n)
 
 
 class DedupFileHistory(FileHistory):
@@ -99,24 +107,42 @@ class InputSession:
         history_path: Path,
         command_source: Callable[[], dict[str, str]] | None = None,
         session_config_source: Callable[[], object] | None = None,
+        session_usage_source: Callable[[], dict[str, Any]] | None = None,
     ) -> None:
         history_path.parent.mkdir(parents=True, exist_ok=True)
         completer = JacCompleter(command_source) if command_source else None
 
         def _toolbar() -> str:
-            if session_config_source is None:
-                return ""
-            config = session_config_source()
-            model = getattr(config, "model", None) or "default"
-            tier = str(getattr(config, "tier", None) or "worker")
-            mode = str(getattr(config, "mode", "autopilot"))
-            approval = str(getattr(config, "approval_mode", "interactive"))
-            return (
-                f" model: {model} · tier: {tier} · mode: {mode} · approval: {approval}"
-            )
+            lines: list[str] = []
+            if session_config_source is not None:
+                config = session_config_source()
+                model = getattr(config, "model", None) or "default"
+                tier = str(getattr(config, "tier", None) or "worker")
+                mode = str(getattr(config, "mode", "autopilot"))
+                approval = str(getattr(config, "approval_mode", "interactive"))
+                lines.append(
+                    f" model: {model} · tier: {tier} · mode: {mode} · approval: {approval}"
+                )
+            if session_usage_source is not None:
+                u = session_usage_source()
+                tin = int(u.get("tokens_in", 0) or 0)
+                tout = int(u.get("tokens_out", 0) or 0)
+                reqs = int(u.get("requests", 0) or 0)
+                lctx = int(u.get("last_context_tokens", 0) or 0)
+                mx = int(u.get("context_max", 1) or 1)
+                pct = float(u.get("context_pct", 0.0) or 0.0) * 100
+                lines.append(
+                    f" tokens: {_fmt_k_tokens(tin)} in / {_fmt_k_tokens(tout)} out · "
+                    f"{reqs} reqs · ctx: {_fmt_k_tokens(lctx)}/{_fmt_k_tokens(mx)} ({pct:.0f}%)"
+                )
+            return "\n".join(lines)
 
         placeholder = FormattedText(
             [("class:placeholder", "  (esc+enter for newline)")]
+        )
+
+        has_toolbar = (
+            session_config_source is not None or session_usage_source is not None
         )
 
         self._session: PromptSession[str] = PromptSession(
@@ -128,7 +154,7 @@ class InputSession:
             ),
             completer=completer,
             complete_while_typing=False,
-            bottom_toolbar=_toolbar if session_config_source else None,
+            bottom_toolbar=_toolbar if has_toolbar else None,
             placeholder=placeholder,
         )
 

@@ -130,7 +130,7 @@ Interactive slash commands:
 /debug [on|off]
 /params [temperature|max_tokens] <value>
 /context
-/cost
+/usage
 /history [n]
 /save [file]
 /undo

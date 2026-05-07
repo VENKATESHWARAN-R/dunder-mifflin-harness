@@ -14,6 +14,16 @@ Use:
 - `docs/contracts/STATE_SCHEMA.md` for table definitions + activation sequence
 - `docs/dev/*.md` for "what is currently built" in each layer
 
+## Core Invariants
+
+Load-bearing rules that hold across the codebase. Distilled from `docs/reference/PHILOSOPHY.md` and `docs/dev/architecture.md` — read those for the full rationale.
+
+- **Dependency direction is inward, never outward.** `cli → runtime → agents → tools / state / config`. Inner layers must not import outer layers (no `runtime` importing `cli.renderer`, no `agents` importing `runtime.coordinator`, no `state` importing anything from `jac.*`). The full per-layer matrix lives at [`docs/dev/architecture.md`](docs/dev/architecture.md#dependency-rules) — consult it before adding a new import across packages.
+- **`src/jac/agents/base.py` is the only site that constructs `pydantic_ai.Agent(...)`.** Tier resolution, MCP toolset wiring, and skills injection live there. If you find yourself writing `Agent(...)` elsewhere, route through `config_loader` instead. This is what makes mid-run config changes (C20 hot-reload) tractable.
+- **Two communication primitives, not one.** `EventBus` emits typed dataclass events (one-way, fire-and-forget; subscribers in `cli.renderer`). Approvals and questions are **request/response with `asyncio.Future` waiters** — they block the coordinator until the UI answers. Don't conflate them: events for progress/observation, requests for "I need a decision before I continue."
+- **Slash commands are local control, not model input.** They mutate session/runtime config and never get sent to the LLM. New session-level toggles belong on `SessionConfig` + a slash handler, not in a system prompt.
+- **No hardcoding unless purely needed.** User-tunable values → `settings.json` / env. External-service spec (model context windows, provider IDs, etc.) → shipped TOML under `src/jac/data/`. Per-run/per-agent config → state DB. Hardcode only when the value is genuinely a code-internal constant (enum members, framework defaults, sentinel strings). When in doubt, prefer data over code — it diffs cleaner and updates without touching Python.
+
 ## Commands
 
 `uv` for package management, `just` for tasks.
@@ -205,10 +215,11 @@ Trivial one-line fixes and test-only tweaks do not need this ceremony.
 
 ## Working Rules
 
-- Keep dependencies pointing inward: UI/server adapters depend on runtime; runtime depends on domain/tool abstractions; domain logic must not import adapters.
+- Dependencies flow inward (see **Core Invariants** above and [`docs/dev/architecture.md`](docs/dev/architecture.md#dependency-rules) for the layer matrix).
 - Add backend behavior behind runtime events or workflow nodes before exposing it in the CLI.
 - Prefer small, testable modules over large app objects.
 - Reuse existing settings, event, approval, question, and tool helper patterns before creating new abstractions.
+- Avoid hardcoding values that belong in settings, the state DB, or a shipped data file (see **Core Invariants**).
 - Keep docs aligned when changing boundaries or adding a new top-level subsystem — update the relevant contract and `docs/README.md` index.
 - Respect the doc status field. Don't change a `Locked` contract casually; if you do, bump `Last revised`.
 - Don't import from `lab/specimens/`. Specimens are inspiration only.

@@ -1,8 +1,8 @@
 # State Schema Contract
 
-> **Status:** Locked · **Last revised:** 2026-05-06 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-07 · **Type:** contract
 
-**Schema version:** 1.3  
+**Schema version:** 1.4  
 **Storage:** SQLite (single file, local-first, crash-safe)
 
 This document is the authoritative contract for the persistent state store.
@@ -88,6 +88,8 @@ CREATE TABLE attempts (
     tier                TEXT NOT NULL,   -- scout | worker | architect
     tokens_in           INTEGER NOT NULL DEFAULT 0,
     tokens_out          INTEGER NOT NULL DEFAULT 0,
+    requests            INTEGER NOT NULL DEFAULT 0,
+    tool_calls          INTEGER NOT NULL DEFAULT 0,
     cost                REAL NOT NULL DEFAULT 0.0,
     duration_ms         INTEGER NOT NULL DEFAULT 0,
     eval_score          REAL,            -- nullable until evaluate runs, 0.0–1.0
@@ -101,8 +103,10 @@ CREATE TABLE attempts (
 
 **Note on `call_type`:**
 - `agent` = standard full agent run.
-- `direct_llm` = single model call without full agent loop (for example Scott direct replies/routing).
+- `direct_llm` = single model call without full agent loop (for example Scout summariser over large tool results, or future direct routing calls).
 - `minion` = single-shot child agent spawned by `spawn_minion`; `parent_attempt_id` points to the spawning attempt.
+
+**C7 usage:** `tokens_in`, `tokens_out`, `requests`, `tool_calls`, and `duration_ms` are populated per attempt from Pydantic AI usage (deltas per row; see `docs/dev/runtime-layer.md`). The `cost` column remains reserved for a future pricing component.
 
 **Note on `parent_attempt_id`:** Reconstructs the call tree for cost rollup and
 audit. When Scott calls `summon_jim`, Jim's attempt row sets
@@ -390,7 +394,7 @@ roadmap components that need them ship. Component IDs reference [`docs/ROADMAP.m
 | `agent_configs` | C5 | Active from the agent factory; gains persona/minion fields at C6; hot-reload semantics at C20. |
 | `run_mcp_servers` | C5 | Run-start config; mid-run toggle command added at C18. |
 | `run_skills` | C5 | Run-start config; mid-run toggle command added at C18. |
-| `attempts` | C6 | Scott + Jim call tree recorded. Cost fields (`tokens_in/out`, `cost`) and `CostUpdated` events wired fully at C7. |
+| `attempts` | C6 | Scott + Jim call tree recorded. Per-attempt token usage (`tokens_in/out`, `requests`, `tool_calls`, `duration_ms`) and `direct_llm` rows ship at C7 (migration `003_c7_usage.sql`). |
 | `tasks` | C6b ✓ | Pam (planner) emits a structured task list. |
 | `context_store` | C11 | Reserved until multi-task/context routing requires shared cross-agent state. |
 | `mcp_servers` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; live transports added at C17. |
@@ -417,5 +421,5 @@ CREATE TABLE schema_meta (
     key     TEXT PRIMARY KEY,
     value   TEXT NOT NULL
 );
--- Seed: INSERT INTO schema_meta VALUES ('version', '1.3');
+-- Seed: INSERT INTO schema_meta VALUES ('version', '1.2');  -- example after migration 003 (see `db.py` mapping)
 ```

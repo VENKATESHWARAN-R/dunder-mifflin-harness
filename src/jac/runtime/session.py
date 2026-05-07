@@ -52,7 +52,20 @@ class SessionState:
     run_id: str = field(default_factory=lambda: uuid4().hex)
     active_attempt_id: str | None = None
     attached_paths: list[Path] = field(default_factory=list)
-    latest_cost_summary: str | None = None
+    cumulative_tokens_in: int = 0
+    cumulative_tokens_out: int = 0
+    cumulative_requests: int = 0
+    cumulative_tool_calls: int = 0
+    last_context_tokens: int = 0
+    last_model: str | None = None
+
+    def reset_usage_counters(self) -> None:
+        """Reset cumulative usage counters (e.g. /clear). Do not call from /compact (C12)."""
+        self.cumulative_tokens_in = 0
+        self.cumulative_tokens_out = 0
+        self.cumulative_requests = 0
+        self.cumulative_tool_calls = 0
+        self.last_context_tokens = 0
 
     def remember_attachments(self, paths: list[Path]) -> None:
         """Track file attachments seen in this session."""

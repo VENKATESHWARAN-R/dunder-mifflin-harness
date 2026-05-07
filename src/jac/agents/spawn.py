@@ -55,7 +55,14 @@ def make_spawn_minion_tool(
         timeout_sec: int = SPAWN_MINION_DEFAULT_TIMEOUT,
     ) -> str:
         from jac.agents.base import config_loader
-        from jac.runtime.events import AttemptRecorded, MinionReturned, MinionSpawned
+        from jac.runtime.events import (
+            AttemptRecorded,
+            LlmCallCompleted,
+            MinionReturned,
+            MinionSpawned,
+        )
+
+        from jac.runtime.usage import snapshot_usage, sum_child_usage, vector_sub
 
         if parent_depth >= 1:
             return "spawn_minion refused: minions cannot spawn further minions (depth <= 1)."
@@ -128,6 +135,7 @@ def make_spawn_minion_tool(
 
         started = perf_counter()
         success = False
+        before = snapshot_usage(ctx.usage)
         try:
             async with minion_agent:
                 result = await asyncio.wait_for(
@@ -143,6 +151,32 @@ def make_spawn_minion_tool(
         except Exception as exc:  # noqa: BLE001
             return f"minion failed: {exc}"
         finally:
+            dur_ms = int((perf_counter() - started) * 1000)
+            after_t = snapshot_usage(ctx.usage)
+            seg = vector_sub(after_t, before)
+            children = await state.attempts.list_direct_children(attempt.attempt_id)
+            own = vector_sub(seg, sum_child_usage(children))
+            await state.attempts.update_usage(
+                attempt.attempt_id,
+                tokens_in=own[0],
+                tokens_out=own[1],
+                requests=own[2],
+                tool_calls=own[3],
+                duration_ms=dur_ms,
+            )
+            await events.emit(
+                LlmCallCompleted(
+                    role=minion_role,
+                    model=selection.model_ref,
+                    tier=tier,
+                    call_type="minion",
+                    input_tokens=own[0],
+                    output_tokens=own[1],
+                    requests=own[2],
+                    tool_calls=own[3],
+                    duration_ms=dur_ms,
+                )
+            )
             await state.attempts.update_status(
                 attempt.attempt_id, "passed" if success else "failed"
             )
@@ -150,7 +184,7 @@ def make_spawn_minion_tool(
                 MinionReturned(
                     parent_role=parent_role,
                     minion_role=minion_role,
-                    duration_ms=int((perf_counter() - started) * 1000),
+                    duration_ms=dur_ms,
                     success=success,
                 )
             )

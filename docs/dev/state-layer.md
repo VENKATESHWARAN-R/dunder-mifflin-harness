@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-04 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-07 · **Type:** developer documentation
 
 # State Layer
 
@@ -50,7 +50,7 @@ All tables are **created** by migration `001_initial.sql`. Not all are populated
 | `run_mcp_servers` | Active (C5) | C5 | Which MCP servers are enabled for a run and role. Fields: `id`, `run_id`, `mcp_server_id`, `agent_role` (NULL = all roles), `enabled`, `toggled_at` |
 | `run_skills` | Active (C5) | C5 | Which skills are enabled for a run and role. Fields: `id`, `run_id`, `skill_id`, `agent_role` (NULL = all roles), `enabled`, `toggled_at` |
 | `tasks` | Inactive | C6+ | Task planning graph. Created but not populated. |
-| `attempts` | Active (C6) | C7 for usage columns | Per-turn / per-delegation rows (manager + builder); `parent_attempt_id` for Jim under Scott. Token, cost, and duration columns populated at **C7**. |
+| `attempts` | Active (C6+) | C7 ✓ | Per-turn rows with `parent_attempt_id` tree. C7 adds `requests`/`tool_calls` (migration `003`) and populates `tokens_in/out`, `duration_ms` from usage deltas. |
 | `agent_messages` | Inactive | C15 | Agent-to-agent message queue. Created but not populated. |
 | `context_chunks` | Inactive | C6+ | Scoped context per agent role. Created but not populated. |
 
@@ -100,6 +100,10 @@ Rules:
 - Migrations are append-only: `ALTER TABLE`, `CREATE INDEX`, `CREATE TABLE IF NOT EXISTS`. No destructive DDL.
 
 To add a migration alongside a code change: create the `.sql` file, bump the version string in `schema_meta` in the migration, and update `docs/contracts/STATE_SCHEMA.md` with `Last revised`.
+
+## AttemptsRepo usage helpers (C7)
+
+`AttemptsRepo` (`src/jac/state/attempts.py`) adds `update_usage(...)`, `list_for_run`, `list_direct_children`, `tree_for_run`, and `totals_for_run` for `/usage` and coordinator persistence.
 
 ## Seeder (`src/jac/state/seeder.py`)
 

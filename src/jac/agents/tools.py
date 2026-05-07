@@ -6,6 +6,8 @@ import json
 from time import perf_counter
 from typing import TYPE_CHECKING
 
+from pydantic_ai import RunContext
+
 if TYPE_CHECKING:
     from jac.config import Settings
     from jac.runtime.approvals import ApprovalPolicy
@@ -26,7 +28,7 @@ def make_summon_jim_tool(
 ):
     """Return a tool function that Scott can call to delegate to Jim."""
 
-    async def summon_jim(task: str) -> str:
+    async def summon_jim(ctx: RunContext[None], task: str) -> str:
         """Delegate a coding task to Jim Halpert (builder).
 
         Args:
@@ -36,6 +38,7 @@ def make_summon_jim_tool(
         from jac.agents.spawn import native_agent_extras
         from jac.agents.personas import PERSONAS
         from jac.runtime.events import AgentDelegated, AttemptRecorded, LlmCallCompleted
+        from jac.runtime.usage import snapshot_usage, sum_child_usage, vector_sub
 
         jim_persona = PERSONAS["builder"]
 
@@ -107,30 +110,45 @@ def make_summon_jim_tool(
         )
 
         started_at = perf_counter()
+        prev_active = session.active_attempt_id
+        session.active_attempt_id = jim_attempt.attempt_id
+        before = snapshot_usage(ctx.usage)
         try:
             async with jim_agent:
-                result = await jim_agent.run(task)
+                result = await jim_agent.run(task, usage=ctx.usage)
         except Exception:
             await state.attempts.update_status(jim_attempt.attempt_id, "failed")
             raise
+        finally:
+            session.active_attempt_id = prev_active
 
         output = result.output
-        usage = result.usage() if hasattr(result, "usage") else None
+        after_t = snapshot_usage(ctx.usage)
+        seg = vector_sub(after_t, before)
+        children = await state.attempts.list_direct_children(jim_attempt.attempt_id)
+        own = vector_sub(seg, sum_child_usage(children))
         duration_ms = int((perf_counter() - started_at) * 1000)
-        if usage is not None:
-            await events.emit(
-                LlmCallCompleted(
-                    role="builder",
-                    model=selection.model_ref,
-                    tier=tier,
-                    call_type="agent",
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    requests=usage.requests,
-                    tool_calls=usage.tool_calls,
-                    duration_ms=duration_ms,
-                )
+        await state.attempts.update_usage(
+            jim_attempt.attempt_id,
+            tokens_in=own[0],
+            tokens_out=own[1],
+            requests=own[2],
+            tool_calls=own[3],
+            duration_ms=duration_ms,
+        )
+        await events.emit(
+            LlmCallCompleted(
+                role="builder",
+                model=selection.model_ref,
+                tier=tier,
+                call_type="agent",
+                input_tokens=own[0],
+                output_tokens=own[1],
+                requests=own[2],
+                tool_calls=own[3],
+                duration_ms=duration_ms,
             )
+        )
         await state.attempts.update_status(jim_attempt.attempt_id, "passed")
         return output
 

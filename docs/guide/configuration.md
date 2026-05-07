@@ -1,8 +1,12 @@
-> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** user guide
+> **Status:** Reference · **Last revised:** 2026-05-07 · **Type:** user guide
 
 # Configuration
 
 JAC has a layered configuration system. Settings are read from multiple sources and merged in a defined order. This document covers workspace scopes, the `settings.json` format, all environment variables, and how to use profiles.
+
+## Model context limits (toolbar / `/context`)
+
+Shipped max-input-token values per `model_ref` live in **`src/jac/data/model_specs.toml`** (loaded at runtime via `jac.runtime.model_specs`). Unknown models fall back to the `[defaults]` entry. A future override env (`JAC_MODEL_SPECS_PATH`) is reserved but not wired yet.
 
 ## Workspace scopes
 

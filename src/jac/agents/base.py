@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
@@ -20,9 +20,10 @@ from jac.tools import TOOL_REGISTRY
 from jac.tools.types import ToolFn
 from jac.tools.types import ToolApprovalMeta
 
+Summariser = Callable[..., Awaitable[str]]
+
 if TYPE_CHECKING:
     from jac.tools.cache import ToolResultCache
-    from jac.tools.summarize import Summariser
 
 
 class AgentConfigNotFound(RuntimeError):

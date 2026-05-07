@@ -9,6 +9,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
+from rich.tree import Tree
 
 from jac import __version__
 from jac.agents.plans import Plan
@@ -17,7 +18,6 @@ from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
     AttemptRecorded,
-    CostUpdated,
     EventBus,
     FileEditApplied,
     FileEditPreviewed,
@@ -26,6 +26,7 @@ from jac.runtime.events import (
     NodeFailed,
     NodeStarted,
     RunFailed,
+    SessionUsageUpdated,
     ShellCommandCompleted,
     ShellCommandStarted,
     ToolCallCompleted,
@@ -33,6 +34,7 @@ from jac.runtime.events import (
     WarningRaised,
     WorkspaceSurveyCompleted,
 )
+from jac.state.attempts import AttemptNode, RunTotals
 
 
 class Renderer:
@@ -56,7 +58,7 @@ class Renderer:
         events.on(FileEditApplied, self._on_file_edit_applied)
         events.on(ShellCommandStarted, self._on_shell_started)
         events.on(ShellCommandCompleted, self._on_shell_completed)
-        events.on(CostUpdated, self._on_cost_updated)
+        events.on(SessionUsageUpdated, self._on_session_usage_updated)
         events.on(WarningRaised, self._on_warning)
         events.on(RunFailed, self._on_run_failed)
         events.on(AgentDelegated, self._on_agent_delegated)
@@ -140,8 +142,13 @@ class Renderer:
             )
         )
 
-    async def _on_cost_updated(self, event: CostUpdated) -> None:
-        self.console.print(f"[dim]  ↳ {event.summary}[/dim]")
+    async def _on_session_usage_updated(self, event: SessionUsageUpdated) -> None:
+        summary = (
+            f"{event.tokens_in} in · {event.tokens_out} out · "
+            f"{event.requests} req · ctx {event.last_context_tokens}/{event.context_max} "
+            f"({event.context_pct * 100:.0f}%)"
+        )
+        self.console.print(f"[dim]  ↳ {summary}[/dim]")
 
     async def _on_attempt_recorded(self, event: AttemptRecorded) -> None:
         if not self._debug:
@@ -291,6 +298,114 @@ class Renderer:
             )
         self.console.print(table)
 
+    def render_usage_breakdown(
+        self, roots: list[AttemptNode], totals: RunTotals, model_max_context: int
+    ) -> None:
+        """Render attempt tree and aggregated usage for the current run."""
+
+        def fmt_tok(n: int) -> str:
+            if n >= 1_000_000:
+                return f"{n / 1_000_000:.1f}M"
+            if n >= 1000:
+                return f"{n / 1000:.1f}k"
+            return str(n)
+
+        n_attempts = _tree_size(roots) if roots else 0
+
+        header = (
+            f"{n_attempts} attempts · {fmt_tok(totals.tokens_in)} in / "
+            f"{fmt_tok(totals.tokens_out)} out · {totals.requests} reqs · "
+            f"{totals.tool_calls} tool calls · model max ctx {fmt_tok(model_max_context)}"
+        )
+        self.console.print(Panel(header, title="Usage", expand=False))
+
+        tree = Tree("run")
+        for root in roots:
+            _add_attempt_branch(tree, root, fmt_tok)
+        self.console.print(tree)
+
+        role_table = Table(title="By role", show_header=True, header_style="bold cyan")
+        role_table.add_column("Role")
+        role_table.add_column("In", justify="right")
+        role_table.add_column("Out", justify="right")
+        for role, (tin, tout, req, tc) in sorted(totals.by_role.items()):
+            role_table.add_row(
+                role,
+                f"{fmt_tok(tin)} ({req}r/{tc}t)",
+                fmt_tok(tout),
+            )
+        self.console.print(role_table)
+
+    def render_context_growth(
+        self,
+        *,
+        run_id: str,
+        message_count: int | None,
+        cwd: str,
+        attached: str,
+        last_ctx: int,
+        model_max: int,
+        attempt_rows: list[Any],
+    ) -> None:
+        """Show session context plus per-attempt context growth."""
+
+        def fmt_tok(n: int) -> str:
+            if n >= 1_000_000:
+                return f"{n / 1_000_000:.1f}M"
+            if n >= 1000:
+                return f"{n / 1000:.1f}k"
+            return str(n)
+
+        pct = (last_ctx / model_max * 100) if model_max else 0.0
+        headroom = max(0, model_max - last_ctx)
+        lines = [
+            f"run_id: {run_id}",
+            f"messages: {message_count if message_count is not None else '—'}",
+            f"cwd: {cwd}",
+        ]
+        if attached.strip():
+            lines.append(f"\nattached files:\n{attached}")
+        lines.append(
+            f"\nContext: {last_ctx:,} / {model_max:,} tokens ({pct:.1f}%) · "
+            f"headroom {headroom:,}"
+        )
+        self.print_value("Context", "\n".join(lines))
+
+        table = Table(title="Recent growth (input tokens)", header_style="bold")
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Role", width=14)
+        table.add_column("In", justify="right")
+        table.add_column("Δ in", justify="right")
+        cum = 0
+        for i, row in enumerate(attempt_rows, start=1):
+            row_tin = int(getattr(row, "tokens_in", 0) or 0)
+            cum += row_tin
+            delta_s = "—" if i == 1 else fmt_tok(row_tin)
+            table.add_row(str(i), getattr(row, "role", "?"), fmt_tok(cum), delta_s)
+        if not attempt_rows:
+            self.console.print("[dim]No attempts recorded for this run yet.[/dim]")
+        else:
+            self.console.print(table)
+
     def set_debug(self, enabled: bool) -> None:
         """Enable verbose developer-oriented runtime tracing."""
         self._debug = enabled
+
+
+def _tree_size(nodes: list[AttemptNode]) -> int:
+    n = 0
+    for node in nodes:
+        n += 1 + _tree_size(list(node.children))
+    return n
+
+
+def _add_attempt_branch(parent: Tree, node: AttemptNode, fmt_tok) -> None:
+    r = node.row
+    short_model = r.model.split(":")[-1] if ":" in r.model else r.model
+    label = (
+        f"{r.role} ({r.call_type} · {short_model}) — "
+        f"{fmt_tok(r.tokens_in)}/{fmt_tok(r.tokens_out)} in/out · {r.requests}r"
+    )
+    sub = parent.add(label)
+    for ch in node.children:
+        _add_attempt_branch(sub, ch, fmt_tok)

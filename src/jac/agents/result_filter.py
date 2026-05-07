@@ -32,7 +32,8 @@ def make_result_filter_wrapper(
         if token_estimate <= threshold_tokens:
             return result
 
-        summary = await summariser(serialized, _hint_for(fn.__name__))
+        ctx = kwargs.get("ctx")
+        summary = await summariser(serialized, _hint_for(fn.__name__), ctx)
         handle = cache.store(serialized)
         return SummarizedToolResult(
             summary=summary,

@@ -1,6 +1,6 @@
 # Event Contract
 
-> **Status:** Locked · **Last revised:** 2026-05-02 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-07 · **Type:** contract
 
 ## Purpose
 
@@ -277,22 +277,25 @@ class EvaluationCompleted(RuntimeEvent):
 
 ---
 
-### Cost
+### Session usage (C7)
 
 ```python
 @dataclass(frozen=True, slots=True)
-class CostUpdated(RuntimeEvent):   # exists but only carries a summary string
-    run_id: str
-    task_id: str | None            # None = run-level rollup
-    delta_cost: float
-    total_cost: float
-    model: str
-    tokens_in: int
-    tokens_out: int
+class SessionUsageUpdated(RuntimeEvent):
+    """Emitted from root agent completions only (manager + slash runs)."""
+
+    tokens_in: int            # cumulative session input tokens
+    tokens_out: int           # cumulative session output tokens
+    requests: int             # cumulative LLM requests
+    tool_calls: int           # cumulative tool calls counted by the runtime
+    last_context_tokens: int  # input_tokens from the last completed root LLM call
+    context_max: int          # max context for the active model (from `model_specs.toml`)
+    context_pct: float        # last_context_tokens / context_max (0.0–1.0)
+    model: str                # model id for the last completed call
 ```
 
-> **Current state:** `CostUpdated` exists with only a `summary: str` field. Replace with
-> structured fields when cost tracking lands (C7).
+> **Emission:** `RunCoordinator` emits this after persisting per-attempt usage on each
+> `submit_message` / `submit_slash_run` completion. Sub-agent tool paths do not emit it.
 
 ---
 
@@ -425,7 +428,7 @@ A surface that does NOT implement approval/question handling cannot be used in i
 | Text delta / message events | Partial | Missing run_id, task_id |
 | Tool call events | Partial | Missing run_id, task_id, server_id, duration_ms |
 | File / shell events | Partial | Missing run_id, task_id |
-| CostUpdated | Partial | Summary string only; needs structured fields |
+| SessionUsageUpdated | Done | Cumulative session usage + last-call context (root completions) |
 | Task lifecycle events | Not started | Add at C11 |
 | Model call events | Not started | Add at C8 |
 | Evaluation events | Not started | Add at C9 |

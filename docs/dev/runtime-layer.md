@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-07 · **Type:** developer documentation
 
 # Runtime Layer
 
@@ -24,9 +24,9 @@ RunCoordinator(
 Run-scoped C6c helpers owned by the coordinator:
 
 - `_tool_result_cache` — in-memory handles for summarized tool outputs.
-- `_summariser` — Scout direct-call summarizer used by result-filter wrappers.
+- `_summariser` — Scout direct-call summarizer used by result-filter wrappers; when a state store is present, writes `direct_llm` attempt rows and merges `model_request` usage into the parent `ctx.usage` via `incr`.
 
-**Key methods:**
+**C7 usage capture:** Each `attempts` row stores a **delta** (not cumulative shared usage). Sub-agents snapshot `ctx.usage` before/after nested `agent.run(..., usage=ctx.usage)` and subtract direct child rows. Root rows subtract all direct children from the final `result.usage()`. See `src/jac/runtime/usage.py` for tuple helpers.
 
 ### `submit_message(UserMessage) -> str`
 
@@ -36,7 +36,7 @@ Main entry point. Called once per user turn. Steps:
 2. Calls `_ensure_agent()` to get a cached `pydantic_ai.Agent`.
 3. Runs `async with agent: result = await agent.run(prompt, message_history=...)`.
 4. Persists the user + assistant messages to `state.messages`.
-5. Emits `AgentMessageCompleted` and updates `session.latest_cost_summary`.
+5. Emits `AgentMessageCompleted` and `SessionUsageUpdated` (structured cumulative usage from root completions).
 6. Returns the output string.
 
 As of C6, manager attempt lifecycle tracking is factored into two internal helpers:
@@ -117,7 +117,7 @@ await events.emit(AgentTextDelta(text="hello"))
 | `FileEditApplied` | `path` | Filesystem tools |
 | `ShellCommandStarted` | `command` | Shell tools |
 | `ShellCommandCompleted` | `command`, `exit_code`, `output` | Shell tools |
-| `CostUpdated` | `run_id`, `input_tokens`, `output_tokens`, `cost_usd` | Coordinator |
+| `SessionUsageUpdated` | cumulative tokens, last context vs max | Coordinator (root runs only) |
 | `WarningRaised` | `message` | Any layer |
 | `PlanGenerated` | `summary`, `dev_strategy`, `task_count` | CLI slash handler (`/plan`) |
 | `WorkspaceSurveyCompleted` | `agents_md_path`, `line_count` | CLI slash handler (`/init`) |
@@ -155,7 +155,12 @@ class SessionState:
     run_id: str                        # UUID, set at creation
     config: SessionConfig
     attached_paths: list[Path]         # files attached via @path in current turn
-    latest_cost_summary: CostSummary | None
+    cumulative_tokens_in: int          # session-level counters (reset by /clear)
+    cumulative_tokens_out: int
+    cumulative_requests: int
+    cumulative_tool_calls: int
+    last_context_tokens: int           # last root LLM call input token count
+    last_model: str | None
 ```
 
 ```python

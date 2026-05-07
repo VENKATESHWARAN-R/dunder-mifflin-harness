@@ -22,14 +22,16 @@ from jac.runtime.approvals import ApprovalPolicy
 from jac.runtime.events import (
     AgentMessageCompleted,
     AgentTextDelta,
-    CostUpdated,
     EventBus,
     LlmCallCompleted,
     RunCompleted,
     RunFailed,
     RunStarted,
+    SessionUsageUpdated,
     WarningRaised,
 )
+from jac.runtime.model_specs import spec_for
+from jac.runtime.usage import snapshot_usage, sum_child_usage, vector_sub
 from jac.runtime.history import filter_tool_noise
 from jac.runtime.models import build_pydantic_model
 from jac.runtime.session import SessionState
@@ -82,7 +84,9 @@ class RunCoordinator:
         self._run_persisted = False
         self._message_history: list[ModelMessage] = []
         self._tool_result_cache = ToolResultCache()
-        self._summariser = build_scout_summariser(settings)
+        self._summariser = build_scout_summariser(
+            settings, state=self.state, session=self.session
+        )
 
     def _build_fallback_agent(self) -> Agent:
         """Build the agent inline when no state store is available."""
@@ -335,22 +339,51 @@ class RunCoordinator:
         )
         duration_ms = int((perf_counter() - started_at) * 1000)
         if usage is not None:
-            summary = (
-                f"{usage.input_tokens} in · {usage.output_tokens} out · "
-                f"{usage.requests} req · {usage.tool_calls} tool calls"
+            R = snapshot_usage(usage)
+            own = R
+            if self.state is not None and scott_attempt_id is not None:
+                children = await self.state.attempts.list_direct_children(
+                    scott_attempt_id
+                )
+                own = vector_sub(R, sum_child_usage(children))
+                await self.state.attempts.update_usage(
+                    scott_attempt_id,
+                    tokens_in=own[0],
+                    tokens_out=own[1],
+                    requests=own[2],
+                    tool_calls=own[3],
+                    duration_ms=duration_ms,
+                )
+            self.session.cumulative_tokens_in += R[0]
+            self.session.cumulative_tokens_out += R[1]
+            self.session.cumulative_requests += R[2]
+            self.session.cumulative_tool_calls += R[3]
+            self.session.last_context_tokens = R[0]
+            self.session.last_model = selection.model_ref
+            mx = spec_for(selection.model_ref).max_context
+            pct = (R[0] / mx) if mx else 0.0
+            await self.events.emit(
+                SessionUsageUpdated(
+                    tokens_in=self.session.cumulative_tokens_in,
+                    tokens_out=self.session.cumulative_tokens_out,
+                    requests=self.session.cumulative_requests,
+                    tool_calls=self.session.cumulative_tool_calls,
+                    last_context_tokens=R[0],
+                    context_max=mx,
+                    context_pct=pct,
+                    model=selection.model_ref,
+                )
             )
-            self.session.latest_cost_summary = summary
-            await self.events.emit(CostUpdated(summary=summary))
             await self.events.emit(
                 LlmCallCompleted(
                     role="manager",
                     model=selection.model_ref,
                     tier=tier,
                     call_type="agent",
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    requests=usage.requests,
-                    tool_calls=usage.tool_calls,
+                    input_tokens=own[0],
+                    output_tokens=own[1],
+                    requests=own[2],
+                    tool_calls=own[3],
                     duration_ms=duration_ms,
                 )
             )
@@ -454,10 +487,16 @@ class RunCoordinator:
                         parent_attempt_id=self.session.active_attempt_id,
                     )
                     attempt_id = attempt.attempt_id
-            async with agent:
-                result = await agent.run(
-                    prompt, message_history=self._message_history or None
-                )
+            prev_active = self.session.active_attempt_id
+            if attempt_id is not None:
+                self.session.active_attempt_id = attempt_id
+            try:
+                async with agent:
+                    result = await agent.run(
+                        prompt, message_history=self._message_history or None
+                    )
+            finally:
+                self.session.active_attempt_id = prev_active
         except Exception as exc:
             await self.events.emit(
                 RunFailed(run_id=run_id, message=str(exc), exception=exc)
@@ -475,28 +514,57 @@ class RunCoordinator:
         output_text = output if isinstance(output, str) else str(output)
         usage = result.usage() if hasattr(result, "usage") else None
         if usage is not None:
-            summary = (
-                f"{usage.input_tokens} in · {usage.output_tokens} out · "
-                f"{usage.requests} req · {usage.tool_calls} tool calls"
-            )
-            self.session.latest_cost_summary = summary
-            await self.events.emit(CostUpdated(summary=summary))
+            R = snapshot_usage(usage)
+            own = R
+            if self.state is not None and attempt_id is not None:
+                children = await self.state.attempts.list_direct_children(attempt_id)
+                own = vector_sub(R, sum_child_usage(children))
+                duration_ms = int((perf_counter() - started_at) * 1000)
+                await self.state.attempts.update_usage(
+                    attempt_id,
+                    tokens_in=own[0],
+                    tokens_out=own[1],
+                    requests=own[2],
+                    tool_calls=own[3],
+                    duration_ms=duration_ms,
+                )
+            else:
+                duration_ms = int((perf_counter() - started_at) * 1000)
+            self.session.cumulative_tokens_in += R[0]
+            self.session.cumulative_tokens_out += R[1]
+            self.session.cumulative_requests += R[2]
+            self.session.cumulative_tool_calls += R[3]
+            self.session.last_context_tokens = R[0]
             tier = str(self.session.config.tier or self.settings.default_tier)
             selection = self.settings.resolve_model_selection(
                 model_override=self.session.config.model,
                 tier=tier,
             )
-            duration_ms = int((perf_counter() - started_at) * 1000)
+            self.session.last_model = selection.model_ref
+            mx = spec_for(selection.model_ref).max_context
+            pct = (R[0] / mx) if mx else 0.0
+            await self.events.emit(
+                SessionUsageUpdated(
+                    tokens_in=self.session.cumulative_tokens_in,
+                    tokens_out=self.session.cumulative_tokens_out,
+                    requests=self.session.cumulative_requests,
+                    tool_calls=self.session.cumulative_tool_calls,
+                    last_context_tokens=R[0],
+                    context_max=mx,
+                    context_pct=pct,
+                    model=selection.model_ref,
+                )
+            )
             await self.events.emit(
                 LlmCallCompleted(
                     role=role,
                     model=selection.model_ref,
                     tier=tier,
                     call_type="agent",
-                    input_tokens=usage.input_tokens,
-                    output_tokens=usage.output_tokens,
-                    requests=usage.requests,
-                    tool_calls=usage.tool_calls,
+                    input_tokens=own[0],
+                    output_tokens=own[1],
+                    requests=own[2],
+                    tool_calls=own[3],
                     duration_ms=duration_ms,
                 )
             )

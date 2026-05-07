@@ -186,8 +186,17 @@ class LlmCallCompleted(RuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class CostUpdated(RuntimeEvent):
-    summary: str
+class SessionUsageUpdated(RuntimeEvent):
+    """Cumulative session usage + last-call context (emitted from root attempts only)."""
+
+    tokens_in: int
+    tokens_out: int
+    requests: int
+    tool_calls: int
+    last_context_tokens: int
+    context_max: int
+    context_pct: float
+    model: str
 
 
 @dataclass(frozen=True, slots=True)
