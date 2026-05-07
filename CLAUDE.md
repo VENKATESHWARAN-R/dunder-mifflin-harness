@@ -26,8 +26,13 @@ just lint         # ruff check
 just format       # ruff format
 just fix          # ruff check --fix && ruff format
 just typecheck    # ty
+just qa           # lint + typecheck + full test suite
+just precommit-install  # install git pre-commit + pre-push hooks
+just precommit-run      # run hooks across all files
 just clean        # remove build artifacts and caches
 ```
+
+Run `just qa` after any significant `src/jac/` change before handing off. For changes that alter user-visible behavior or architecture boundaries, also update the relevant docs as described in this file.
 
 Run a single test:
 ```bash

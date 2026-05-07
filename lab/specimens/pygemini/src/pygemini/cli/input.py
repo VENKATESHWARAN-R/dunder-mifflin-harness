@@ -118,9 +118,11 @@ class InputHandler:
         history_path = (config_dir or Path.home() / ".pygemini") / "input_history"
         history_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self._style = Style.from_dict({
-            "prompt": "bold green",
-        })
+        self._style = Style.from_dict(
+            {
+                "prompt": "bold green",
+            }
+        )
 
         self._session: PromptSession[str] = PromptSession(
             history=FileHistory(str(history_path)),

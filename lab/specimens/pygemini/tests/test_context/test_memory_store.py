@@ -29,7 +29,9 @@ def store(tmp_path: Path) -> MemoryStore:
 class TestSave:
     """save() should append entries and persist them to the JSON file."""
 
-    def test_creates_file_on_first_save(self, store: MemoryStore, tmp_path: Path) -> None:
+    def test_creates_file_on_first_save(
+        self, store: MemoryStore, tmp_path: Path
+    ) -> None:
         storage_file = tmp_path / "memory.json"
         assert not storage_file.exists()
         store.save("first entry")
@@ -185,7 +187,9 @@ class TestGetFormatted:
         assert "fact one" in formatted
         assert "fact two" in formatted
 
-    def test_formatted_is_multiline_for_multiple_entries(self, store: MemoryStore) -> None:
+    def test_formatted_is_multiline_for_multiple_entries(
+        self, store: MemoryStore
+    ) -> None:
         store.save("entry A")
         store.save("entry B")
         formatted = store.get_formatted()

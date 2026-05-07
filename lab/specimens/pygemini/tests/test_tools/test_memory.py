@@ -139,29 +139,24 @@ class TestExecute:
         await tool.execute({"content": "User's name is Alice."})
         mock_store.save.assert_called_once_with("User's name is Alice.")
 
-    async def test_returns_tool_result(
-        self, tool: SaveMemoryTool
-    ) -> None:
+    async def test_returns_tool_result(self, tool: SaveMemoryTool) -> None:
         result = await tool.execute({"content": "Fact to remember."})
         assert isinstance(result, ToolResult)
 
-    async def test_result_not_error(
-        self, tool: SaveMemoryTool
-    ) -> None:
+    async def test_result_not_error(self, tool: SaveMemoryTool) -> None:
         result = await tool.execute({"content": "Fact to remember."})
         assert not result.is_error
 
-    async def test_llm_content_mentions_content(
-        self, tool: SaveMemoryTool
-    ) -> None:
+    async def test_llm_content_mentions_content(self, tool: SaveMemoryTool) -> None:
         result = await tool.execute({"content": "User prefers dark mode."})
         assert "User prefers dark mode." in result.llm_content
 
-    async def test_display_content_indicates_saved(
-        self, tool: SaveMemoryTool
-    ) -> None:
+    async def test_display_content_indicates_saved(self, tool: SaveMemoryTool) -> None:
         result = await tool.execute({"content": "Test fact."})
-        assert "saved" in result.display_content.lower() or "memory" in result.display_content.lower()
+        assert (
+            "saved" in result.display_content.lower()
+            or "memory" in result.display_content.lower()
+        )
 
     async def test_save_called_with_exact_content(
         self, tool: SaveMemoryTool, mock_store: MagicMock

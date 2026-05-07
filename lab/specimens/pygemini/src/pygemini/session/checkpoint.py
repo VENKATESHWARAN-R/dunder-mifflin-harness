@@ -43,7 +43,17 @@ _TRACKED_EXTENSIONS: frozenset[str] = frozenset(
 
 # Directories to skip when copying project files into the shadow repo.
 _SKIP_DIRS: frozenset[str] = frozenset(
-    {".git", "__pycache__", ".venv", "venv", "node_modules", ".tox", ".mypy_cache", ".ruff_cache", ".pytest_cache"}
+    {
+        ".git",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "node_modules",
+        ".tox",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".pytest_cache",
+    }
 )
 
 
@@ -121,7 +131,9 @@ class CheckpointManager:
             self._init_shadow_repo()
             self._sync_project_to_shadow()
 
-            description = f"{tool_name}({', '.join(f'{k}={v!r}' for k, v in tool_args.items())})"
+            description = (
+                f"{tool_name}({', '.join(f'{k}={v!r}' for k, v in tool_args.items())})"
+            )
             commit_hash = self._git_commit(f"checkpoint: {description}")
 
             info = CheckpointInfo(
@@ -140,7 +152,9 @@ class CheckpointManager:
             logger.exception("Failed to create checkpoint")
             return None
 
-    def restore(self, checkpoint_id: str) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+    def restore(
+        self, checkpoint_id: str
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
         """Restore project files and conversation from a checkpoint.
 
         Steps:
@@ -172,7 +186,9 @@ class CheckpointManager:
                 return None
 
             # Checkout the snapshot in the shadow repo.
-            self._git_run(["git", "checkout", commit_hash, "--", "."], cwd=self._shadow_dir)
+            self._git_run(
+                ["git", "checkout", commit_hash, "--", "."], cwd=self._shadow_dir
+            )
 
             # Copy files from shadow back into the project.
             self._sync_shadow_to_project()
@@ -267,7 +283,9 @@ class CheckpointManager:
         """Copy eligible project files into the shadow repo."""
         # Clear existing tracked-file copies (but keep .git and metadata).
         for child in self._shadow_dir.iterdir():
-            if child.name in {".git", "checkpoints.json"} or child.name.endswith(".history.json"):
+            if child.name in {".git", "checkpoints.json"} or child.name.endswith(
+                ".history.json"
+            ):
                 continue
             if child.is_dir():
                 shutil.rmtree(child)
@@ -304,7 +322,10 @@ class CheckpointManager:
             if not path.is_file():
                 continue
             # Skip directories we should never touch.
-            if any(part in _SKIP_DIRS for part in path.relative_to(self._project_root).parts):
+            if any(
+                part in _SKIP_DIRS
+                for part in path.relative_to(self._project_root).parts
+            ):
                 continue
             if path.suffix in _TRACKED_EXTENSIONS:
                 files.append(path)

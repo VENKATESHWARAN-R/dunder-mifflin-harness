@@ -88,7 +88,7 @@ class TestWrapCommand:
     def test_contains_bash_c(self) -> None:
         sandbox = _make_sandbox("docker")
         result = sandbox.wrap_command("echo hi")
-        assert 'bash -c' in result
+        assert "bash -c" in result
 
     def test_command_embedded_in_result(self) -> None:
         sandbox = _make_sandbox("docker")
@@ -160,7 +160,9 @@ class TestCheckDockerAvailable:
         assert available is False
 
     def test_docker_unavailable_when_timeout_expires(self) -> None:
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("docker", 5)):
+        with patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired("docker", 5)
+        ):
             available = Sandbox.check_docker_available()
         assert available is False
 

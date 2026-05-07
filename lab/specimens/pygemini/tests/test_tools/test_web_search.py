@@ -7,7 +7,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from pygemini.tools.base import ToolResult
-from pygemini.tools.web_search import WebSearchTool, _format_results_llm, _parse_grounding_metadata
+from pygemini.tools.web_search import (
+    WebSearchTool,
+    _format_results_llm,
+    _parse_grounding_metadata,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -86,10 +90,14 @@ class TestMetadata:
     def test_parameter_schema_has_query(self, tool_with_key: WebSearchTool) -> None:
         assert "query" in tool_with_key.parameter_schema["properties"]
 
-    def test_parameter_schema_requires_query(self, tool_with_key: WebSearchTool) -> None:
+    def test_parameter_schema_requires_query(
+        self, tool_with_key: WebSearchTool
+    ) -> None:
         assert "query" in tool_with_key.parameter_schema["required"]
 
-    def test_to_function_declaration_structure(self, tool_with_key: WebSearchTool) -> None:
+    def test_to_function_declaration_structure(
+        self, tool_with_key: WebSearchTool
+    ) -> None:
         decl = tool_with_key.to_function_declaration()
         assert decl["name"] == "google_web_search"
         assert "description" in decl
@@ -171,7 +179,9 @@ class TestExecuteNoApiKey:
     ) -> None:
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         result = await tool_no_key.execute({"query": "test"})
-        assert "api" in result.llm_content.lower() or "key" in result.llm_content.lower()
+        assert (
+            "api" in result.llm_content.lower() or "key" in result.llm_content.lower()
+        )
 
     async def test_env_var_key_is_used(
         self, tool_no_key: WebSearchTool, monkeypatch: pytest.MonkeyPatch
@@ -180,7 +190,15 @@ class TestExecuteNoApiKey:
         monkeypatch.setenv("GEMINI_API_KEY", "env-key-xyz")
 
         with patch.object(
-            tool_no_key, "_search_sync", return_value=[{"title": "Example", "snippet": "A snippet", "url": "https://example.com"}]
+            tool_no_key,
+            "_search_sync",
+            return_value=[
+                {
+                    "title": "Example",
+                    "snippet": "A snippet",
+                    "url": "https://example.com",
+                }
+            ],
         ):
             result = await tool_no_key.execute({"query": "python"})
 
@@ -199,8 +217,16 @@ class TestExecuteSuccess:
         self, tool_with_key: WebSearchTool
     ) -> None:
         fake_results = [
-            {"title": "Python Docs", "snippet": "Official docs.", "url": "https://docs.python.org"},
-            {"title": "Real Python", "snippet": "Tutorials and more.", "url": "https://realpython.com"},
+            {
+                "title": "Python Docs",
+                "snippet": "Official docs.",
+                "url": "https://docs.python.org",
+            },
+            {
+                "title": "Real Python",
+                "snippet": "Tutorials and more.",
+                "url": "https://realpython.com",
+            },
         ]
         with patch.object(tool_with_key, "_search_sync", return_value=fake_results):
             result = await tool_with_key.execute({"query": "python tutorial"})
@@ -227,7 +253,9 @@ class TestExecuteSuccess:
             result = await tool_with_key.execute({"query": "xyzzy nothing found"})
 
         assert not result.is_error
-        assert "no" in result.llm_content.lower() or "found" in result.llm_content.lower()
+        assert (
+            "no" in result.llm_content.lower() or "found" in result.llm_content.lower()
+        )
 
     async def test_search_exception_returns_error(
         self, tool_with_key: WebSearchTool
@@ -238,7 +266,10 @@ class TestExecuteSuccess:
             result = await tool_with_key.execute({"query": "test"})
 
         assert result.is_error
-        assert "failed" in result.llm_content.lower() or "error" in result.llm_content.lower()
+        assert (
+            "failed" in result.llm_content.lower()
+            or "error" in result.llm_content.lower()
+        )
 
     async def test_display_content_shows_result_count(
         self, tool_with_key: WebSearchTool
@@ -334,7 +365,9 @@ class TestFormatResultsLlm:
         assert "https://x.com" in text
 
     def test_includes_snippet_when_present(self) -> None:
-        results = [{"title": "T", "snippet": "Some relevant snippet", "url": "https://x.com"}]
+        results = [
+            {"title": "T", "snippet": "Some relevant snippet", "url": "https://x.com"}
+        ]
         text = _format_results_llm("q", results)
         assert "Some relevant snippet" in text
 

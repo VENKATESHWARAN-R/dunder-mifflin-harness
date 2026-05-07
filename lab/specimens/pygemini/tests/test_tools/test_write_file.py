@@ -55,9 +55,13 @@ class TestWriteFileMetadata:
         assert "path" in required
         assert "content" in required
 
-    def test_to_function_declaration_create_directories_is_boolean(self, tool: WriteFileTool) -> None:
+    def test_to_function_declaration_create_directories_is_boolean(
+        self, tool: WriteFileTool
+    ) -> None:
         decl = tool.to_function_declaration()
-        assert decl["parameters"]["properties"]["create_directories"]["type"] == "boolean"
+        assert (
+            decl["parameters"]["properties"]["create_directories"]["type"] == "boolean"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +133,9 @@ class TestShouldConfirm:
         assert isinstance(confirmation, ToolConfirmation)
 
     def test_confirmation_description_contains_path(self, tool: WriteFileTool) -> None:
-        confirmation = tool.should_confirm({"path": "/tmp/out.txt", "content": "data\n"})
+        confirmation = tool.should_confirm(
+            {"path": "/tmp/out.txt", "content": "data\n"}
+        )
         assert confirmation is not None
         assert "/tmp/out.txt" in confirmation.description
 
@@ -152,17 +158,23 @@ class TestShouldConfirm:
         assert confirmation.details["bytes"] == 5
 
     def test_confirmation_details_has_preview(self, tool: WriteFileTool) -> None:
-        confirmation = tool.should_confirm({"path": "/f.txt", "content": "preview line\n"})
+        confirmation = tool.should_confirm(
+            {"path": "/f.txt", "content": "preview line\n"}
+        )
         assert confirmation is not None
         assert "preview" in confirmation.details
 
-    def test_confirmation_preview_truncated_after_ten_lines(self, tool: WriteFileTool) -> None:
+    def test_confirmation_preview_truncated_after_ten_lines(
+        self, tool: WriteFileTool
+    ) -> None:
         content = "\n".join(f"line{i}" for i in range(1, 20))
         confirmation = tool.should_confirm({"path": "/f.txt", "content": content})
         assert confirmation is not None
         assert "..." in confirmation.details["preview"]
 
-    def test_confirmation_preview_not_truncated_for_short_content(self, tool: WriteFileTool) -> None:
+    def test_confirmation_preview_not_truncated_for_short_content(
+        self, tool: WriteFileTool
+    ) -> None:
         content = "line1\nline2\nline3\n"
         confirmation = tool.should_confirm({"path": "/f.txt", "content": content})
         assert confirmation is not None
@@ -186,14 +198,18 @@ class TestExecuteWriteNewFile:
         assert dest.exists()
         assert dest.read_text() == "hello world\n"
 
-    async def test_result_says_created(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_result_says_created(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "brand_new.txt"
 
         result = await tool.execute({"path": str(dest), "content": "x\n"})
 
         assert "Created" in result.llm_content
 
-    async def test_llm_content_contains_line_count(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_llm_content_contains_line_count(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "counted.txt"
         content = "a\nb\nc\n"
 
@@ -201,7 +217,9 @@ class TestExecuteWriteNewFile:
 
         assert "lines" in result.llm_content
 
-    async def test_llm_content_contains_byte_count(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_llm_content_contains_byte_count(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "bytes.txt"
         content = "hello"
 
@@ -210,7 +228,9 @@ class TestExecuteWriteNewFile:
         assert "bytes" in result.llm_content
         assert "5" in result.llm_content
 
-    async def test_display_content_populated(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_display_content_populated(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "disp.txt"
 
         result = await tool.execute({"path": str(dest), "content": "data\n"})
@@ -226,7 +246,9 @@ class TestExecuteWriteNewFile:
 class TestExecuteOverwriteFile:
     """execute should overwrite existing files and report 'Updated'."""
 
-    async def test_overwrites_existing_file(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_overwrites_existing_file(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "existing.txt"
         dest.write_text("old content\n")
 
@@ -235,7 +257,9 @@ class TestExecuteOverwriteFile:
         assert not result.is_error
         assert dest.read_text() == "new content\n"
 
-    async def test_result_says_updated(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_result_says_updated(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "updated.txt"
         dest.write_text("original\n")
 
@@ -243,7 +267,9 @@ class TestExecuteOverwriteFile:
 
         assert "Updated" in result.llm_content
 
-    async def test_overwrite_changes_file_completely(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_overwrite_changes_file_completely(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "overwrite.txt"
         dest.write_text("line1\nline2\nline3\n")
 
@@ -260,7 +286,9 @@ class TestExecuteOverwriteFile:
 class TestExecuteCreateDirectories:
     """execute should create missing parent directories by default."""
 
-    async def test_creates_parent_directories(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_creates_parent_directories(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "a" / "b" / "c" / "file.txt"
 
         result = await tool.execute({"path": str(dest), "content": "deep\n"})
@@ -269,7 +297,9 @@ class TestExecuteCreateDirectories:
         assert dest.exists()
         assert dest.read_text() == "deep\n"
 
-    async def test_create_directories_true_is_default(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_create_directories_true_is_default(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "subdir" / "file.txt"
 
         # Do not pass create_directories at all — should default to True
@@ -308,7 +338,9 @@ class TestExecuteCreateDirectories:
 
 
 class TestExecuteEmptyContent:
-    async def test_write_empty_string(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_write_empty_string(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         dest = tmp_path / "empty.txt"
 
         result = await tool.execute({"path": str(dest), "content": ""})
@@ -328,7 +360,9 @@ class TestExecutePermissionError:
         sys.platform == "win32",
         reason="chmod-based permission denial not reliable on Windows",
     )
-    async def test_permission_denied_returns_error(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_permission_denied_returns_error(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         # Make the directory read-only so no files can be created inside it
         protected_dir = tmp_path / "readonly"
         protected_dir.mkdir()
@@ -349,7 +383,9 @@ class TestExecutePermissionError:
 
 
 class TestAbortSignal:
-    async def test_execute_with_abort_signal(self, tool: WriteFileTool, tmp_path: Path) -> None:
+    async def test_execute_with_abort_signal(
+        self, tool: WriteFileTool, tmp_path: Path
+    ) -> None:
         import asyncio
 
         dest = tmp_path / "signal.txt"

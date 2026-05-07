@@ -203,7 +203,9 @@ class TestToFunctionDeclaration:
 
     def test_contains_description(self) -> None:
         tool = MockTool()
-        assert tool.to_function_declaration()["description"] == "A mock tool for testing."
+        assert (
+            tool.to_function_declaration()["description"] == "A mock tool for testing."
+        )
 
     def test_contains_parameters(self) -> None:
         tool = MockTool()

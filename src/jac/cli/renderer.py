@@ -190,7 +190,9 @@ class Renderer:
         if text.strip():
             self.console.print(Markdown(text))
 
-    def render_welcome(self, model: str | None = None, tier: str | None = None, mode: str | None = None) -> None:
+    def render_welcome(
+        self, model: str | None = None, tier: str | None = None, mode: str | None = None
+    ) -> None:
         """Display the chat welcome text with current session config."""
         self.console.print()
         self.console.print(
@@ -204,7 +206,9 @@ class Renderer:
         if self._debug:
             config_parts.append("debug: on")
         self.console.print(f"[dim]{' · '.join(config_parts)}[/dim]")
-        self.console.print("[dim]Type a message to start · /help for commands · ctrl+d to exit[/dim]")
+        self.console.print(
+            "[dim]Type a message to start · /help for commands · ctrl+d to exit[/dim]"
+        )
         self.console.print()
 
     def render_resume_context(self, messages: list[Any]) -> None:

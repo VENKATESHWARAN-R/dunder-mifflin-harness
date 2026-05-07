@@ -165,13 +165,17 @@ class TestPathPatternMatching:
     """Path pattern uses fnmatch against params["path"]."""
 
     def test_path_pattern_matches_param(self) -> None:
-        rule = PolicyRule(tool_pattern="write_file", action="deny", path_pattern="*.test.py")
+        rule = PolicyRule(
+            tool_pattern="write_file", action="deny", path_pattern="*.test.py"
+        )
         engine = _make_engine([rule])
         decision = engine.evaluate("write_file", {"path": "test_foo.test.py"})
         assert decision.action == "deny"
 
     def test_path_pattern_no_match(self) -> None:
-        rule = PolicyRule(tool_pattern="write_file", action="deny", path_pattern="*.test.py")
+        rule = PolicyRule(
+            tool_pattern="write_file", action="deny", path_pattern="*.test.py"
+        )
         engine = _make_engine([rule])
         decision = engine.evaluate("write_file", {"path": "src/main.py"})
         assert decision.action == "confirm"
@@ -187,7 +191,10 @@ class TestPathPatternMatching:
         rule = PolicyRule(tool_pattern="*", action="allow", path_pattern="/tmp/*")
         engine = _make_engine([rule])
         assert engine.evaluate("read_file", {"path": "/tmp/foo.txt"}).action == "allow"
-        assert engine.evaluate("read_file", {"path": "/home/user/foo.txt"}).action == "confirm"
+        assert (
+            engine.evaluate("read_file", {"path": "/home/user/foo.txt"}).action
+            == "confirm"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +212,7 @@ class TestCommandPatternMatching:
             command_pattern=r"rm -rf",
         )
         engine = _make_engine([rule])
-        decision = engine.evaluate(
-            "run_shell_command", {"command": "rm -rf /tmp/junk"}
-        )
+        decision = engine.evaluate("run_shell_command", {"command": "rm -rf /tmp/junk"})
         assert decision.action == "deny"
 
     def test_command_pattern_no_match(self) -> None:
@@ -227,7 +232,9 @@ class TestCommandPatternMatching:
             command_pattern=r"^sudo ",
         )
         engine = _make_engine([rule])
-        assert engine.evaluate("*", {"command": "sudo apt-get install"}).action == "deny"
+        assert (
+            engine.evaluate("*", {"command": "sudo apt-get install"}).action == "deny"
+        )
         assert engine.evaluate("*", {"command": "echo sudo"}).action == "confirm"
 
     def test_command_pattern_no_command_param_skips_rule(self) -> None:
@@ -253,7 +260,7 @@ class TestLoadPolicies:
     def test_load_valid_toml(self, tmp_path: Path) -> None:
         policies_file = tmp_path / "policies.toml"
         policies_file.write_text(
-            '[rules]\n'  # will be overridden below
+            "[rules]\n"  # will be overridden below
         )
         # Write proper array-of-tables format
         policies_file.write_bytes(
@@ -337,9 +344,7 @@ class TestParseTOML:
 
     def test_invalid_action_is_skipped(self, tmp_path: Path) -> None:
         f = tmp_path / "p.toml"
-        f.write_bytes(
-            b'[[rules]]\ntool = "some_tool"\naction = "forbidden_action"\n'
-        )
+        f.write_bytes(b'[[rules]]\ntool = "some_tool"\naction = "forbidden_action"\n')
         rules = self._engine()._parse_toml(f)
         assert rules == []
 

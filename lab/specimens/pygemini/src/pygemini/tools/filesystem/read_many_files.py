@@ -74,9 +74,7 @@ class ReadManyFilesTool(BaseTool):
             # --- attempt to read the file ---
             if not path.exists():
                 error_msg = f"Error: File not found: {path}"
-                llm_sections.append(
-                    f"--- File: {path} ---\n{error_msg}"
-                )
+                llm_sections.append(f"--- File: {path} ---\n{error_msg}")
                 display_previews.append(
                     f"[red]✗[/red] [bold]{path}[/bold] — file not found"
                 )
@@ -85,9 +83,7 @@ class ReadManyFilesTool(BaseTool):
 
             if not path.is_file():
                 error_msg = f"Error: Not a file: {path}"
-                llm_sections.append(
-                    f"--- File: {path} ---\n{error_msg}"
-                )
+                llm_sections.append(f"--- File: {path} ---\n{error_msg}")
                 display_previews.append(
                     f"[red]✗[/red] [bold]{path}[/bold] — not a file"
                 )
@@ -98,9 +94,7 @@ class ReadManyFilesTool(BaseTool):
                 content = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 error_msg = f"Error: Binary file cannot be read as text: {path}"
-                llm_sections.append(
-                    f"--- File: {path} ---\n{error_msg}"
-                )
+                llm_sections.append(f"--- File: {path} ---\n{error_msg}")
                 display_previews.append(
                     f"[red]✗[/red] [bold]{path}[/bold] — binary file"
                 )
@@ -108,9 +102,7 @@ class ReadManyFilesTool(BaseTool):
                 continue
             except PermissionError:
                 error_msg = f"Error: Permission denied: {path}"
-                llm_sections.append(
-                    f"--- File: {path} ---\n{error_msg}"
-                )
+                llm_sections.append(f"--- File: {path} ---\n{error_msg}")
                 display_previews.append(
                     f"[red]✗[/red] [bold]{path}[/bold] — permission denied"
                 )
@@ -123,8 +115,7 @@ class ReadManyFilesTool(BaseTool):
 
             # Format with line numbers (same style as ReadFileTool)
             numbered_lines = [
-                f"{i:>6}\t{line.rstrip()}"
-                for i, line in enumerate(lines, start=1)
+                f"{i:>6}\t{line.rstrip()}" for i, line in enumerate(lines, start=1)
             ]
             file_text = "\n".join(numbered_lines)
 

@@ -79,12 +79,17 @@ class TestValidateParams:
         assert tool.validate_params({"path": "/some/dir", "recursive": True}) is None
 
     def test_valid_path_with_include_hidden_flag(self, tool: ListDirectoryTool) -> None:
-        assert tool.validate_params({"path": "/some/dir", "include_hidden": True}) is None
+        assert (
+            tool.validate_params({"path": "/some/dir", "include_hidden": True}) is None
+        )
 
     def test_valid_path_with_all_params(self, tool: ListDirectoryTool) -> None:
-        assert tool.validate_params(
-            {"path": "/some/dir", "recursive": True, "include_hidden": True}
-        ) is None
+        assert (
+            tool.validate_params(
+                {"path": "/some/dir", "recursive": True, "include_hidden": True}
+            )
+            is None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +117,9 @@ class TestGetDescription:
         assert "hidden" in desc.lower()
 
     def test_both_flags_mentioned(self, tool: ListDirectoryTool) -> None:
-        desc = tool.get_description({"path": "/foo", "recursive": True, "include_hidden": True})
+        desc = tool.get_description(
+            {"path": "/foo", "recursive": True, "include_hidden": True}
+        )
         assert "recursive" in desc.lower()
         assert "hidden" in desc.lower()
 
@@ -327,9 +334,7 @@ class TestExecuteHidden:
     ) -> None:
         (tmp_path / ".hidden").write_text("secret")
 
-        result = await tool.execute(
-            {"path": str(tmp_path), "include_hidden": True}
-        )
+        result = await tool.execute({"path": str(tmp_path), "include_hidden": True})
 
         assert ".hidden" in result.llm_content
 
@@ -349,9 +354,7 @@ class TestExecuteHidden:
     ) -> None:
         (tmp_path / ".git").mkdir()
 
-        result = await tool.execute(
-            {"path": str(tmp_path), "include_hidden": True}
-        )
+        result = await tool.execute({"path": str(tmp_path), "include_hidden": True})
 
         assert ".git" in result.llm_content
 

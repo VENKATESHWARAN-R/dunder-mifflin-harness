@@ -161,7 +161,8 @@ class ConversationCompressor:
                 elif part.function_call:
                     fc = part.function_call
                     args_str = ", ".join(
-                        f"{k}={v!r}" for k, v in (dict(fc.args).items() if fc.args else {}.items())
+                        f"{k}={v!r}"
+                        for k, v in (dict(fc.args).items() if fc.args else {}.items())
                     )
                     lines.append(f"Assistant: [Used tool {fc.name}({args_str})]")
 

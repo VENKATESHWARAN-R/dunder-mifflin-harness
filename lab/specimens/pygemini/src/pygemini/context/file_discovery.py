@@ -86,11 +86,7 @@ class FileDiscovery:
             current_dir = Path(dirpath)
 
             # Prune ignored directories in-place so os.walk skips their subtrees.
-            dirs[:] = [
-                d
-                for d in dirs
-                if not self._should_ignore_name(d, all_patterns)
-            ]
+            dirs[:] = [d for d in dirs if not self._should_ignore_name(d, all_patterns)]
 
             for filename in files:
                 file_path = current_dir / filename
@@ -164,9 +160,7 @@ class FileDiscovery:
             if stripped and not stripped.startswith("#"):
                 patterns.append(stripped)
 
-        logger.debug(
-            "FileDiscovery: loaded %d pattern(s) from %s", len(patterns), path
-        )
+        logger.debug("FileDiscovery: loaded %d pattern(s) from %s", len(patterns), path)
         return patterns
 
     # ------------------------------------------------------------------

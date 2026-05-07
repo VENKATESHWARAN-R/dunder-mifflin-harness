@@ -135,7 +135,9 @@ def make_spawn_minion_tool(
                     timeout=timeout_sec,
                 )
             success = True
-            return result.output if isinstance(result.output, str) else str(result.output)
+            return (
+                result.output if isinstance(result.output, str) else str(result.output)
+            )
         except asyncio.TimeoutError:
             return f"minion timed out after {timeout_sec}s"
         except Exception as exc:  # noqa: BLE001
@@ -172,7 +174,7 @@ def make_fetch_full_result_tool(cache: ToolResultCache):
     class FullResult(ToolResult):
         content: str = ""
 
-    async def fetch_full_result(handle: str) -> FullResult:
+    async def fetch_full_result(handle: str) -> ToolResult:
         content = cache.fetch(handle)
         if content is None:
             return FullResult(

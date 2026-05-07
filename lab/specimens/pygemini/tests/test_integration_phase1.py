@@ -9,7 +9,12 @@ from typing import Any, AsyncIterator
 from pygemini.core.agent_loop import AgentLoop
 from pygemini.core.config import Config
 from pygemini.core.content_generator import FunctionCallData, StreamChunk
-from pygemini.core.events import CoreEvent, EventEmitter, StreamTextEvent, ToolOutputEvent
+from pygemini.core.events import (
+    CoreEvent,
+    EventEmitter,
+    StreamTextEvent,
+    ToolOutputEvent,
+)
 from pygemini.core.history import ConversationHistory
 from pygemini.tools.base import BaseTool, ToolConfirmation, ToolResult
 from pygemini.tools.registry import ToolRegistry
@@ -31,9 +36,15 @@ class MockReadTool(BaseTool):
 
     @property
     def parameter_schema(self) -> dict:
-        return {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+        return {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+        }
 
-    async def execute(self, params: dict, abort_signal: asyncio.Event | None = None) -> ToolResult:
+    async def execute(
+        self, params: dict, abort_signal: asyncio.Event | None = None
+    ) -> ToolResult:
         return ToolResult(
             llm_content=f"Contents of {params['path']}: Hello, World!",
             display_content=f"Read {params['path']}",
@@ -63,7 +74,9 @@ class MockWriteTool(BaseTool):
             details={"path": params.get("path", "?")},
         )
 
-    async def execute(self, params: dict, abort_signal: asyncio.Event | None = None) -> ToolResult:
+    async def execute(
+        self, params: dict, abort_signal: asyncio.Event | None = None
+    ) -> ToolResult:
         return ToolResult(
             llm_content=f"Wrote to {params['path']}",
             display_content=f"Created {params['path']}",
@@ -133,9 +146,11 @@ class TestTextOnlyResponse:
     """Model returns text, no tool calls."""
 
     async def test_text_response_emits_stream_events(self) -> None:
-        mock_gen = MockContentGenerator([
-            [StreamChunk(text="Hello "), StreamChunk(text="world!")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [StreamChunk(text="Hello "), StreamChunk(text="world!")],
+            ]
+        )
         loop, emitter, history = _make_loop(mock_gen)
 
         collected_text: list[str] = []
@@ -152,9 +167,11 @@ class TestTextOnlyResponse:
         assert len(history) == 2
 
     async def test_turn_complete_emitted(self) -> None:
-        mock_gen = MockContentGenerator([
-            [StreamChunk(text="Response")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [StreamChunk(text="Response")],
+            ]
+        )
         loop, emitter, _ = _make_loop(mock_gen)
 
         completed = False
@@ -173,14 +190,22 @@ class TestSingleToolCall:
     """Model calls one tool, then returns text."""
 
     async def test_tool_call_and_response(self) -> None:
-        mock_gen = MockContentGenerator([
-            # Turn 1: model calls read_file
-            [StreamChunk(function_calls=[
-                FunctionCallData(name="read_file", args={"path": "test.py"}, id="fc1"),
-            ])],
-            # Turn 2: model responds with text after getting tool result
-            [StreamChunk(text="The file contains Hello, World!")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: model calls read_file
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="read_file", args={"path": "test.py"}, id="fc1"
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: model responds with text after getting tool result
+                [StreamChunk(text="The file contains Hello, World!")],
+            ]
+        )
         loop, emitter, history = _make_loop(mock_gen)
 
         tool_outputs: list[str] = []
@@ -200,16 +225,22 @@ class TestToolWithConfirmation:
     """Model calls a tool that requires confirmation."""
 
     async def test_approved_confirmation(self) -> None:
-        mock_gen = MockContentGenerator([
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="write_file",
-                    args={"path": "out.py", "content": "# new"},
-                    id="fc1",
-                ),
-            ])],
-            [StreamChunk(text="File written.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="write_file",
+                                args={"path": "out.py", "content": "# new"},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                [StreamChunk(text="File written.")],
+            ]
+        )
         loop, emitter, _ = _make_loop(mock_gen)
 
         # Auto-approve confirmations
@@ -231,16 +262,22 @@ class TestToolWithConfirmation:
         assert "out.py" in tool_outputs[0]
 
     async def test_denied_confirmation(self) -> None:
-        mock_gen = MockContentGenerator([
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="write_file",
-                    args={"path": "out.py", "content": "# new"},
-                    id="fc1",
-                ),
-            ])],
-            [StreamChunk(text="OK, I won't write the file.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="write_file",
+                                args={"path": "out.py", "content": "# new"},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                [StreamChunk(text="OK, I won't write the file.")],
+            ]
+        )
         loop, emitter, _ = _make_loop(mock_gen)
 
         # Auto-deny confirmations
@@ -266,12 +303,20 @@ class TestToolNotFound:
     """Model calls a tool that doesn't exist."""
 
     async def test_unknown_tool_returns_error(self) -> None:
-        mock_gen = MockContentGenerator([
-            [StreamChunk(function_calls=[
-                FunctionCallData(name="nonexistent_tool", args={}, id="fc1"),
-            ])],
-            [StreamChunk(text="Sorry, that tool doesn't exist.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="nonexistent_tool", args={}, id="fc1"
+                            ),
+                        ]
+                    )
+                ],
+                [StreamChunk(text="Sorry, that tool doesn't exist.")],
+            ]
+        )
         loop, emitter, _ = _make_loop(mock_gen)
         await loop.run("Use a nonexistent tool")
         # Should not crash — error is fed back to model
@@ -281,18 +326,32 @@ class TestChainedToolCalls:
     """Model calls multiple tools in sequence."""
 
     async def test_two_tool_calls_in_sequence(self) -> None:
-        mock_gen = MockContentGenerator([
-            # Turn 1: read_file
-            [StreamChunk(function_calls=[
-                FunctionCallData(name="read_file", args={"path": "a.py"}, id="fc1"),
-            ])],
-            # Turn 2: another read_file
-            [StreamChunk(function_calls=[
-                FunctionCallData(name="read_file", args={"path": "b.py"}, id="fc2"),
-            ])],
-            # Turn 3: final text
-            [StreamChunk(text="Both files read successfully.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: read_file
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="read_file", args={"path": "a.py"}, id="fc1"
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: another read_file
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="read_file", args={"path": "b.py"}, id="fc2"
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 3: final text
+                [StreamChunk(text="Both files read successfully.")],
+            ]
+        )
         loop, emitter, history = _make_loop(mock_gen)
 
         tool_count = 0

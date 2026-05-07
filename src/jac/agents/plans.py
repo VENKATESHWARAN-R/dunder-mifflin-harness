@@ -15,9 +15,7 @@ class PlannedTask(BaseModel):
     description: str = Field(
         ..., description="Detail sufficient for Jim to act without Pam"
     )
-    acceptance_criteria: str = Field(
-        ..., description="Checkable conditions for Dwight"
-    )
+    acceptance_criteria: str = Field(..., description="Checkable conditions for Dwight")
     complexity: Complexity = "moderate"
 
 

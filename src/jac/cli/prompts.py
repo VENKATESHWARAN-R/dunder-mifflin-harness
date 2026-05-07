@@ -55,7 +55,11 @@ class PromptViews:
             )
         if ApprovalDecision.ALLOW_EXACT_FOR_SESSION in allowed:
             options.append(
-                ("e", "allow exact for session", ApprovalDecision.ALLOW_EXACT_FOR_SESSION)
+                (
+                    "e",
+                    "allow exact for session",
+                    ApprovalDecision.ALLOW_EXACT_FOR_SESSION,
+                )
             )
 
         # Print static option list
@@ -91,6 +95,7 @@ class PromptViews:
 
         # Single-key shortcuts — select and confirm without Enter
         for opt_key, _, _ in options:
+
             @bindings.add(opt_key)
             def _shortcut(event: Any, k: str = opt_key) -> None:
                 event.app.exit(result=k)

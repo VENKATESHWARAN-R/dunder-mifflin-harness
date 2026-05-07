@@ -186,14 +186,18 @@ class TestReplaceMessages:
 
     def test_replace_all_with_single(self) -> None:
         h = _make_history("a", "b", "c")
-        replacement = [types.Content(role="user", parts=[types.Part.from_text(text="summary")])]
+        replacement = [
+            types.Content(role="user", parts=[types.Part.from_text(text="summary")])
+        ]
         h.replace_messages(0, 3, replacement)
         assert len(h) == 1
         assert h.get_messages()[0].parts[0].text == "summary"
 
     def test_replace_partial_range(self) -> None:
         h = _make_history("a", "b", "c", "d")
-        replacement = [types.Content(role="user", parts=[types.Part.from_text(text="x")])]
+        replacement = [
+            types.Content(role="user", parts=[types.Part.from_text(text="x")])
+        ]
         h.replace_messages(1, 3, replacement)
         # 4 - 2 replaced + 1 inserted = 3
         assert len(h) == 3
@@ -205,7 +209,9 @@ class TestReplaceMessages:
 
     def test_replace_preserves_surrounding_messages(self) -> None:
         h = _make_history("first", "middle", "last")
-        replacement = [types.Content(role="user", parts=[types.Part.from_text(text="new middle")])]
+        replacement = [
+            types.Content(role="user", parts=[types.Part.from_text(text="new middle")])
+        ]
         h.replace_messages(1, 2, replacement)
         msgs = h.get_messages()
         assert msgs[0].parts[0].text == "first"
@@ -306,7 +312,9 @@ class TestEstimateTokens:
 
     def test_longer_text_more_tokens(self) -> None:
         short = estimate_tokens("hi")
-        long = estimate_tokens("This is a much longer piece of text with many characters")
+        long = estimate_tokens(
+            "This is a much longer piece of text with many characters"
+        )
         assert long > short
 
     def test_single_char_returns_zero(self) -> None:

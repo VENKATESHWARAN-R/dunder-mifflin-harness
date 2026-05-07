@@ -20,7 +20,9 @@ from pygemini.session.compressor import CompressionResult, ConversationCompresso
 
 @pytest.fixture
 def config() -> Config:
-    return Config(api_key="test-key", model="gemini-2.5-flash", fallback_model="gemini-2.5-flash")
+    return Config(
+        api_key="test-key", model="gemini-2.5-flash", fallback_model="gemini-2.5-flash"
+    )
 
 
 @pytest.fixture
@@ -35,7 +37,9 @@ def _make_history(n_messages: int) -> ConversationHistory:
         if i % 2 == 0:
             history.add_user_message(f"User message {i}")
         else:
-            history.add_model_response([types.Part.from_text(text=f"Model response {i}")])
+            history.add_model_response(
+                [types.Part.from_text(text=f"Model response {i}")]
+            )
     return history
 
 
@@ -47,24 +51,34 @@ def _make_history(n_messages: int) -> ConversationHistory:
 class TestShouldCompress:
     """should_compress() should return False below the threshold."""
 
-    def test_empty_history_returns_false(self, compressor: ConversationCompressor) -> None:
+    def test_empty_history_returns_false(
+        self, compressor: ConversationCompressor
+    ) -> None:
         history = ConversationHistory()
         assert compressor.should_compress(history) is False
 
-    def test_below_threshold_returns_false(self, compressor: ConversationCompressor) -> None:
+    def test_below_threshold_returns_false(
+        self, compressor: ConversationCompressor
+    ) -> None:
         history = _make_history(10)
         assert compressor.should_compress(history) is False
 
-    def test_at_threshold_returns_false(self, compressor: ConversationCompressor) -> None:
+    def test_at_threshold_returns_false(
+        self, compressor: ConversationCompressor
+    ) -> None:
         # Default threshold is 50 — exactly at 50 should not trigger
         history = _make_history(50)
         assert compressor.should_compress(history) is False
 
-    def test_above_threshold_returns_true(self, compressor: ConversationCompressor) -> None:
+    def test_above_threshold_returns_true(
+        self, compressor: ConversationCompressor
+    ) -> None:
         history = _make_history(51)
         assert compressor.should_compress(history) is True
 
-    def test_far_above_threshold_returns_true(self, compressor: ConversationCompressor) -> None:
+    def test_far_above_threshold_returns_true(
+        self, compressor: ConversationCompressor
+    ) -> None:
         history = _make_history(100)
         assert compressor.should_compress(history) is True
 
@@ -107,7 +121,9 @@ class TestFormatForSummarization:
         result = compressor._format_for_summarization([msg])
         assert "read_file" in result
 
-    def test_function_response_included(self, compressor: ConversationCompressor) -> None:
+    def test_function_response_included(
+        self, compressor: ConversationCompressor
+    ) -> None:
         msg = types.Content(
             role="user",
             parts=[
@@ -176,25 +192,35 @@ class TestBuildSummaryPrompt:
 class TestCompress:
     """compress() should return a CompressionResult with mocked LLM."""
 
-    async def test_compress_returns_result(self, compressor: ConversationCompressor) -> None:
+    async def test_compress_returns_result(
+        self, compressor: ConversationCompressor
+    ) -> None:
         history = _make_history(55)
         with patch.object(
-            compressor, "_call_llm_for_summary", new=AsyncMock(return_value="Summary text here")
+            compressor,
+            "_call_llm_for_summary",
+            new=AsyncMock(return_value="Summary text here"),
         ):
             result = await compressor.compress(history)
 
         assert isinstance(result, CompressionResult)
 
-    async def test_compress_summary_set(self, compressor: ConversationCompressor) -> None:
+    async def test_compress_summary_set(
+        self, compressor: ConversationCompressor
+    ) -> None:
         history = _make_history(55)
         with patch.object(
-            compressor, "_call_llm_for_summary", new=AsyncMock(return_value="This is a summary")
+            compressor,
+            "_call_llm_for_summary",
+            new=AsyncMock(return_value="This is a summary"),
         ):
             result = await compressor.compress(history)
 
         assert result.summary == "This is a summary"
 
-    async def test_compress_original_message_count(self, compressor: ConversationCompressor) -> None:
+    async def test_compress_original_message_count(
+        self, compressor: ConversationCompressor
+    ) -> None:
         history = _make_history(55)
         with patch.object(
             compressor, "_call_llm_for_summary", new=AsyncMock(return_value="Summary")

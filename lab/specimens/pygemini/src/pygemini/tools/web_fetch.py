@@ -9,9 +9,7 @@ import httpx
 
 from pygemini.tools.base import BaseTool, ToolConfirmation, ToolResult
 
-_USER_AGENT = (
-    "Mozilla/5.0 (compatible; PyGeminiCLI/1.0; +https://github.com/pygemini)"
-)
+_USER_AGENT = "Mozilla/5.0 (compatible; PyGeminiCLI/1.0; +https://github.com/pygemini)"
 
 
 class WebFetchTool(BaseTool):
@@ -82,9 +80,7 @@ class WebFetchTool(BaseTool):
         headers = {"User-Agent": _USER_AGENT}
 
         try:
-            async with httpx.AsyncClient(
-                timeout=timeout, headers=headers
-            ) as client:
+            async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
                 response = await client.get(url, follow_redirects=True)
                 response.raise_for_status()
 
@@ -104,9 +100,7 @@ class WebFetchTool(BaseTool):
                 text = text[:max_length]
 
             llm_content = f"Content from {url}:\n\n{text}"
-            display_content = (
-                f"[green]Fetched[/green] {url} ({len(text):,} chars)"
-            )
+            display_content = f"[green]Fetched[/green] {url} ({len(text):,} chars)"
             return ToolResult(
                 llm_content=llm_content,
                 display_content=display_content,

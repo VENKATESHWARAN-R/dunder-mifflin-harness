@@ -51,9 +51,7 @@ class ConversationHistory:
 
     def add_model_response(self, parts: list[types.Part]) -> None:
         """Append a model response with the given parts (text and/or function calls)."""
-        self._messages.append(
-            types.Content(role="model", parts=parts)
-        )
+        self._messages.append(types.Content(role="model", parts=parts))
 
     def add_tool_results(
         self,
@@ -82,9 +80,7 @@ class ConversationHistory:
                 )
             )
         if call_parts:
-            self._messages.append(
-                types.Content(role="model", parts=call_parts)
-            )
+            self._messages.append(types.Content(role="model", parts=call_parts))
 
         # User turn: the function response parts
         response_parts = []
@@ -98,9 +94,7 @@ class ConversationHistory:
                 )
             )
         if response_parts:
-            self._messages.append(
-                types.Content(role="user", parts=response_parts)
-            )
+            self._messages.append(types.Content(role="user", parts=response_parts))
 
     # -- Access ---------------------------------------------------------------
 

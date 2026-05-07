@@ -130,7 +130,11 @@ def test_tasks_create_many_ordered(tmp_path: Path) -> None:
                 [
                     {"title": "one", "description": "d1", "acceptance_criteria": "a1"},
                     {"title": "two", "description": "d2", "acceptance_criteria": "a2"},
-                    {"title": "three", "description": "d3", "acceptance_criteria": "a3"},
+                    {
+                        "title": "three",
+                        "description": "d3",
+                        "acceptance_criteria": "a3",
+                    },
                 ],
             )
             listed = await store.tasks.list_for_run("r1")
@@ -143,7 +147,7 @@ def test_tasks_create_many_ordered(tmp_path: Path) -> None:
     assert [row.run_id for row in listed] == ["r1", "r1", "r1"]
 
 
-def test_plan_command_writes_tasks(tmp_path: Path) -> None:
+def test_plan_command_writes_tasks(tmp_path: Path, monkeypatch) -> None:
     async def scenario():
         settings = _gateway_settings()
         state = await open_state_store(tmp_path / "state.db")
@@ -178,17 +182,15 @@ def test_plan_command_writes_tasks(tmp_path: Path) -> None:
         await state.runs.create(run_id="r1", prompt="start")
         app = ChatApp(settings=settings, state=state, session=session, events=events)
         try:
-            original = app.coordinator.submit_slash_run
 
             async def fake_submit_slash_run(**_kwargs):
                 return plan
 
-            app.coordinator.submit_slash_run = fake_submit_slash_run  # type: ignore[method-assign]
-            try:
-                dispatched = await app.commands.dispatch("plan", "build auth")
-                assert dispatched
-            finally:
-                app.coordinator.submit_slash_run = original  # type: ignore[method-assign]
+            monkeypatch.setattr(
+                app.coordinator, "submit_slash_run", fake_submit_slash_run
+            )
+            dispatched = await app.commands.dispatch("plan", "build auth")
+            assert dispatched
             tasks = await state.tasks.list_for_run("r1")
             return tasks, emitted, app.session.config.slash_mode
         finally:
@@ -212,7 +214,9 @@ def test_slash_run_filters_history(tmp_path: Path, monkeypatch) -> None:
             session.run_id = "r1"
             from jac.runtime.coordinator import RunCoordinator
 
-            coordinator = RunCoordinator(settings=settings, state=state, session=session)
+            coordinator = RunCoordinator(
+                settings=settings, state=state, session=session
+            )
             coordinator._run_persisted = True
 
             class FakeResult:

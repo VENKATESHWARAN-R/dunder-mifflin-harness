@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -29,6 +30,7 @@ def _run(coro):
 
 
 def _gateway_settings() -> Settings:
+    os.environ.setdefault("PYDANTIC_AI_GATEWAY_API_KEY", "test-gateway-key")
     return Settings(
         default_provider="gateway",
         model_tiers={

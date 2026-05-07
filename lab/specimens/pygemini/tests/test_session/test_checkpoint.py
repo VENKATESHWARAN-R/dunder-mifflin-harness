@@ -31,6 +31,7 @@ def project_root(tmp_path: Path) -> Path:
 def config(tmp_path: Path) -> Config:
     """Config with checkpointing enabled; sessions stored in tmp_path."""
     import os
+
     monkeypatch_env = {"PYGEMINI_HOME": str(tmp_path / "config")}
     original = {k: os.environ.get(k) for k in monkeypatch_env}
     for k, v in monkeypatch_env.items():
@@ -46,6 +47,7 @@ def config(tmp_path: Path) -> Config:
 @pytest.fixture
 def disabled_config(tmp_path: Path) -> Config:
     import os
+
     monkeypatch_env = {"PYGEMINI_HOME": str(tmp_path / "config")}
     original = {k: os.environ.get(k) for k in monkeypatch_env}
     for k, v in monkeypatch_env.items():
@@ -68,7 +70,9 @@ def disabled_manager(disabled_config: Config, project_root: Path) -> CheckpointM
     return CheckpointManager(disabled_config, project_root)
 
 
-def _fake_git_run(cmd: list[str], *, cwd: Path, check: bool = True, capture: bool = False):
+def _fake_git_run(
+    cmd: list[str], *, cwd: Path, check: bool = True, capture: bool = False
+):
     """Fake _git_run that simulates successful git operations."""
     result = MagicMock(spec=subprocess.CompletedProcess)
     result.returncode = 0
@@ -93,7 +97,9 @@ class TestIsEnabled:
     def test_enabled_when_config_true(self, manager: CheckpointManager) -> None:
         assert manager.is_enabled() is True
 
-    def test_disabled_when_config_false(self, disabled_manager: CheckpointManager) -> None:
+    def test_disabled_when_config_false(
+        self, disabled_manager: CheckpointManager
+    ) -> None:
         assert disabled_manager.is_enabled() is False
 
 
@@ -110,53 +116,41 @@ class TestCreate:
         assert result is None
 
     def test_create_returns_checkpoint_info(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {"path": "/foo.py"}, [])
 
         assert isinstance(info, CheckpointInfo)
 
     def test_create_sets_tool_name(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {"path": "/foo.py"}, [])
 
         assert info is not None
         assert info.tool_name == "write_file"
 
     def test_create_sets_tool_args(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("edit_file", {"path": "/bar.py"}, [])
 
         assert info is not None
         assert info.tool_args == {"path": "/bar.py"}
 
     def test_create_sets_checkpoint_id(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {}, [])
 
         assert info is not None
         assert len(info.checkpoint_id) > 0
 
     def test_create_sets_created_at(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {}, [])
 
         assert info is not None
         assert "T" in info.created_at  # ISO 8601
 
     def test_create_saves_metadata_to_disk(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {}, [{"role": "user", "parts": []}])
 
         assert info is not None
@@ -165,9 +159,7 @@ class TestCreate:
 
     def test_create_saves_history_snapshot(self, manager: CheckpointManager) -> None:
         history_snapshot = [{"role": "user", "parts": [{"text": "hello"}]}]
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {}, history_snapshot)
 
         assert info is not None
@@ -198,9 +190,7 @@ class TestListCheckpoints:
         assert manager.list_checkpoints() == []
 
     def test_lists_created_checkpoints(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             manager.create("write_file", {"path": "/a.py"}, [])
             manager.create("edit_file", {"path": "/b.py"}, [])
 
@@ -210,9 +200,7 @@ class TestListCheckpoints:
     def test_checkpoints_sorted_newest_first(self, manager: CheckpointManager) -> None:
         import time
 
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             manager.create("write_file", {"path": "/first.py"}, [])
             time.sleep(0.01)
             manager.create("write_file", {"path": "/second.py"}, [])
@@ -222,9 +210,7 @@ class TestListCheckpoints:
         assert checkpoints[0].tool_args == {"path": "/second.py"}
 
     def test_returns_checkpoint_info_objects(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             manager.create("write_file", {}, [])
 
         checkpoints = manager.list_checkpoints()
@@ -245,9 +231,7 @@ class TestRestore:
 
     def test_restore_returns_tuple(self, manager: CheckpointManager) -> None:
         history_snapshot = [{"role": "user", "parts": [{"text": "hello"}]}]
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {"path": "/test.py"}, history_snapshot)
 
         assert info is not None
@@ -270,9 +254,7 @@ class TestRestore:
 
     def test_restore_returns_correct_history(self, manager: CheckpointManager) -> None:
         history_snapshot = [{"role": "user", "parts": [{"text": "remember me"}]}]
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {}, history_snapshot)
 
         assert info is not None
@@ -292,9 +274,7 @@ class TestRestore:
         assert history == history_snapshot
 
     def test_restore_returns_tool_call_info(self, manager: CheckpointManager) -> None:
-        with patch.object(
-            CheckpointManager, "_git_run", side_effect=_fake_git_run
-        ):
+        with patch.object(CheckpointManager, "_git_run", side_effect=_fake_git_run):
             info = manager.create("write_file", {"path": "/x.py"}, [])
 
         assert info is not None

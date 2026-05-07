@@ -112,19 +112,20 @@ class InputSession:
             mode = str(getattr(config, "mode", "autopilot"))
             approval = str(getattr(config, "approval_mode", "interactive"))
             return (
-                f" model: {model}"
-                f" · tier: {tier}"
-                f" · mode: {mode}"
-                f" · approval: {approval}"
+                f" model: {model} · tier: {tier} · mode: {mode} · approval: {approval}"
             )
 
-        placeholder = FormattedText([("class:placeholder", "  (esc+enter for newline)")])
+        placeholder = FormattedText(
+            [("class:placeholder", "  (esc+enter for newline)")]
+        )
 
         self._session: PromptSession[str] = PromptSession(
             history=DedupFileHistory(str(history_path)),
             key_bindings=_key_bindings(),
             multiline=False,
-            style=Style.from_dict({"prompt": "bold green", "placeholder": "italic dim"}),
+            style=Style.from_dict(
+                {"prompt": "bold green", "placeholder": "italic dim"}
+            ),
             completer=completer,
             complete_while_typing=False,
             bottom_toolbar=_toolbar if session_config_source else None,

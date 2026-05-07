@@ -35,7 +35,9 @@ class TestMetadata:
         assert tool.name == "read_many_files"
 
     def test_description_mentions_multiple(self, tool: ReadManyFilesTool) -> None:
-        assert "multiple" in tool.description.lower() or "many" in tool.description.lower()
+        assert (
+            "multiple" in tool.description.lower() or "many" in tool.description.lower()
+        )
 
     def test_description_mentions_line_numbers(self, tool: ReadManyFilesTool) -> None:
         assert "line numbers" in tool.description.lower()
@@ -104,7 +106,9 @@ class TestGetDescription:
         desc = tool.get_description({"paths": ["/a.py", "/b.py", "/c.py"]})
         assert "3" in desc
 
-    def test_multiple_files_shows_first_filenames(self, tool: ReadManyFilesTool) -> None:
+    def test_multiple_files_shows_first_filenames(
+        self, tool: ReadManyFilesTool
+    ) -> None:
         desc = tool.get_description({"paths": ["/a.py", "/b.py", "/c.py"]})
         assert "a.py" in desc
         assert "b.py" in desc
@@ -244,7 +248,9 @@ class TestExecutePartialFailure:
 
         result = await tool.execute({"paths": [str(missing), str(good)]})
 
-        assert "not found" in result.llm_content.lower() or "Error" in result.llm_content
+        assert (
+            "not found" in result.llm_content.lower() or "Error" in result.llm_content
+        )
 
     async def test_binary_file_error_in_output(
         self, tool: ReadManyFilesTool, tmp_path: Path

@@ -21,6 +21,7 @@ jac = "jac.cli.main:main"
 [dependency-groups]
 dev = [
     "ipykernel>=7.2.0",
+    "pre-commit>=4.3.0",
     "pytest>=9.0.2",
 ]
 

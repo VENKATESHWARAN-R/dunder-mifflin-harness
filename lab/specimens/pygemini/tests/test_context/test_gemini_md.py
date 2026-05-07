@@ -49,7 +49,9 @@ class TestContextFile:
 class TestDiscover:
     """discover() should find GEMINI.md files at the right hierarchy levels."""
 
-    def test_global_file_found(self, discovery: GeminiMDDiscovery, tmp_path: Path) -> None:
+    def test_global_file_found(
+        self, discovery: GeminiMDDiscovery, tmp_path: Path
+    ) -> None:
         """Config-dir GEMINI.md should appear as the first result."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -65,7 +67,9 @@ class TestDiscover:
         assert any("global" in o for o in origins)
         assert files[0].content == "global context"
 
-    def test_project_root_file_found(self, discovery: GeminiMDDiscovery, tmp_path: Path) -> None:
+    def test_project_root_file_found(
+        self, discovery: GeminiMDDiscovery, tmp_path: Path
+    ) -> None:
         """GEMINI.md at the project root (marked by pyproject.toml) should be discovered."""
         project = tmp_path / "project"
         project.mkdir()
@@ -94,7 +98,9 @@ class TestDiscover:
 
         assert any("subdir context" in f.content for f in files)
 
-    def test_hierarchical_order(self, discovery: GeminiMDDiscovery, tmp_path: Path) -> None:
+    def test_hierarchical_order(
+        self, discovery: GeminiMDDiscovery, tmp_path: Path
+    ) -> None:
         """Global file appears first; project-root file before cwd file."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -152,7 +158,9 @@ class TestDiscover:
 class TestProcessImports:
     """process_imports() should resolve @import directives."""
 
-    def test_import_resolved(self, discovery: GeminiMDDiscovery, tmp_path: Path) -> None:
+    def test_import_resolved(
+        self, discovery: GeminiMDDiscovery, tmp_path: Path
+    ) -> None:
         """An @import directive should be replaced by the file's contents."""
         imported = tmp_path / "extra.md"
         imported.write_text("imported content", encoding="utf-8")
@@ -219,20 +227,26 @@ class TestProcessImports:
 class TestConcatenate:
     """concatenate() should join files with section headers."""
 
-    def test_empty_list_returns_empty_string(self, discovery: GeminiMDDiscovery) -> None:
+    def test_empty_list_returns_empty_string(
+        self, discovery: GeminiMDDiscovery
+    ) -> None:
         assert discovery.concatenate([]) == ""
 
     def test_single_file_contains_content(
         self, discovery: GeminiMDDiscovery, tmp_path: Path
     ) -> None:
-        ctx = ContextFile(path=tmp_path / "GEMINI.md", content="hello world", origin="test")
+        ctx = ContextFile(
+            path=tmp_path / "GEMINI.md", content="hello world", origin="test"
+        )
         result = discovery.concatenate([ctx])
         assert "hello world" in result
 
     def test_single_file_has_header_and_footer(
         self, discovery: GeminiMDDiscovery, tmp_path: Path
     ) -> None:
-        ctx = ContextFile(path=tmp_path / "GEMINI.md", content="content", origin="my-origin")
+        ctx = ContextFile(
+            path=tmp_path / "GEMINI.md", content="content", origin="my-origin"
+        )
         result = discovery.concatenate([ctx])
         assert "my-origin" in result
         assert "---" in result

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any, cast
 
 from jac.tools.filesystem import (
     edit_file,
@@ -224,28 +225,31 @@ def test_grep_files_max_matches_cap(tmp_path: Path) -> None:
 
 
 def test_read_file_approval_is_read_only() -> None:
-    assert read_file.approval.risk_level == RiskLevel.READ_ONLY
-    assert read_file.approval.category == "file_read"
-    assert read_file.approval.reversible
+    approval = cast(Any, read_file).approval
+    assert approval.risk_level == RiskLevel.READ_ONLY
+    assert approval.category == "file_read"
+    assert approval.reversible
 
 
 def test_write_file_approval_is_low_risk() -> None:
-    assert write_file.approval.risk_level == RiskLevel.LOW
-    assert write_file.approval.category == "file_write"
+    approval = cast(Any, write_file).approval
+    assert approval.risk_level == RiskLevel.LOW
+    assert approval.category == "file_write"
 
 
 def test_edit_file_approval_is_low_risk() -> None:
-    assert edit_file.approval.risk_level == RiskLevel.LOW
-    assert edit_file.approval.category == "file_write"
+    approval = cast(Any, edit_file).approval
+    assert approval.risk_level == RiskLevel.LOW
+    assert approval.category == "file_write"
 
 
 def test_list_directory_approval_is_read_only() -> None:
-    assert list_directory.approval.risk_level == RiskLevel.READ_ONLY
+    assert cast(Any, list_directory).approval.risk_level == RiskLevel.READ_ONLY
 
 
 def test_search_files_approval_is_read_only() -> None:
-    assert search_files.approval.risk_level == RiskLevel.READ_ONLY
+    assert cast(Any, search_files).approval.risk_level == RiskLevel.READ_ONLY
 
 
 def test_grep_files_approval_is_read_only() -> None:
-    assert grep_files.approval.risk_level == RiskLevel.READ_ONLY
+    assert cast(Any, grep_files).approval.risk_level == RiskLevel.READ_ONLY

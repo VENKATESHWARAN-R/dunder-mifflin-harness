@@ -35,6 +35,7 @@ from pydantic_graph import End
 # Health signal
 # ---------------------------------------------------------------------------
 
+
 class HealthStatus(Enum):
     OK = auto()
     # Soft signal: something looks off but the agent can still self-correct.
@@ -49,6 +50,7 @@ class HealthStatus(Enum):
 # ---------------------------------------------------------------------------
 # Per-step and cumulative metrics
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class StepMetrics:
@@ -69,6 +71,7 @@ class ObserverState:
     never touches what the agent sees except at the explicit injection point
     in ModelRequestNode.
     """
+
     steps: list[StepMetrics] = field(default_factory=list)
     total_input_tokens: int = 0
     total_output_tokens: int = 0
@@ -120,6 +123,7 @@ _VERBOSITY_SPIKE_MULTIPLIER = 3.0
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _fingerprint(tool_name: str, args: str | dict[str, Any] | None) -> str:
     """
     Stable short hash of a (tool_name, args) pair for loop detection.
@@ -169,15 +173,24 @@ def _classify(state: ObserverState) -> tuple[HealthStatus, str]:
     # --- Hard limits (CRITICAL) ---
 
     if state.step_count >= _MAX_STEPS:
-        return HealthStatus.CRITICAL, f"step ceiling hit ({state.step_count}/{_MAX_STEPS})"
+        return (
+            HealthStatus.CRITICAL,
+            f"step ceiling hit ({state.step_count}/{_MAX_STEPS})",
+        )
 
     if state.total_tokens >= _MAX_TOKENS:
-        return HealthStatus.CRITICAL, f"token budget exhausted ({state.total_tokens:,}/{_MAX_TOKENS:,})"
+        return (
+            HealthStatus.CRITICAL,
+            f"token budget exhausted ({state.total_tokens:,}/{_MAX_TOKENS:,})",
+        )
 
     if state.all_tool_fingerprints:
         top_fp, top_count = Counter(state.all_tool_fingerprints).most_common(1)[0]
         if top_count >= _LOOP_REPEAT_THRESHOLD:
-            return HealthStatus.CRITICAL, f"tool call loop: same call repeated {top_count}× ({top_fp})"
+            return (
+                HealthStatus.CRITICAL,
+                f"tool call loop: same call repeated {top_count}× ({top_fp})",
+            )
 
     # Two ignored steerings means the agent is not self-correcting.
     # Hand off to Architect rather than keep burning budget.
@@ -187,16 +200,24 @@ def _classify(state: ObserverState) -> tuple[HealthStatus, str]:
     # --- Soft limits (WARNING) ---
 
     if state.step_count >= _WARN_STEPS:
-        return HealthStatus.WARNING, f"approaching step ceiling ({state.step_count}/{_MAX_STEPS})"
+        return (
+            HealthStatus.WARNING,
+            f"approaching step ceiling ({state.step_count}/{_MAX_STEPS})",
+        )
 
     if state.total_tokens >= _WARN_TOKENS:
-        return HealthStatus.WARNING, f"approaching token budget ({state.total_tokens:,}/{_MAX_TOKENS:,})"
+        return (
+            HealthStatus.WARNING,
+            f"approaching token budget ({state.total_tokens:,}/{_MAX_TOKENS:,})",
+        )
 
     # Output verbosity spike — model generating padding, often precedes hallucination.
     # Only meaningful after we have a few steps to establish a baseline.
     if state.step_count >= 3:
         recent_out = state.steps[-1].output_tokens
-        prior_mean = sum(s.output_tokens for s in state.steps[:-1]) / (state.step_count - 1)
+        prior_mean = sum(s.output_tokens for s in state.steps[:-1]) / (
+            state.step_count - 1
+        )
         if prior_mean > 0 and recent_out > prior_mean * _VERBOSITY_SPIKE_MULTIPLIER:
             return (
                 HealthStatus.WARNING,
@@ -228,6 +249,7 @@ def _build_steering(reason: str, step: int) -> SystemPromptPart:
 # ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class WorkerRunResult:
@@ -278,7 +300,6 @@ async def run_worker(
         node = agent_run.next_node
 
         while not isinstance(node, End):
-
             # ── ModelRequestNode: before model call ───────────────────────────
             # This is our injection window. The request has been assembled but
             # not yet sent to the model. Appending to node.request.parts here
@@ -314,7 +335,9 @@ async def run_worker(
             node = await agent_run.next(node)
 
         if isinstance(node, End):
-            final_output = node.data.output if hasattr(node.data, "output") else node.data
+            final_output = (
+                node.data.output if hasattr(node.data, "output") else node.data
+            )
 
     completed = abort_reason is None
     return WorkerRunResult(

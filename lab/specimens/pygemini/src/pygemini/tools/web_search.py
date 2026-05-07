@@ -145,6 +145,7 @@ class WebSearchTool(BaseTool):
 # Grounding metadata parser
 # ---------------------------------------------------------------------------
 
+
 def _parse_grounding_metadata(response: Any) -> list[dict[str, str]]:
     """Extract search results from a grounded Gemini response.
 

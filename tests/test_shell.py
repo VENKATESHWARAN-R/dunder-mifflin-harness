@@ -1,6 +1,7 @@
 import asyncio
 import time
 from pathlib import Path
+from typing import Any, cast
 
 from jac.tools.shell import (
     PROCESS_REGISTRY,
@@ -102,21 +103,25 @@ def test_read_process_output_not_found() -> None:
 
 
 def test_run_shell_approval_is_high_risk() -> None:
-    assert run_shell.approval.risk_level == RiskLevel.HIGH
-    assert run_shell.approval.category == "shell"
-    assert not run_shell.approval.reversible
+    approval = cast(Any, run_shell).approval
+    assert approval.risk_level == RiskLevel.HIGH
+    assert approval.category == "shell"
+    assert not approval.reversible
 
 
 def test_run_shell_background_approval_is_high_risk() -> None:
-    assert run_shell_background.approval.risk_level == RiskLevel.HIGH
-    assert not run_shell_background.approval.reversible
+    approval = cast(Any, run_shell_background).approval
+    assert approval.risk_level == RiskLevel.HIGH
+    assert not approval.reversible
 
 
 def test_list_processes_approval_is_read_only() -> None:
-    assert list_processes.approval.risk_level == RiskLevel.READ_ONLY
-    assert list_processes.approval.reversible
+    approval = cast(Any, list_processes).approval
+    assert approval.risk_level == RiskLevel.READ_ONLY
+    assert approval.reversible
 
 
 def test_read_process_output_approval_is_read_only() -> None:
-    assert read_process_output.approval.risk_level == RiskLevel.READ_ONLY
-    assert read_process_output.approval.reversible
+    approval = cast(Any, read_process_output).approval
+    assert approval.risk_level == RiskLevel.READ_ONLY
+    assert approval.reversible

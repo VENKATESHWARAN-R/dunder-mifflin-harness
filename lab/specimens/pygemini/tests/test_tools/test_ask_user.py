@@ -55,10 +55,14 @@ class TestMetadata:
     def test_parameter_schema_has_question(self, tool_approved: AskUserTool) -> None:
         assert "question" in tool_approved.parameter_schema["properties"]
 
-    def test_parameter_schema_requires_question(self, tool_approved: AskUserTool) -> None:
+    def test_parameter_schema_requires_question(
+        self, tool_approved: AskUserTool
+    ) -> None:
         assert "question" in tool_approved.parameter_schema["required"]
 
-    def test_to_function_declaration_structure(self, tool_approved: AskUserTool) -> None:
+    def test_to_function_declaration_structure(
+        self, tool_approved: AskUserTool
+    ) -> None:
         decl = tool_approved.to_function_declaration()
         assert decl["name"] == "ask_user"
         assert "description" in decl
@@ -119,7 +123,9 @@ class TestGetDescription:
         assert "..." not in desc
         assert short_q in desc
 
-    def test_missing_question_uses_placeholder(self, tool_approved: AskUserTool) -> None:
+    def test_missing_question_uses_placeholder(
+        self, tool_approved: AskUserTool
+    ) -> None:
         desc = tool_approved.get_description({})
         assert "?" in desc
 
@@ -166,7 +172,9 @@ class TestExecute:
         tool_approved._event_emitter.request_confirmation.assert_called_once()
         call_kwargs = tool_approved._event_emitter.request_confirmation.call_args
         # description should contain the question
-        assert question in (call_kwargs.kwargs.get("description") or call_kwargs.args[0])
+        assert question in (
+            call_kwargs.kwargs.get("description") or call_kwargs.args[0]
+        )
 
     async def test_display_content_shows_question(
         self, tool_approved: AskUserTool

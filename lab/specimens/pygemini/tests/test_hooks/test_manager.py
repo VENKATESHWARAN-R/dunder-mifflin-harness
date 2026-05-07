@@ -273,7 +273,9 @@ class TestExecuteHook:
         with patch("asyncio.create_subprocess_shell", side_effect=fake_subprocess):
             mgr = _make_manager()
             hook_config = HookConfig(command="cat", timeout=5)
-            await mgr._execute_hook(hook_config, HookEvent.SESSION_START, {"key": "val"})
+            await mgr._execute_hook(
+                hook_config, HookEvent.SESSION_START, {"key": "val"}
+            )
 
         payload = json.loads(received[0])
         assert payload["event"] == "session_start"

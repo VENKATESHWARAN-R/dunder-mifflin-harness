@@ -109,7 +109,12 @@ class Renderer:
             for key, value in event.details.items():
                 if key == "preview":
                     self._console.print(
-                        Panel(str(value), title="Preview", border_style="dim", expand=False)
+                        Panel(
+                            str(value),
+                            title="Preview",
+                            border_style="dim",
+                            expand=False,
+                        )
                     )
                 else:
                     self._console.print(f"  [dim]{key}:[/dim] {value}")
@@ -138,8 +143,12 @@ class Renderer:
 
     def print_info(self, message: str) -> None:
         """Print an informational message."""
-        self._console.print(f"[{self._theme.info_color}]{message}[/{self._theme.info_color}]")
+        self._console.print(
+            f"[{self._theme.info_color}]{message}[/{self._theme.info_color}]"
+        )
 
     def print_error(self, message: str) -> None:
         """Print an error message."""
-        self._console.print(f"[{self._theme.error_color}]{message}[/{self._theme.error_color}]")
+        self._console.print(
+            f"[{self._theme.error_color}]{message}[/{self._theme.error_color}]"
+        )

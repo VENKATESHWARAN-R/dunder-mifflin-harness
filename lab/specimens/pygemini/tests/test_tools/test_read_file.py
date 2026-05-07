@@ -48,7 +48,9 @@ class TestReadFileMetadata:
         assert "limit" in decl["parameters"]["properties"]
         assert decl["parameters"]["required"] == ["path"]
 
-    def test_to_function_declaration_offset_is_integer(self, tool: ReadFileTool) -> None:
+    def test_to_function_declaration_offset_is_integer(
+        self, tool: ReadFileTool
+    ) -> None:
         decl = tool.to_function_declaration()
         assert decl["parameters"]["properties"]["offset"]["type"] == "integer"
 
@@ -158,7 +160,9 @@ class TestExecuteReadValidFile:
         assert "line two" in result.llm_content
         assert "line three" in result.llm_content
 
-    async def test_line_numbers_present(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_line_numbers_present(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "numbered.txt"
         f.write_text("alpha\nbeta\ngamma\n")
 
@@ -169,7 +173,9 @@ class TestExecuteReadValidFile:
         assert "2" in result.llm_content
         assert "3" in result.llm_content
 
-    async def test_result_header_contains_filename(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_result_header_contains_filename(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "myfile.py"
         f.write_text("x = 1\n")
 
@@ -177,7 +183,9 @@ class TestExecuteReadValidFile:
 
         assert "myfile.py" in result.llm_content
 
-    async def test_result_header_contains_line_count(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_result_header_contains_line_count(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "counted.txt"
         f.write_text("a\nb\nc\n")
 
@@ -185,7 +193,9 @@ class TestExecuteReadValidFile:
 
         assert "3 lines" in result.llm_content
 
-    async def test_display_content_populated(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_display_content_populated(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "disp.txt"
         f.write_text("hello\n")
 
@@ -202,7 +212,9 @@ class TestExecuteReadValidFile:
 class TestExecuteOffsetLimit:
     """execute should slice lines correctly using offset and limit."""
 
-    async def test_offset_skips_leading_lines(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_offset_skips_leading_lines(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "offset.txt"
         f.write_text("line1\nline2\nline3\nline4\n")
 
@@ -223,7 +235,9 @@ class TestExecuteOffsetLimit:
         assert "beta" in result.llm_content
         assert "gamma" not in result.llm_content
 
-    async def test_offset_and_limit_combined(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_offset_and_limit_combined(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "slice.txt"
         lines = [f"line{i}" for i in range(1, 11)]
         f.write_text("\n".join(lines) + "\n")
@@ -236,7 +250,9 @@ class TestExecuteOffsetLimit:
         assert "line1" not in result.llm_content
         assert "line6" not in result.llm_content
 
-    async def test_header_shows_range_when_sliced(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_header_shows_range_when_sliced(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "range.txt"
         f.write_text("a\nb\nc\nd\ne\n")
 
@@ -245,7 +261,9 @@ class TestExecuteOffsetLimit:
         # Header should indicate partial view
         assert "showing lines" in result.llm_content
 
-    async def test_no_range_annotation_when_reading_all(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_no_range_annotation_when_reading_all(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "all.txt"
         f.write_text("only\nthis\n")
 
@@ -253,7 +271,9 @@ class TestExecuteOffsetLimit:
 
         assert "showing lines" not in result.llm_content
 
-    async def test_offset_beyond_file_returns_empty_content(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_offset_beyond_file_returns_empty_content(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         f = tmp_path / "short.txt"
         f.write_text("just one line\n")
 
@@ -279,22 +299,33 @@ class TestExecuteErrors:
 
         assert isinstance(result, ToolResult)
         assert result.is_error
-        assert "not found" in result.llm_content.lower() or "Error" in result.llm_content
+        assert (
+            "not found" in result.llm_content.lower() or "Error" in result.llm_content
+        )
 
-    async def test_file_not_found_llm_content_mentions_path(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_file_not_found_llm_content_mentions_path(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         missing = tmp_path / "ghost.txt"
 
         result = await tool.execute({"path": str(missing)})
 
         assert str(missing) in result.llm_content
 
-    async def test_directory_instead_of_file(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_directory_instead_of_file(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         result = await tool.execute({"path": str(tmp_path)})
 
         assert result.is_error
-        assert "not a file" in result.llm_content.lower() or "Not a file" in result.llm_content
+        assert (
+            "not a file" in result.llm_content.lower()
+            or "Not a file" in result.llm_content
+        )
 
-    async def test_binary_file_detection(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_binary_file_detection(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         binary_file = tmp_path / "data.bin"
         # Write bytes that are invalid UTF-8
         binary_file.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\xff\xfe")
@@ -329,7 +360,9 @@ class TestExecuteErrors:
 
 
 class TestAbortSignal:
-    async def test_execute_with_abort_signal_set(self, tool: ReadFileTool, tmp_path: Path) -> None:
+    async def test_execute_with_abort_signal_set(
+        self, tool: ReadFileTool, tmp_path: Path
+    ) -> None:
         import asyncio
 
         f = tmp_path / "abort.txt"

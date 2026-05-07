@@ -234,9 +234,7 @@ class PolicyEngine:
     # -- matching -----------------------------------------------------------
 
     @staticmethod
-    def _matches(
-        rule: PolicyRule, tool_name: str, params: dict[str, object]
-    ) -> bool:
+    def _matches(rule: PolicyRule, tool_name: str, params: dict[str, object]) -> bool:
         """Return ``True`` if *rule* matches the given tool call."""
         # 1. Tool name must match (always required).
         if not fnmatch.fnmatch(tool_name, rule.tool_pattern):

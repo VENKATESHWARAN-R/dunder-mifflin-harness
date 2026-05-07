@@ -7,7 +7,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-from pygemini.cli.input import expand_file_references, expand_shell_commands, process_input
+from pygemini.cli.input import (
+    expand_file_references,
+    expand_shell_commands,
+    process_input,
+)
 
 
 # ---------------------------------------------------------------------------

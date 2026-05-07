@@ -265,6 +265,7 @@ async def _run_resume(
     if run_id is None:
         workspace = discover_workspace(Path.cwd())
         from jac.state import open_state_store
+
         state = await open_state_store(workspace.state_db_path)
         try:
             recent = await state.runs.list_recent(limit=1)

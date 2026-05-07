@@ -19,7 +19,9 @@ class MemoryStore:
     DEFAULT_PATH = Path.home() / ".pygemini" / "memory.json"
 
     def __init__(self, storage_path: Path | None = None) -> None:
-        self._path: Path = storage_path if storage_path is not None else self.DEFAULT_PATH
+        self._path: Path = (
+            storage_path if storage_path is not None else self.DEFAULT_PATH
+        )
 
     # ------------------------------------------------------------------
     # Public API

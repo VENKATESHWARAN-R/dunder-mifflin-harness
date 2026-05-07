@@ -42,9 +42,7 @@ class ToolRegistry:
             ValueError: If a tool with the same name is already registered.
         """
         if tool.name in self._tools:
-            raise ValueError(
-                f"Tool '{tool.name}' is already registered"
-            )
+            raise ValueError(f"Tool '{tool.name}' is already registered")
         self._tools[tool.name] = tool
         logger.debug("Registered tool: %s", tool.name)
 
@@ -77,9 +75,7 @@ class ToolRegistry:
         """Return function declarations for every registered tool."""
         return [tool.to_function_declaration() for tool in self._tools.values()]
 
-    def get_filtered_declarations(
-        self, exclude: set[str] | None = None
-    ) -> list[dict]:
+    def get_filtered_declarations(self, exclude: set[str] | None = None) -> list[dict]:
         """Return function declarations filtered by config and *exclude*.
 
         Filtering logic (applied in order):

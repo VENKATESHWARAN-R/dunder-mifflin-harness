@@ -88,26 +88,36 @@ class TestListThenRead:
         test_file = tmp_path / "hello.txt"
         test_file.write_text("Hello from the file!\n", encoding="utf-8")
 
-        mock_gen = MockContentGenerator([
-            # Turn 1: list the directory
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="list_directory",
-                    args={"path": str(tmp_path)},
-                    id="fc1",
-                ),
-            ])],
-            # Turn 2: read one of the listed files
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="read_file",
-                    args={"path": str(test_file)},
-                    id="fc2",
-                ),
-            ])],
-            # Turn 3: final text summary
-            [StreamChunk(text="Here are the contents")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: list the directory
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="list_directory",
+                                args={"path": str(tmp_path)},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: read one of the listed files
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="read_file",
+                                args={"path": str(test_file)},
+                                id="fc2",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 3: final text summary
+                [StreamChunk(text="Here are the contents")],
+            ]
+        )
 
         loop, emitter, history, _ = _make_real_loop(mock_gen, tmp_path)
 
@@ -153,38 +163,52 @@ class TestEditFileFlow:
         test_file = tmp_path / "source.py"
         test_file.write_text("x = 1\ny = 2\n", encoding="utf-8")
 
-        mock_gen = MockContentGenerator([
-            # Turn 1: read the file
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="read_file",
-                    args={"path": str(test_file)},
-                    id="fc1",
-                ),
-            ])],
-            # Turn 2: edit — replace "x = 1" with "x = 42"
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="edit_file",
-                    args={
-                        "path": str(test_file),
-                        "old_string": "x = 1",
-                        "new_string": "x = 42",
-                    },
-                    id="fc2",
-                ),
-            ])],
-            # Turn 3: read again to verify
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="read_file",
-                    args={"path": str(test_file)},
-                    id="fc3",
-                ),
-            ])],
-            # Turn 4: final summary
-            [StreamChunk(text="File updated successfully.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: read the file
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="read_file",
+                                args={"path": str(test_file)},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: edit — replace "x = 1" with "x = 42"
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="edit_file",
+                                args={
+                                    "path": str(test_file),
+                                    "old_string": "x = 1",
+                                    "new_string": "x = 42",
+                                },
+                                id="fc2",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 3: read again to verify
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="read_file",
+                                args={"path": str(test_file)},
+                                id="fc3",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 4: final summary
+                [StreamChunk(text="File updated successfully.")],
+            ]
+        )
 
         loop, emitter, history, _ = _make_real_loop(mock_gen, tmp_path)
 
@@ -229,18 +253,24 @@ class TestShellCommand:
     """Shell execution: run_shell_command with auto-approval."""
 
     async def test_shell_command(self, tmp_path: Path) -> None:
-        mock_gen = MockContentGenerator([
-            # Turn 1: run echo
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="run_shell_command",
-                    args={"command": 'echo "hello world"'},
-                    id="fc1",
-                ),
-            ])],
-            # Turn 2: summarise
-            [StreamChunk(text="The command printed: hello world")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: run echo
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="run_shell_command",
+                                args={"command": 'echo "hello world"'},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: summarise
+                [StreamChunk(text="The command printed: hello world")],
+            ]
+        )
 
         loop, emitter, history, _ = _make_real_loop(mock_gen, tmp_path)
 
@@ -277,7 +307,9 @@ class TestShellCommand:
                     shell_result_content = str(part.function_response.response)
                     break
 
-        assert shell_result_content is not None, "Shell function response not found in history"
+        assert shell_result_content is not None, (
+            "Shell function response not found in history"
+        )
         assert "hello world" in shell_result_content
         assert "0" in shell_result_content  # exit code 0
 
@@ -288,18 +320,24 @@ class TestMemorySaveAndStore:
     async def test_memory_save_and_store(self, tmp_path: Path) -> None:
         memory_content = "The user prefers dark mode"
 
-        mock_gen = MockContentGenerator([
-            # Turn 1: save a memory
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="save_memory",
-                    args={"content": memory_content},
-                    id="fc1",
-                ),
-            ])],
-            # Turn 2: confirm
-            [StreamChunk(text="I'll remember that you prefer dark mode.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: save a memory
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="save_memory",
+                                args={"content": memory_content},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: confirm
+                [StreamChunk(text="I'll remember that you prefer dark mode.")],
+            ]
+        )
 
         loop, emitter, history, memory_store = _make_real_loop(mock_gen, tmp_path)
 
@@ -329,23 +367,29 @@ class TestMultiToolSingleTurn:
         file_a = tmp_path / "a.txt"
         file_a.write_text("Content of A\n", encoding="utf-8")
 
-        mock_gen = MockContentGenerator([
-            # Turn 1: two function calls in one chunk
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="list_directory",
-                    args={"path": str(tmp_path)},
-                    id="fc1",
-                ),
-                FunctionCallData(
-                    name="read_file",
-                    args={"path": str(file_a)},
-                    id="fc2",
-                ),
-            ])],
-            # Turn 2: final text
-            [StreamChunk(text="Processed both results.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: two function calls in one chunk
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="list_directory",
+                                args={"path": str(tmp_path)},
+                                id="fc1",
+                            ),
+                            FunctionCallData(
+                                name="read_file",
+                                args={"path": str(file_a)},
+                                id="fc2",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: final text
+                [StreamChunk(text="Processed both results.")],
+            ]
+        )
 
         loop, emitter, history, _ = _make_real_loop(mock_gen, tmp_path)
 
@@ -378,18 +422,28 @@ class TestToolErrorHandling:
     async def test_tool_error_handling(self, tmp_path: Path) -> None:
         nonexistent = tmp_path / "does_not_exist.txt"
 
-        mock_gen = MockContentGenerator([
-            # Turn 1: read a file that doesn't exist
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="read_file",
-                    args={"path": str(nonexistent)},
-                    id="fc1",
-                ),
-            ])],
-            # Turn 2: model acknowledges the error
-            [StreamChunk(text="I couldn't read that file because it doesn't exist.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: read a file that doesn't exist
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="read_file",
+                                args={"path": str(nonexistent)},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: model acknowledges the error
+                [
+                    StreamChunk(
+                        text="I couldn't read that file because it doesn't exist."
+                    )
+                ],
+            ]
+        )
 
         loop, emitter, history, _ = _make_real_loop(mock_gen, tmp_path)
 
@@ -424,9 +478,14 @@ class TestToolErrorHandling:
                     fn_response_content = str(part.function_response.response)
                     break
 
-        assert fn_response_content is not None, "read_file response not found in history"
+        assert fn_response_content is not None, (
+            "read_file response not found in history"
+        )
         # The error message should mention the file not being found
-        assert "not found" in fn_response_content.lower() or "error" in fn_response_content.lower()
+        assert (
+            "not found" in fn_response_content.lower()
+            or "error" in fn_response_content.lower()
+        )
 
         # Loop completed normally — TURN_COMPLETE should have been emitted
         # (verified implicitly: if loop had raised we'd have failed above)

@@ -167,14 +167,20 @@ class TestMCPClient:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         """If MCP is not installed but servers are configured → warn + empty list."""
-        servers = {"myserver": MCPServerConfig(command="npx", args=["-y", "some-server"])}
+        servers = {
+            "myserver": MCPServerConfig(command="npx", args=["-y", "some-server"])
+        }
         client = _make_client(servers=servers)
         with patch("pygemini.mcp.client.MCP_AVAILABLE", False):
             import logging
+
             with caplog.at_level(logging.WARNING, logger="pygemini.mcp.client"):
                 tools = await client.connect_all()
         assert tools == []
-        assert any("mcp" in r.message.lower() or "install" in r.message.lower() for r in caplog.records)
+        assert any(
+            "mcp" in r.message.lower() or "install" in r.message.lower()
+            for r in caplog.records
+        )
 
     async def test_connect_all_aggregates_tools_from_multiple_servers(self) -> None:
         """connect_all() should call connect_server for each configured server."""
@@ -221,6 +227,7 @@ class TestMCPClient:
         with patch("pygemini.mcp.client.MCP_AVAILABLE", True):
             client.connect_server = fake_connect_server  # type: ignore[method-assign]
             import logging
+
             with caplog.at_level(logging.ERROR, logger="pygemini.mcp.client"):
                 tools = await client.connect_all()
 

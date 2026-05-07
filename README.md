@@ -199,6 +199,9 @@ confirmation); approval policy applies to agent-requested tool calls.
 just lint
 just format
 just typecheck
+just qa          # lint + typecheck + full test suite
+just precommit-install
+just precommit-run
 just fix         # lint + format with auto-fix
 just clean       # nuke caches and build artifacts
 ```

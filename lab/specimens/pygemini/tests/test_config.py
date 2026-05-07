@@ -31,7 +31,12 @@ from pygemini.core.config import (
 
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Remove all env vars that influence load_config."""
-    for var in ("GEMINI_API_KEY", "PYGEMINI_MODEL", "PYGEMINI_SANDBOX", "PYGEMINI_APPROVAL_MODE"):
+    for var in (
+        "GEMINI_API_KEY",
+        "PYGEMINI_MODEL",
+        "PYGEMINI_SANDBOX",
+        "PYGEMINI_APPROVAL_MODE",
+    ):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -158,7 +163,9 @@ class TestConfigDir:
         monkeypatch.delenv("PYGEMINI_HOME", raising=False)
         assert Config().config_dir == Path("~/.pygemini").expanduser()
 
-    def test_respects_pygemini_home(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_respects_pygemini_home(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         custom = tmp_path / "custom_home"
         monkeypatch.setenv("PYGEMINI_HOME", str(custom))
         assert Config().config_dir == custom
@@ -174,18 +181,24 @@ class TestConfigDir:
 
 
 class TestEnsureConfigDir:
-    def test_creates_directory(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_creates_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         target = tmp_path / "new_dir"
         monkeypatch.setenv("PYGEMINI_HOME", str(target))
         result = ensure_config_dir()
         assert result == target
         assert target.is_dir()
 
-    def test_returns_path(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_returns_path(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path / "x"))
         assert isinstance(ensure_config_dir(), Path)
 
-    def test_with_config_object(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_with_config_object(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         target = tmp_path / "from_config"
         monkeypatch.setenv("PYGEMINI_HOME", str(target))
         cfg = Config()
@@ -207,35 +220,45 @@ class TestEnsureConfigDir:
 
 
 class TestLoadConfigEnvOverrides:
-    def test_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_api_key_from_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         monkeypatch.setenv("GEMINI_API_KEY", "env-api-key")
         cfg = load_config()
         assert cfg.api_key == "env-api-key"
 
-    def test_model_from_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_model_from_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         monkeypatch.setenv("PYGEMINI_MODEL", "gemini-env-model")
         cfg = load_config()
         assert cfg.model == "gemini-env-model"
 
-    def test_sandbox_from_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_sandbox_from_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         monkeypatch.setenv("PYGEMINI_SANDBOX", "docker")
         cfg = load_config()
         assert cfg.sandbox == "docker"
 
-    def test_approval_mode_from_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_approval_mode_from_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         monkeypatch.setenv("PYGEMINI_APPROVAL_MODE", "yolo")
         cfg = load_config()
         assert cfg.approval_mode == "yolo"
 
-    def test_no_env_vars_gives_defaults(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_no_env_vars_gives_defaults(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         cfg = load_config()
@@ -249,27 +272,35 @@ class TestLoadConfigEnvOverrides:
 
 
 class TestLoadConfigCLIOverrides:
-    def test_cli_overrides_default(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_cli_overrides_default(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         cfg = load_config(model="cli-model")
         assert cfg.model == "cli-model"
 
-    def test_cli_overrides_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_cli_overrides_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         monkeypatch.setenv("PYGEMINI_MODEL", "env-model")
         cfg = load_config(model="cli-model")
         assert cfg.model == "cli-model"
 
-    def test_cli_none_does_not_clobber_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_cli_none_does_not_clobber_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         monkeypatch.setenv("PYGEMINI_MODEL", "env-model")
         cfg = load_config(model=None)
         assert cfg.model == "env-model"
 
-    def test_cli_multiple_overrides(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_cli_multiple_overrides(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         cfg = load_config(model="my-model", approval_mode="yolo", sandbox="docker")
@@ -290,7 +321,9 @@ class TestLoadConfigCLIOverrides:
 
 
 class TestLoadConfigTOML:
-    def test_user_toml_loaded(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_user_toml_loaded(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         config_home = tmp_path / "home"
         config_home.mkdir()
@@ -326,7 +359,9 @@ class TestLoadConfigTOML:
         assert cfg.model == "project-model"
         assert cfg.theme == "user-theme"  # user setting survives
 
-    def test_env_overrides_toml(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_env_overrides_toml(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         _clean_env(monkeypatch)
         config_home = tmp_path / "home"
         config_home.mkdir()
@@ -347,7 +382,9 @@ class TestLoadConfigTOML:
         cfg = load_config()
         assert cfg.model == "gemini-2.5-flash"
 
-    def test_full_layer_precedence(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_full_layer_precedence(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """CLI > env > project TOML > user TOML > defaults."""
         _clean_env(monkeypatch)
         config_home = tmp_path / "home"
@@ -359,7 +396,9 @@ class TestLoadConfigTOML:
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         (project_dir / ".pygemini").mkdir()
-        (project_dir / ".pygemini" / "settings.toml").write_bytes(b'model = "project"\n')
+        (project_dir / ".pygemini" / "settings.toml").write_bytes(
+            b'model = "project"\n'
+        )
         monkeypatch.chdir(project_dir)
         monkeypatch.setenv("PYGEMINI_MODEL", "env")
         cfg = load_config(model="cli")

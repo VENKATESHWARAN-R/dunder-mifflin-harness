@@ -155,9 +155,11 @@ class App:
 
                     summary_content = genai_types.Content(
                         role="user",
-                        parts=[genai_types.Part.from_text(
-                            text=f"[Conversation summary]\n{result.summary}"
-                        )],
+                        parts=[
+                            genai_types.Part.from_text(
+                                text=f"[Conversation summary]\n{result.summary}"
+                            )
+                        ],
                     )
                     self._history.replace_messages(0, compress_end, [summary_content])
                 self._console.print(
@@ -230,7 +232,9 @@ class App:
         self._commands.register("quit", cmd_quit, "Exit PyGeminiCLI")
         self._commands.register("clear", cmd_clear, "Clear conversation history")
         self._commands.register("memory", cmd_memory, "Show/refresh/clear memories")
-        self._commands.register("compress", cmd_compress, "Compress conversation history")
+        self._commands.register(
+            "compress", cmd_compress, "Compress conversation history"
+        )
         self._commands.register("chat", cmd_chat, "Save/load/list sessions")
         self._commands.register("model", cmd_model, "Show or switch model")
         self._commands.register("restore", cmd_restore, "Restore from checkpoint")

@@ -114,9 +114,11 @@ class AgentLoop:
 
                 summary_content = genai_types.Content(
                     role="user",
-                    parts=[genai_types.Part.from_text(
-                        text=f"[Conversation summary]\n{result.summary}"  # type: ignore[union-attr]
-                    )],
+                    parts=[
+                        genai_types.Part.from_text(
+                            text=f"[Conversation summary]\n{result.summary}"  # type: ignore[union-attr]
+                        )
+                    ],
                 )
                 self._history.replace_messages(0, compress_end, [summary_content])
                 logger.info(
@@ -127,7 +129,9 @@ class AgentLoop:
         except Exception as exc:
             logger.warning("Auto-compression failed: %s", exc)
 
-    async def _emit_hook(self, event_name: str, data: dict[str, Any] | None = None) -> bool:
+    async def _emit_hook(
+        self, event_name: str, data: dict[str, Any] | None = None
+    ) -> bool:
         """Fire lifecycle hooks. Returns True if operation should be blocked."""
         if self._hook_manager is None:
             return False
@@ -286,13 +290,9 @@ class AgentLoop:
         await self._emit_hook("after_agent")
 
         # Step 4: Emit turn complete
-        await self._event_emitter.emit(
-            CoreEvent.TURN_COMPLETE, TurnCompleteEvent()
-        )
+        await self._event_emitter.emit(CoreEvent.TURN_COMPLETE, TurnCompleteEvent())
 
-    async def _execute_function_call(
-        self, fc: FunctionCallData
-    ) -> dict[str, Any]:
+    async def _execute_function_call(self, fc: FunctionCallData) -> dict[str, Any]:
         """Execute a single function call and return the response dict.
 
         Integrates policy engine, approval manager, and hooks.
@@ -324,17 +324,20 @@ class AgentLoop:
             return {"name": fc.name, "response": {"result": denial_msg}}
 
         # Emit before_tool hook
-        blocked = await self._emit_hook("before_tool", {
-            "tool_name": fc.name, "params": fc.args,
-        })
+        blocked = await self._emit_hook(
+            "before_tool",
+            {
+                "tool_name": fc.name,
+                "params": fc.args,
+            },
+        )
         if blocked:
             return {"name": fc.name, "response": {"result": "Blocked by hook"}}
 
         # Check confirmation (policy may override to allow/confirm)
         confirmation = tool.should_confirm(fc.args)
-        needs_confirm = (
-            policy_action == "confirm"
-            and self._check_approval(fc.name, confirmation)
+        needs_confirm = policy_action == "confirm" and self._check_approval(
+            fc.name, confirmation
         )
 
         if needs_confirm and confirmation is not None:
@@ -362,12 +365,15 @@ class AgentLoop:
             )
 
         # Emit after_tool hook
-        await self._emit_hook("after_tool", {
-            "tool_name": fc.name,
-            "params": fc.args,
-            "result": result.llm_content,
-            "is_error": result.is_error,
-        })
+        await self._emit_hook(
+            "after_tool",
+            {
+                "tool_name": fc.name,
+                "params": fc.args,
+                "result": result.llm_content,
+                "is_error": result.is_error,
+            },
+        )
 
         # Emit tool output
         await self._event_emitter.emit(

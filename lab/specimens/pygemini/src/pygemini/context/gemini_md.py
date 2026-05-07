@@ -94,7 +94,9 @@ class GeminiMDDiscovery:
         if global_file is not None:
             origin = f"global ({global_path})"
             logger.debug("Discovered global context: %s", global_path)
-            files.append(ContextFile(path=global_path, content=global_file, origin=origin))
+            files.append(
+                ContextFile(path=global_path, content=global_file, origin=origin)
+            )
 
         # 2. Ancestry (project root -> cwd) -----------------------------------
         project_root = self._find_project_root(cwd)
@@ -108,7 +110,9 @@ class GeminiMDDiscovery:
                 if content is not None:
                     origin = self._origin_label(md_path, cwd, project_root, config_dir)
                     logger.debug("Discovered ancestry context: %s", md_path)
-                    files.append(ContextFile(path=md_path, content=content, origin=origin))
+                    files.append(
+                        ContextFile(path=md_path, content=content, origin=origin)
+                    )
         else:
             # No project root found; just check cwd itself.
             md_path = cwd / _CONTEXT_FILENAME
@@ -120,7 +124,9 @@ class GeminiMDDiscovery:
 
         # 3. Child directories (1 level deep) ---------------------------------
         try:
-            children = sorted(p for p in cwd.iterdir() if p.is_dir() and not p.name.startswith("."))
+            children = sorted(
+                p for p in cwd.iterdir() if p.is_dir() and not p.name.startswith(".")
+            )
         except OSError:
             children = []
 

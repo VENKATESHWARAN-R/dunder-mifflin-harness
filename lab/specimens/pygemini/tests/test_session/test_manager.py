@@ -22,6 +22,7 @@ from pygemini.session.manager import SessionInfo, SessionManager
 def config(tmp_path: Path) -> Config:
     """Config that stores sessions under tmp_path."""
     import os
+
     # Override PYGEMINI_HOME so config_dir points to tmp_path
     monkeypatch_env = {"PYGEMINI_HOME": str(tmp_path)}
     original = {k: os.environ.get(k) for k in monkeypatch_env}

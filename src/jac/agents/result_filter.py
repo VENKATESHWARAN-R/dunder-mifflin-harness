@@ -45,9 +45,8 @@ def make_result_filter_wrapper(
             ),
         )
 
-    wrapped_any = wrapper
-    wrapped_any.approval = getattr(fn, "approval", None)
-    return wrapped_any
+    setattr(wrapper, "approval", getattr(fn, "approval", None))
+    return wrapper
 
 
 def _hint_for(tool_name: str) -> str:

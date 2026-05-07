@@ -88,7 +88,9 @@ class ListDirectoryTool(BaseTool):
             )
 
         try:
-            entries = _collect_entries(path, recursive=recursive, include_hidden=include_hidden)
+            entries = _collect_entries(
+                path, recursive=recursive, include_hidden=include_hidden
+            )
         except PermissionError:
             return ToolResult(
                 llm_content=f"Error: Permission denied: {path}",
@@ -129,6 +131,7 @@ class ListDirectoryTool(BaseTool):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _collect_entries(
     root: Path,
     *,
@@ -146,7 +149,11 @@ def _collect_entries(
         raw = list(root.iterdir())
 
     if not include_hidden:
-        raw = [e for e in raw if not any(part.startswith(".") for part in e.relative_to(root).parts)]
+        raw = [
+            e
+            for e in raw
+            if not any(part.startswith(".") for part in e.relative_to(root).parts)
+        ]
 
     dirs = sorted([e for e in raw if e.is_dir()], key=lambda p: p.name.lower())
     files = sorted([e for e in raw if e.is_file()], key=lambda p: p.name.lower())
@@ -161,7 +168,7 @@ def _format_flat(entries: list[Path]) -> tuple[list[str], list[str]]:
     for entry in entries:
         if entry.is_dir():
             llm_lines.append(f"[DIR]  {entry.name}/")
-            display_lines.append(f"[green]\U0001F4C1  {entry.name}/[/green]")
+            display_lines.append(f"[green]\U0001f4c1  {entry.name}/[/green]")
         else:
             size = _human_size(entry.stat().st_size)
             llm_lines.append(f"[FILE] {entry.name}  ({size})")
@@ -182,7 +189,7 @@ def _format_recursive(root: Path, entries: list[Path]) -> tuple[list[str], list[
 
         if entry.is_dir():
             llm_lines.append(f"{indent}[DIR]  {entry.name}/")
-            display_lines.append(f"{indent}[green]\U0001F4C1  {entry.name}/[/green]")
+            display_lines.append(f"{indent}[green]\U0001f4c1  {entry.name}/[/green]")
         else:
             size = _human_size(entry.stat().st_size)
             llm_lines.append(f"{indent}[FILE] {entry.name}  ({size})")

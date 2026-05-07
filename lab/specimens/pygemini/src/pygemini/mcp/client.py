@@ -85,9 +85,7 @@ class DiscoveredMCPTool(BaseTool):
     ) -> ToolResult:
         """Call the remote MCP tool and return its result."""
         try:
-            result = await self._session.call_tool(
-                self._tool_name, arguments=params
-            )
+            result = await self._session.call_tool(self._tool_name, arguments=params)
         except Exception as exc:
             logger.error(
                 "MCP tool %s/%s failed: %s",
@@ -174,9 +172,7 @@ class MCPClient:
                     len(tools),
                 )
             except Exception as exc:
-                logger.error(
-                    "Failed to connect to MCP server '%s': %s", alias, exc
-                )
+                logger.error("Failed to connect to MCP server '%s': %s", alias, exc)
 
         return all_tools
 
@@ -227,19 +223,12 @@ class MCPClient:
         discovered: list[DiscoveredMCPTool] = []
 
         for tool_info in tools_response.tools:
-            schema = (
-                tool_info.inputSchema
-                if hasattr(tool_info, "inputSchema")
-                else {}
-            )
+            schema = tool_info.inputSchema if hasattr(tool_info, "inputSchema") else {}
             discovered.append(
                 DiscoveredMCPTool(
                     server_alias=alias,
                     tool_name=tool_info.name,
-                    tool_description=getattr(
-                        tool_info, "description", ""
-                    )
-                    or "",
+                    tool_description=getattr(tool_info, "description", "") or "",
                     tool_schema=schema,
                     client_session=session,
                 )
@@ -262,9 +251,7 @@ class MCPClient:
         self._sessions.clear()
 
         if errors:
-            logger.warning(
-                "Errors during MCP disconnect: %s", "; ".join(errors)
-            )
+            logger.warning("Errors during MCP disconnect: %s", "; ".join(errors))
         else:
             logger.debug("All MCP servers disconnected")
 
@@ -286,9 +273,7 @@ class MCPClient:
         """
         session = self._sessions.get(server_alias)
         if session is None:
-            raise KeyError(
-                f"MCP server '{server_alias}' is not connected"
-            )
+            raise KeyError(f"MCP server '{server_alias}' is not connected")
 
         result = await session.call_tool(tool_name, arguments=arguments)
 

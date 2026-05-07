@@ -7,7 +7,11 @@ from pathlib import Path
 
 from jac.agents.approval import make_approval_wrapper
 from jac.agents.result_filter import make_result_filter_wrapper
-from jac.agents.spawn import make_fetch_full_result_tool, make_spawn_minion_tool, native_agent_extras
+from jac.agents.spawn import (
+    make_fetch_full_result_tool,
+    make_spawn_minion_tool,
+    native_agent_extras,
+)
 from jac.config import Settings
 from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
 from jac.runtime.events import EventBus, MinionReturned, MinionSpawned
@@ -16,7 +20,13 @@ from jac.state import open_state_store
 from jac.tools.cache import ToolResultCache
 from jac.tools.filesystem import read_file_smart
 from jac.tools.summarize import estimate_tokens
-from jac.tools.types import RiskLevel, ShellToolResult, ToolApprovalMeta, ToolResult, ToolStatus
+from jac.tools.types import (
+    RiskLevel,
+    ShellToolResult,
+    ToolApprovalMeta,
+    ToolResult,
+    ToolStatus,
+)
 
 
 def _run(coro):
@@ -59,7 +69,9 @@ def test_result_filter_summarises_above_threshold() -> None:
     async def summariser(_content: str, _hint: str) -> str:
         return "summarised"
 
-    wrapped = make_result_filter_wrapper(fake_tool, cache, summariser, threshold_tokens=20)
+    wrapped = make_result_filter_wrapper(
+        fake_tool, cache, summariser, threshold_tokens=20
+    )
     result = _run(wrapped())
     assert getattr(result, "summarized", False) is True
     handle = result.full_result_handle

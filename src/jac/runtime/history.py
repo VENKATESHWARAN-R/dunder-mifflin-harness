@@ -16,7 +16,9 @@ def filter_tool_noise(messages: list[ModelMessage]) -> list[ModelMessage]:
     cleaned: list[ModelMessage] = []
     for message in messages:
         if isinstance(message, ModelRequest):
-            user_parts = [part for part in message.parts if isinstance(part, UserPromptPart)]
+            user_parts = [
+                part for part in message.parts if isinstance(part, UserPromptPart)
+            ]
             if user_parts:
                 cleaned.append(ModelRequest(parts=user_parts))
             continue

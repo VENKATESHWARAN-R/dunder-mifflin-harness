@@ -163,9 +163,7 @@ def test_migration_002_applies(tmp_path: Path) -> None:
     assert has_attempts
 
 
-def test_summon_jim_uses_active_approval_policy(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_summon_jim_uses_active_approval_policy(monkeypatch, tmp_path: Path) -> None:
     async def scenario():
         store = await open_state_store(tmp_path / "state.db")
         try:
@@ -218,7 +216,9 @@ def test_summon_jim_uses_active_approval_policy(
     _run(scenario())
 
 
-def test_summon_jim_records_parent_child_attempt_and_pass(tmp_path: Path) -> None:
+def test_summon_jim_records_parent_child_attempt_and_pass(
+    monkeypatch, tmp_path: Path
+) -> None:
     async def scenario():
         store = await open_state_store(tmp_path / "state.db")
         try:
@@ -257,24 +257,18 @@ def test_summon_jim_records_parent_child_attempt_and_pass(tmp_path: Path) -> Non
                 return FakeAgent()
 
             # patch imported symbol target used by make_summon_jim_tool
-            import jac.agents.base as base_mod
-
-            base_loader = base_mod.config_loader
-            base_mod.config_loader = fake_loader
-            try:
-                summon_jim = make_summon_jim_tool(
-                    store,
-                    settings,
-                    session,
-                    events,
-                    approval_policy=policy,
-                    tool_result_cache=ToolResultCache(),
-                    summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
-                )
-                output = await summon_jim("write tests")
-                assert output == "complete"
-            finally:
-                base_mod.config_loader = base_loader
+            monkeypatch.setattr("jac.agents.base.config_loader", fake_loader)
+            summon_jim = make_summon_jim_tool(
+                store,
+                settings,
+                session,
+                events,
+                approval_policy=policy,
+                tool_result_cache=ToolResultCache(),
+                summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
+            )
+            output = await summon_jim("write tests")
+            assert output == "complete"
 
             cur = await store.connection.execute(
                 "SELECT parent_attempt_id, status FROM attempts WHERE role = 'builder'"
@@ -290,7 +284,7 @@ def test_summon_jim_records_parent_child_attempt_and_pass(tmp_path: Path) -> Non
     _run(scenario())
 
 
-def test_summon_jim_marks_failed_attempt_on_error(tmp_path: Path) -> None:
+def test_summon_jim_marks_failed_attempt_on_error(monkeypatch, tmp_path: Path) -> None:
     async def scenario():
         store = await open_state_store(tmp_path / "state.db")
         try:
@@ -317,26 +311,20 @@ def test_summon_jim_marks_failed_attempt_on_error(tmp_path: Path) -> None:
             async def fake_loader(**_kwargs):
                 return FakeAgent()
 
-            import jac.agents.base as base_mod
-
-            base_loader = base_mod.config_loader
-            base_mod.config_loader = fake_loader
+            monkeypatch.setattr("jac.agents.base.config_loader", fake_loader)
+            summon_jim = make_summon_jim_tool(
+                store,
+                settings,
+                session,
+                events,
+                approval_policy=policy,
+                tool_result_cache=ToolResultCache(),
+                summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
+            )
             try:
-                summon_jim = make_summon_jim_tool(
-                    store,
-                    settings,
-                    session,
-                    events,
-                    approval_policy=policy,
-                    tool_result_cache=ToolResultCache(),
-                    summariser=lambda _content, _hint: asyncio.sleep(0, result="summary"),
-                )
-                try:
-                    await summon_jim("break")
-                except RuntimeError:
-                    pass
-            finally:
-                base_mod.config_loader = base_loader
+                await summon_jim("break")
+            except RuntimeError:
+                pass
 
             cur = await store.connection.execute(
                 "SELECT status FROM attempts WHERE role = 'builder' ORDER BY created_at DESC LIMIT 1"

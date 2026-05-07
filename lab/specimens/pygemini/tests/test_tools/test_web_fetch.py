@@ -107,7 +107,9 @@ class TestValidateParams:
         assert result is not None
 
     def test_valid_max_length(self, tool: WebFetchTool) -> None:
-        assert tool.validate_params({"url": "https://x.com", "max_length": 1000}) is None
+        assert (
+            tool.validate_params({"url": "https://x.com", "max_length": 1000}) is None
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +218,9 @@ class TestExecuteSuccess:
         mock_client.__aexit__ = AsyncMock(return_value=None)
 
         with patch("httpx.AsyncClient", return_value=mock_client):
-            result = await tool.execute({"url": "https://example.com", "max_length": 100})
+            result = await tool.execute(
+                {"url": "https://example.com", "max_length": 100}
+            )
 
         assert not result.is_error
         # The returned text (minus the url prefix) should be at most 100 chars
@@ -256,13 +260,18 @@ class TestExecuteErrors:
             result = await tool.execute({"url": "https://example.com"})
 
         assert result.is_error
-        assert "timeout" in result.llm_content.lower() or "timed out" in result.llm_content.lower()
+        assert (
+            "timeout" in result.llm_content.lower()
+            or "timed out" in result.llm_content.lower()
+        )
 
     async def test_connection_error(self, tool: WebFetchTool) -> None:
         import httpx
 
         mock_client = AsyncMock()
-        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("connection refused"))
+        mock_client.get = AsyncMock(
+            side_effect=httpx.ConnectError("connection refused")
+        )
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=None)
 

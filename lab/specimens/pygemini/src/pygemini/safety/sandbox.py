@@ -55,10 +55,10 @@ class Sandbox:
         escaped = command.replace('"', '\\"')
 
         return (
-            f'docker run --rm'
-            f' -v {self._project_root}:{_WORKSPACE}'
-            f' -w {_WORKSPACE}'
-            f' {_DOCKER_IMAGE}'
+            f"docker run --rm"
+            f" -v {self._project_root}:{_WORKSPACE}"
+            f" -w {_WORKSPACE}"
+            f" {_DOCKER_IMAGE}"
             f' bash -c "{escaped}"'
         )
 

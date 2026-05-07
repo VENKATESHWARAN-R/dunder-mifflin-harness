@@ -72,7 +72,9 @@ def make_summon_jim_tool(
             )
         )
 
-        jim_cfg = await state.agent_configs.get_by_run_and_role(session.run_id, "builder")
+        jim_cfg = await state.agent_configs.get_by_run_and_role(
+            session.run_id, "builder"
+        )
         jim_allowed = json.loads(jim_cfg.allowed_tools) if jim_cfg else []
         extras = native_agent_extras(
             state=state,

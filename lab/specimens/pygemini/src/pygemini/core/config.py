@@ -178,9 +178,7 @@ def load_config(**cli_overrides: Any) -> Config:
     4. Environment variables
     5. CLI keyword overrides
     """
-    config_home = Path(
-        os.environ.get("PYGEMINI_HOME", "~/.pygemini")
-    ).expanduser()
+    config_home = Path(os.environ.get("PYGEMINI_HOME", "~/.pygemini")).expanduser()
 
     # Layer 2 — user-level TOML
     merged: dict[str, Any] = _load_toml(config_home / "settings.toml")

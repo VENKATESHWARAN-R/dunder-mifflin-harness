@@ -116,7 +116,9 @@ class RunCoordinator:
         from jac.agents.tools import make_summon_jim_tool
 
         role = self.session.config.role
-        cfg = await self.state.agent_configs.get_by_run_and_role(self.session.run_id, role)
+        cfg = await self.state.agent_configs.get_by_run_and_role(
+            self.session.run_id, role
+        )
         parent_allowed = json.loads(cfg.allowed_tools) if cfg else []
         extra_tools = native_agent_extras(
             state=self.state,
@@ -213,7 +215,10 @@ class RunCoordinator:
                 p_row = await self.state.agent_configs.get_by_run_and_role(
                     self.session.run_id, "planner"
                 )
-                if p_row is not None and p_row.model_override != self.session.config.model:
+                if (
+                    p_row is not None
+                    and p_row.model_override != self.session.config.model
+                ):
                     await self.state.agent_configs.update(
                         p_row.config_id,
                         model_override=self.session.config.model,
@@ -274,7 +279,9 @@ class RunCoordinator:
         self.session.active_attempt_id = scott_row.attempt_id
         return scott_row.attempt_id
 
-    async def _finish_manager_attempt(self, attempt_id: str | None, *, passed: bool) -> None:
+    async def _finish_manager_attempt(
+        self, attempt_id: str | None, *, passed: bool
+    ) -> None:
         """Update the manager attempt status for the current turn."""
         if self.state is None or attempt_id is None:
             return
@@ -414,7 +421,9 @@ class RunCoordinator:
                         summariser=self._summariser,
                     )
                 )
-            temperature = float(self.session.config.model_params.get("temperature", "0"))
+            temperature = float(
+                self.session.config.model_params.get("temperature", "0")
+            )
             agent = await config_loader(
                 state=self.state,
                 settings=self.settings,
@@ -446,7 +455,9 @@ class RunCoordinator:
                     )
                     attempt_id = attempt.attempt_id
             async with agent:
-                result = await agent.run(prompt, message_history=self._message_history or None)
+                result = await agent.run(
+                    prompt, message_history=self._message_history or None
+                )
         except Exception as exc:
             await self.events.emit(
                 RunFailed(run_id=run_id, message=str(exc), exception=exc)

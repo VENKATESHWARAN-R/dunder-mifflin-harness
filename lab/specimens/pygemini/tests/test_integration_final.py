@@ -102,19 +102,28 @@ class TestApprovalModeYolo:
         config = Config(approval_mode="yolo")
         approval = ApprovalManager(config)
 
-        mock_gen = MockContentGenerator([
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="write_file",
-                    args={"path": str(target), "content": "yolo content"},
-                    id="fc1",
-                ),
-            ])],
-            [StreamChunk(text="File written.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="write_file",
+                                args={"path": str(target), "content": "yolo content"},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                [StreamChunk(text="File written.")],
+            ]
+        )
 
         loop, emitter, _, _ = _make_loop(
-            mock_gen, tmp_path, config=config, approval_manager=approval,
+            mock_gen,
+            tmp_path,
+            config=config,
+            approval_manager=approval,
         )
 
         confirm_requests: list[ConfirmRequestEvent] = []
@@ -163,33 +172,46 @@ class TestApprovalModeAutoEdit:
         config = Config(approval_mode="auto_edit")
         approval = ApprovalManager(config)
 
-        mock_gen = MockContentGenerator([
-            # Turn 1: edit_file (should auto-approve)
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="edit_file",
-                    args={
-                        "path": str(source),
-                        "old_string": "x = 1",
-                        "new_string": "x = 42",
-                    },
-                    id="fc1",
-                ),
-            ])],
-            # Turn 2: run_shell_command (should require confirmation)
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="run_shell_command",
-                    args={"command": "echo done"},
-                    id="fc2",
-                ),
-            ])],
-            # Turn 3: summary
-            [StreamChunk(text="All done.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: edit_file (should auto-approve)
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="edit_file",
+                                args={
+                                    "path": str(source),
+                                    "old_string": "x = 1",
+                                    "new_string": "x = 42",
+                                },
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: run_shell_command (should require confirmation)
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="run_shell_command",
+                                args={"command": "echo done"},
+                                id="fc2",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 3: summary
+                [StreamChunk(text="All done.")],
+            ]
+        )
 
         loop, emitter, _, _ = _make_loop(
-            mock_gen, tmp_path, config=config, approval_manager=approval,
+            mock_gen,
+            tmp_path,
+            config=config,
+            approval_manager=approval,
         )
 
         confirm_requests: list[ConfirmRequestEvent] = []
@@ -233,24 +255,35 @@ class TestPolicyDeny:
     async def test_shell_denied_by_policy(self, tmp_path: Path) -> None:
         config = Config()
         policy = PolicyEngine(config)
-        policy.add_rule(PolicyRule(
-            tool_pattern="run_shell_command",
-            action="deny",
-        ))
+        policy.add_rule(
+            PolicyRule(
+                tool_pattern="run_shell_command",
+                action="deny",
+            )
+        )
 
-        mock_gen = MockContentGenerator([
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="run_shell_command",
-                    args={"command": "rm -rf /"},
-                    id="fc1",
-                ),
-            ])],
-            [StreamChunk(text="Could not run the command.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="run_shell_command",
+                                args={"command": "rm -rf /"},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                [StreamChunk(text="Could not run the command.")],
+            ]
+        )
 
         loop, emitter, history, _ = _make_loop(
-            mock_gen, tmp_path, config=config, policy_engine=policy,
+            mock_gen,
+            tmp_path,
+            config=config,
+            policy_engine=policy,
         )
 
         await loop.run("Run a dangerous command")
@@ -283,24 +316,35 @@ class TestPolicyAllow:
         target = tmp_path / "policy_allowed.txt"
         config = Config()
         policy = PolicyEngine(config)
-        policy.add_rule(PolicyRule(
-            tool_pattern="write_file",
-            action="allow",
-        ))
+        policy.add_rule(
+            PolicyRule(
+                tool_pattern="write_file",
+                action="allow",
+            )
+        )
 
-        mock_gen = MockContentGenerator([
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="write_file",
-                    args={"path": str(target), "content": "policy allowed"},
-                    id="fc1",
-                ),
-            ])],
-            [StreamChunk(text="Written.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="write_file",
+                                args={"path": str(target), "content": "policy allowed"},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                [StreamChunk(text="Written.")],
+            ]
+        )
 
         loop, emitter, _, _ = _make_loop(
-            mock_gen, tmp_path, config=config, policy_engine=policy,
+            mock_gen,
+            tmp_path,
+            config=config,
+            policy_engine=policy,
         )
 
         confirm_requests: list[ConfirmRequestEvent] = []
@@ -351,9 +395,11 @@ class TestHooksBeforeAfter:
         )
         hook_manager = HookManager(config)
 
-        mock_gen = MockContentGenerator([
-            [StreamChunk(text="Hello from model.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [StreamChunk(text="Hello from model.")],
+            ]
+        )
 
         emitted_events: list[str] = []
         original_emit = hook_manager.emit
@@ -367,7 +413,10 @@ class TestHooksBeforeAfter:
         hook_manager.emit = tracking_emit  # type: ignore[assignment]
 
         loop, emitter, _, _ = _make_loop(
-            mock_gen, tmp_path, config=config, hook_manager=hook_manager,
+            mock_gen,
+            tmp_path,
+            config=config,
+            hook_manager=hook_manager,
         )
 
         await loop.run("Say hello")
@@ -396,19 +445,31 @@ class TestHookBlocks:
 
         target = tmp_path / "blocked.txt"
 
-        mock_gen = MockContentGenerator([
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="write_file",
-                    args={"path": str(target), "content": "should not write"},
-                    id="fc1",
-                ),
-            ])],
-            [StreamChunk(text="Blocked.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="write_file",
+                                args={
+                                    "path": str(target),
+                                    "content": "should not write",
+                                },
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                [StreamChunk(text="Blocked.")],
+            ]
+        )
 
         loop, emitter, history, _ = _make_loop(
-            mock_gen, tmp_path, config=config, hook_manager=hook_manager,
+            mock_gen,
+            tmp_path,
+            config=config,
+            hook_manager=hook_manager,
         )
 
         await loop.run("Write a file")
@@ -488,38 +549,52 @@ class TestFullPipeline:
         hook_config = Config(hooks_enabled=False)
         hook_manager = HookManager(hook_config)
 
-        mock_gen = MockContentGenerator([
-            # Turn 1: read the file
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="read_file",
-                    args={"path": str(source)},
-                    id="fc1",
-                ),
-            ])],
-            # Turn 2: edit the file
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="edit_file",
-                    args={
-                        "path": str(source),
-                        "old_string": "version = '1.0'",
-                        "new_string": "version = '2.0'",
-                    },
-                    id="fc2",
-                ),
-            ])],
-            # Turn 3: run shell to verify
-            [StreamChunk(function_calls=[
-                FunctionCallData(
-                    name="run_shell_command",
-                    args={"command": f"cat {source}"},
-                    id="fc3",
-                ),
-            ])],
-            # Turn 4: summary
-            [StreamChunk(text="Version bumped from 1.0 to 2.0.")],
-        ])
+        mock_gen = MockContentGenerator(
+            [
+                # Turn 1: read the file
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="read_file",
+                                args={"path": str(source)},
+                                id="fc1",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 2: edit the file
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="edit_file",
+                                args={
+                                    "path": str(source),
+                                    "old_string": "version = '1.0'",
+                                    "new_string": "version = '2.0'",
+                                },
+                                id="fc2",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 3: run shell to verify
+                [
+                    StreamChunk(
+                        function_calls=[
+                            FunctionCallData(
+                                name="run_shell_command",
+                                args={"command": f"cat {source}"},
+                                id="fc3",
+                            ),
+                        ]
+                    )
+                ],
+                # Turn 4: summary
+                [StreamChunk(text="Version bumped from 1.0 to 2.0.")],
+            ]
+        )
 
         loop, emitter, history, _ = _make_loop(
             mock_gen,

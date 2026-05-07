@@ -231,9 +231,7 @@ class ChatApp:
                 return
             if value not in {"on", "off"}:
                 self.renderer.print_error(
-                    "Unknown debug mode.\n"
-                    "Valid options: on, off\n"
-                    "Example: /debug on"
+                    "Unknown debug mode.\nValid options: on, off\nExample: /debug on"
                 )
                 return
             enabled = value == "on"
@@ -445,38 +443,54 @@ class ChatApp:
         self.commands.register("help", help_command, "Show available commands")
         self.commands.register("quit", quit_command, "Exit the chat loop")
         self.commands.register(
-            "model", model_command, "Show or set the active model",
+            "model",
+            model_command,
+            "Show or set the active model",
             example="/model claude-sonnet-4-6",
         )
         self.commands.register(
-            "tier", tier_command, "Show or set preferred model tier",
+            "tier",
+            tier_command,
+            "Show or set preferred model tier",
             example="/tier worker",
         )
         self.commands.register(
-            "mode", mode_command, "Show or set run mode",
+            "mode",
+            mode_command,
+            "Show or set run mode",
             example="/mode autopilot",
         )
         self.commands.register(
-            "debug", debug_command, "Show or set verbose debug tracing",
+            "debug",
+            debug_command,
+            "Show or set verbose debug tracing",
             example="/debug on",
         )
         self.commands.register(
-            "approval", approval_command, "Show or set approval mode",
+            "approval",
+            approval_command,
+            "Show or set approval mode",
             example="/approval auto-edit",
         )
         self.commands.register(
-            "params", params_command, "Show or set model parameters",
+            "params",
+            params_command,
+            "Show or set model parameters",
             example="/params temperature 0.2",
         )
         self.commands.register("context", context_command, "Show session context")
         self.commands.register("cost", cost_command, "Show current cost summary")
         self.commands.register("clear", clear_command, "Clear the terminal screen")
         self.commands.register(
-            "history", history_command, "Show recent messages",
+            "history",
+            history_command,
+            "Show recent messages",
             example="/history 5",
         )
         self.commands.register(
-            "save", save_command, "Save session transcript to a file",
+            "save",
+            save_command,
+            "Save session transcript to a file",
             example="/save transcript.md",
         )
         self.commands.register("undo", undo_command, "Revert the last file edit")

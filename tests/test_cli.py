@@ -2,15 +2,18 @@ import importlib
 import json
 import asyncio
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from jac.cli import main as cli_main
 from jac.cli import main as cli_public_main
 from jac.cli.app import ChatApp
+from jac.cli.prompts import PromptViews
+from jac.cli.renderer import Renderer
 from jac.config import ConfigurationError
 from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
-from jac.runtime.coordinator import UserMessage
+from jac.runtime.coordinator import RunCoordinator, UserMessage
 from jac.runtime.session import SessionConfig, SessionState
 
 
@@ -398,7 +401,9 @@ def test_profile_add_writes_profile_scoped_env(
     assert "JAC_PROFILE_OFFICE_LITELLM_API_KEY=office-key" in env_text
 
 
-def test_chatapp_from_resumed_runs_seed_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chatapp_from_resumed_runs_seed_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[str] = []
 
     class DummyState:
@@ -463,8 +468,8 @@ def test_submit_message_retries_once(monkeypatch: pytest.MonkeyPatch) -> None:
 
     session = SessionState(config=SessionConfig())
     coordinator = DummyCoordinator()
-    app = ChatApp(session=session, coordinator=coordinator)
-    app.prompts = DummyPrompts()
+    app = ChatApp(session=session, coordinator=cast(RunCoordinator, coordinator))
+    app.prompts = cast(PromptViews, DummyPrompts())
 
     asyncio.run(app._submit_message(UserMessage(text="hello")))
     assert coordinator.calls == 2
@@ -499,8 +504,8 @@ def test_destructive_shell_command_requires_confirmation(
         raise AssertionError("should not execute destructive command")
 
     session = SessionState(config=SessionConfig())
-    app = ChatApp(session=session, renderer=DummyRenderer())
-    app.prompts = DummyPrompts()
+    app = ChatApp(session=session, renderer=cast(Renderer, DummyRenderer()))
+    app.prompts = cast(PromptViews, DummyPrompts())
     monkeypatch.setattr("jac.cli.app.run_shell", fake_run_shell)
 
     asyncio.run(app._handle_shell("rm -rf /tmp/demo"))

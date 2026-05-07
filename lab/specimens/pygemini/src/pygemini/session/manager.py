@@ -33,8 +33,8 @@ class SessionInfo:
     """Metadata about a saved session."""
 
     name: str
-    created_at: str       # ISO 8601
-    updated_at: str       # ISO 8601
+    created_at: str  # ISO 8601
+    updated_at: str  # ISO 8601
     message_count: int
     file_path: Path
 
@@ -201,7 +201,9 @@ class SessionManager:
             raise OSError(f"Failed to read session file {path}: {exc}") from exc
 
         messages: list[dict[str, Any]] = data.get("messages", [])
-        logger.debug("Loaded session %r from %s (%d messages)", name, path, len(messages))
+        logger.debug(
+            "Loaded session %r from %s (%d messages)", name, path, len(messages)
+        )
         return messages
 
     def list_sessions(self) -> list[SessionInfo]:

@@ -146,11 +146,7 @@ class TestNestedModels:
         assert cfg.mcp_servers["my_server"].command == "node"
 
     def test_config_with_hooks(self) -> None:
-        cfg = Config(
-            hooks={
-                "pre_tool_call": [HookConfig(command="validate.sh")]
-            }
-        )
+        cfg = Config(hooks={"pre_tool_call": [HookConfig(command="validate.sh")]})
         assert len(cfg.hooks["pre_tool_call"]) == 1
 
 
@@ -167,7 +163,9 @@ class TestConfigDir:
         cfg = Config()
         assert cfg.config_dir == Path("~/.pygemini").expanduser()
 
-    def test_custom_config_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_custom_config_dir(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path / "custom"))
         cfg = Config()
         assert cfg.config_dir == tmp_path / "custom"
@@ -181,14 +179,18 @@ class TestConfigDir:
 class TestEnsureConfigDir:
     """ensure_config_dir should create the directory."""
 
-    def test_creates_directory(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_creates_directory(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         target = tmp_path / "new_config"
         monkeypatch.setenv("PYGEMINI_HOME", str(target))
         result = ensure_config_dir()
         assert result == target
         assert target.is_dir()
 
-    def test_with_config_object(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_with_config_object(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         target = tmp_path / "from_config"
         monkeypatch.setenv("PYGEMINI_HOME", str(target))
         cfg = Config()
@@ -205,7 +207,9 @@ class TestEnsureConfigDir:
 class TestLoadConfig:
     """load_config should merge layers correctly."""
 
-    def test_defaults_only(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_defaults_only(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("PYGEMINI_MODEL", raising=False)
         monkeypatch.delenv("PYGEMINI_SANDBOX", raising=False)
@@ -231,14 +235,18 @@ class TestLoadConfig:
         cfg = load_config()
         assert cfg.model == "gemini-2.0-pro"
 
-    def test_cli_overrides_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_cli_overrides_env(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("PYGEMINI_MODEL", "env-model")
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         monkeypatch.chdir(tmp_path)
         cfg = load_config(model="cli-model")
         assert cfg.model == "cli-model"
 
-    def test_cli_none_does_not_override(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_cli_none_does_not_override(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.setenv("PYGEMINI_MODEL", "env-model")
         monkeypatch.setenv("PYGEMINI_HOME", str(tmp_path))
         monkeypatch.chdir(tmp_path)
@@ -252,14 +260,18 @@ class TestLoadConfig:
         monkeypatch.delenv("PYGEMINI_APPROVAL_MODE", raising=False)
         config_home = tmp_path / "home"
         config_home.mkdir()
-        (config_home / "settings.toml").write_text('model = "toml-model"\ntheme = "dark"\n')
+        (config_home / "settings.toml").write_text(
+            'model = "toml-model"\ntheme = "dark"\n'
+        )
         monkeypatch.setenv("PYGEMINI_HOME", str(config_home))
         monkeypatch.chdir(tmp_path)
         cfg = load_config()
         assert cfg.model == "toml-model"
         assert cfg.theme == "dark"
 
-    def test_project_toml_overrides_user(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_project_toml_overrides_user(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("PYGEMINI_MODEL", raising=False)
         monkeypatch.delenv("PYGEMINI_SANDBOX", raising=False)
@@ -267,20 +279,26 @@ class TestLoadConfig:
         # User-level
         config_home = tmp_path / "home"
         config_home.mkdir()
-        (config_home / "settings.toml").write_text('model = "user-model"\ntheme = "user-theme"\n')
+        (config_home / "settings.toml").write_text(
+            'model = "user-model"\ntheme = "user-theme"\n'
+        )
         monkeypatch.setenv("PYGEMINI_HOME", str(config_home))
         # Project-level
         project_dir = tmp_path / "project"
         project_dir.mkdir()
         (project_dir / ".pygemini").mkdir()
-        (project_dir / ".pygemini" / "settings.toml").write_text('model = "project-model"\n')
+        (project_dir / ".pygemini" / "settings.toml").write_text(
+            'model = "project-model"\n'
+        )
         monkeypatch.chdir(project_dir)
         cfg = load_config()
         assert cfg.model == "project-model"
         # User-level theme should still be there
         assert cfg.theme == "user-theme"
 
-    def test_env_overrides_toml(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_env_overrides_toml(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         config_home = tmp_path / "home"
         config_home.mkdir()
         (config_home / "settings.toml").write_text('model = "toml-model"\n')
@@ -293,7 +311,9 @@ class TestLoadConfig:
         cfg = load_config()
         assert cfg.model == "env-model"
 
-    def test_full_layer_precedence(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_full_layer_precedence(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """CLI > env > project TOML > user TOML > defaults."""
         monkeypatch.delenv("GEMINI_API_KEY", raising=False)
         monkeypatch.delenv("PYGEMINI_SANDBOX", raising=False)
@@ -301,7 +321,9 @@ class TestLoadConfig:
         # User TOML
         config_home = tmp_path / "home"
         config_home.mkdir()
-        (config_home / "settings.toml").write_text('model = "user"\ntheme = "user-theme"\n')
+        (config_home / "settings.toml").write_text(
+            'model = "user"\ntheme = "user-theme"\n'
+        )
         monkeypatch.setenv("PYGEMINI_HOME", str(config_home))
         # Project TOML
         project_dir = tmp_path / "project"

@@ -67,7 +67,11 @@ def make_approval_wrapper(fn: Any, events: EventBus, policy: ApprovalPolicy) -> 
 
     @functools.wraps(fn)
     async def wrapper(**kwargs: Any) -> Any:
-        await events.emit(ToolCallRequested(tool_name=fn.__name__, params=_details_for(fn.__name__, kwargs)))
+        await events.emit(
+            ToolCallRequested(
+                tool_name=fn.__name__, params=_details_for(fn.__name__, kwargs)
+            )
+        )
         if meta.risk_level == ToolRiskLevel.READ_ONLY:
             result = await _call_with_timeout(fn(**kwargs), meta.timeout_seconds)
             await events.emit(

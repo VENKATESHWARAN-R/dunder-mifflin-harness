@@ -215,7 +215,10 @@ class TestExecuteTimeout:
 
     async def test_timeout_mentions_timeout_in_output(self, tool: ShellTool) -> None:
         result = await tool.execute({"command": "sleep 100", "timeout": 1})
-        assert "timeout" in result.llm_content.lower() or "timed out" in result.llm_content.lower()
+        assert (
+            "timeout" in result.llm_content.lower()
+            or "timed out" in result.llm_content.lower()
+        )
 
     async def test_timeout_mentions_duration(self, tool: ShellTool) -> None:
         result = await tool.execute({"command": "sleep 100", "timeout": 1})

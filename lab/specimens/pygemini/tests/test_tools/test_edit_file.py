@@ -86,7 +86,9 @@ class TestValidateParams:
         assert "new_string" in result
 
     def test_empty_old_string_returns_error(self, tool: EditFileTool) -> None:
-        result = tool.validate_params({"path": "/f", "old_string": "", "new_string": "b"})
+        result = tool.validate_params(
+            {"path": "/f", "old_string": "", "new_string": "b"}
+        )
         assert result is not None
         assert "old_string" in result
 
@@ -107,7 +109,9 @@ class TestValidateParams:
     def test_empty_new_string_is_valid(self, tool: EditFileTool) -> None:
         # Deletion (replacing with empty string) is allowed
         assert (
-            tool.validate_params({"path": "/f", "old_string": "something", "new_string": ""})
+            tool.validate_params(
+                {"path": "/f", "old_string": "something", "new_string": ""}
+            )
             is None
         )
 
@@ -225,9 +229,7 @@ class TestShouldConfirm:
 class TestExecuteSuccess:
     """execute should replace the text and write the file."""
 
-    async def test_basic_replacement(
-        self, tool: EditFileTool, tmp_path: Path
-    ) -> None:
+    async def test_basic_replacement(self, tool: EditFileTool, tmp_path: Path) -> None:
         f = tmp_path / "code.py"
         f.write_text("x = 1\ny = 2\nz = 3\n")
 
@@ -279,9 +281,7 @@ class TestExecuteSuccess:
         assert str(len(old_s)) in result.llm_content
         assert str(len(new_s)) in result.llm_content
 
-    async def test_diff_in_output(
-        self, tool: EditFileTool, tmp_path: Path
-    ) -> None:
+    async def test_diff_in_output(self, tool: EditFileTool, tmp_path: Path) -> None:
         f = tmp_path / "diff_test.txt"
         f.write_text("line one\nline two\nline three\n")
 
@@ -335,21 +335,21 @@ class TestExecuteSuccess:
 class TestExecuteNotFound:
     """execute should error when old_string is absent from the file."""
 
-    async def test_not_found_is_error(
-        self, tool: EditFileTool, tmp_path: Path
-    ) -> None:
+    async def test_not_found_is_error(self, tool: EditFileTool, tmp_path: Path) -> None:
         f = tmp_path / "file.txt"
         f.write_text("some content\n")
 
         result = await tool.execute(
-            {"path": str(f), "old_string": "DOES NOT EXIST", "new_string": "replacement"}
+            {
+                "path": str(f),
+                "old_string": "DOES NOT EXIST",
+                "new_string": "replacement",
+            }
         )
 
         assert result.is_error
 
-    async def test_not_found_message(
-        self, tool: EditFileTool, tmp_path: Path
-    ) -> None:
+    async def test_not_found_message(self, tool: EditFileTool, tmp_path: Path) -> None:
         f = tmp_path / "file.txt"
         f.write_text("some content\n")
 
@@ -357,7 +357,10 @@ class TestExecuteNotFound:
             {"path": str(f), "old_string": "missing text", "new_string": "x"}
         )
 
-        assert "not found" in result.llm_content.lower() or "old_string" in result.llm_content
+        assert (
+            "not found" in result.llm_content.lower()
+            or "old_string" in result.llm_content
+        )
 
     async def test_file_unchanged_when_not_found(
         self, tool: EditFileTool, tmp_path: Path
@@ -427,9 +430,7 @@ class TestExecuteMultipleMatches:
 class TestExecuteErrors:
     """execute should return error ToolResults for unreadable/unwritable files."""
 
-    async def test_file_not_found(
-        self, tool: EditFileTool, tmp_path: Path
-    ) -> None:
+    async def test_file_not_found(self, tool: EditFileTool, tmp_path: Path) -> None:
         missing = tmp_path / "ghost.txt"
 
         result = await tool.execute(
@@ -437,7 +438,9 @@ class TestExecuteErrors:
         )
 
         assert result.is_error
-        assert "not found" in result.llm_content.lower() or "Error" in result.llm_content
+        assert (
+            "not found" in result.llm_content.lower() or "Error" in result.llm_content
+        )
 
     async def test_file_not_found_mentions_path(
         self, tool: EditFileTool, tmp_path: Path
@@ -476,7 +479,11 @@ class TestExecuteErrors:
 
         try:
             result = await tool.execute(
-                {"path": str(protected), "old_string": "content", "new_string": "replaced"}
+                {
+                    "path": str(protected),
+                    "old_string": "content",
+                    "new_string": "replaced",
+                }
             )
             assert result.is_error
             assert "permission" in result.llm_content.lower()
