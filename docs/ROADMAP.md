@@ -7,6 +7,7 @@
 > _2026-05-04: C6 (Scott + Jim, `summon_jim`, `attempts` call tree) shipped — see Done section._
 > _2026-05-06: C6b (Pam planner + slash-mode addendums, `/plan`, `/init`, tasks activation) shipped — see Done section._
 > _2026-05-07: C7 (usage tracking, `/usage`, `SessionUsageUpdated`, toolbar usage line) shipped — see Done section._
+> _2026-05-07: C8 (model tier routing — manager-scoped `/tier`, `SessionConfigChanged`, tier defaults helper, credential hint on `/model`) shipped — see Done section._
 
 JAC is built component by component, not slice by slice. Each entry below is a self-contained module with a stable ID (`C0`..`Cn`). Order reflects **dependency**, not calendar — `Cn+1` assumes `Cn` is in place.
 
@@ -538,21 +539,23 @@ flowchart LR
 ### C8 — Model Tier Routing
 
 **Layer:** infra
-**Status:** planned
+**Status:** done (2026-05-07)
 **Depends on:** C5, C7
 **Brainstorm/contract:** [`IDEA.md`](reference/IDEA.md) §2 (Model Buckets)
 
-Provider-agnostic tier map (Scout / Worker / Architect) wired into `config_loader`. At least two providers represented. `/model` and `/tier` slash commands update session config safely. Defaults per persona: Scott (manager) → Worker, Pam (planner) → **Architect**, Jim (builder) → Worker, Dwight (evaluator) → Worker. Minions default Scout (configurable to Worker per `spawn_minion` call).
+Provider-agnostic tier map (Scout / Worker / Architect) wired into `config_loader`. `/model` pins all roles; `/tier` sets the **manager’s** preferred tier while specialists keep persona defaults (Pam stays Architect unless overridden via `/model`). Public helper `jac.config.tier_defaults_for(provider)` wraps shipped tier defaults for tests/docs.
 
-**Ships:**
-- `TIER_DEFAULTS` covering 2+ providers
-- `/model <id>` and `/tier <scout|worker|architect>` commands
-- `model_override` honoured on `agent_configs`
-- `SessionConfigChanged` events on tier/model changes
+**Shipped:**
+- `SessionConfigChanged` events from slash commands that mutate session config
+- Manager-only `model_tier` sync in `RunCoordinator._ensure_agent`; specialists keep persona tiers
+- `/tier` echoes resolved manager model; `/model` emits `WarningRaised` when creds may be missing (non-blocking)
+- `tier_defaults_for()` public surface over provider tier maps
+
+**Dwight (evaluator)** persona seed and per-role `/tier <role> <tier>` remain future work (C9 / later).
 
 **Evaluation:**
-- Switch tier mid-session; next turn uses new model (visible in `attempts`)
-- `/usage` shows ≥2 tiers exercised in a single run
+- Switch tier mid-session; next manager attempt records the new tier in `attempts`
+- `/usage` can show multiple tiers when manager and planner runs both occur
 
 ```mermaid
 flowchart LR

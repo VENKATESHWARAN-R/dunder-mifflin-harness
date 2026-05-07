@@ -61,7 +61,13 @@ Flow:
 ### `_ensure_agent() -> Agent`
 
 Async. Called internally on the first turn (or after `reset_agent()`). If `state`
-is available: ensures manager + builder configs for the run, then calls
+is available: seeds `agent_configs` rows via `ensure_manager_config` (using
+`session.config.tier` or `settings.default_tier` for the manager),
+`ensure_builder_config`, and `ensure_planner_config` (specialists use persona
+default tiers on first insert). It then syncs the manager row’s `model_tier` and
+`model_override` from the session, and syncs **`model_override` only** onto
+builder/planner rows so `/tier` cannot silently demote Pam while `/model` still
+pins all roles. Finally calls
 `config_loader(state, settings, run_id, role=session.config.role, approval_policy=...)`.
 For manager role it injects `summon_jim` and native extras (`spawn_minion`,
 `fetch_full_result`). Other native specialist roles also receive native extras.
@@ -118,6 +124,7 @@ await events.emit(AgentTextDelta(text="hello"))
 | `ShellCommandStarted` | `command` | Shell tools |
 | `ShellCommandCompleted` | `command`, `exit_code`, `output` | Shell tools |
 | `SessionUsageUpdated` | cumulative tokens, last context vs max | Coordinator (root runs only) |
+| `SessionConfigChanged` | `key`, `old_value`, `new_value` | `ChatApp` slash handlers after a real config mutation |
 | `WarningRaised` | `message` | Any layer |
 | `PlanGenerated` | `summary`, `dev_strategy`, `task_count` | CLI slash handler (`/plan`) |
 | `WorkspaceSurveyCompleted` | `agents_md_path`, `line_count` | CLI slash handler (`/init`) |

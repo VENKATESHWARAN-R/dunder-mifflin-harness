@@ -331,8 +331,8 @@ Emitted when slash commands change session-level settings. No `run_id` — sessi
 
 ```python
 @dataclass(frozen=True, slots=True)
-class SessionConfigChanged(RuntimeEvent):  # replaces StateUpdated for config changes
-    key: str                               # 'model' | 'tier' | 'approval_mode' | etc.
+class SessionConfigChanged(RuntimeEvent):
+    key: str        # 'model' | 'tier' | 'mode' | 'approval_mode' | 'params' | 'debug'
     old_value: Any
     new_value: Any
 ```
@@ -430,7 +430,7 @@ A surface that does NOT implement approval/question handling cannot be used in i
 | File / shell events | Partial | Missing run_id, task_id |
 | SessionUsageUpdated | Done | Cumulative session usage + last-call context (root completions) |
 | Task lifecycle events | Not started | Add at C11 |
-| Model call events | Not started | Add at C8 |
+| Model call events | Partial | `LlmCallCompleted` emitted (C7); optional enrichments deferred |
 | Evaluation events | Not started | Add at C9 |
 | MCP lifecycle events | Not started | Add at C17 |
-| SessionConfigChanged | Not started | Replaces generic StateUpdated |
+| SessionConfigChanged | Done | CLI slash handlers (`ChatApp`) after successful mutation |

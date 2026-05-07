@@ -42,6 +42,8 @@ Composition root for the interactive session. Owns the lifecycle of all session-
 5. Subscribes `FileEditPreviewed` to snapshot files onto `_undo_stack` before each edit
 6. Registers all slash commands and aliases
 
+Slash commands that mutate `SessionConfig` (or `ApprovalPolicy` for `/approval`) emit `SessionConfigChanged` after a real value change. The renderer may log a dim debug line when `SessionConfig.debug` is on. `/tier` prints the manager’s resolved model; `/model` can emit a `WarningRaised` if credentials appear missing (non-blocking).
+
 **`ChatApp.from_resumed(run_id, settings)`** — factory for resumed sessions:
 1. Opens `StateStore`
 2. Runs `seed_workspace(...)` for deterministic file→DB refresh

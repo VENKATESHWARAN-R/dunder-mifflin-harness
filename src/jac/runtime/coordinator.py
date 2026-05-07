@@ -175,19 +175,18 @@ class RunCoordinator:
                     ensure_planner_config,
                 )
 
-                expected_tier = str(
+                manager_tier = str(
                     self.session.config.tier or self.settings.default_tier
                 )
-                cfg = await ensure_manager_config(
+                manager_cfg = await ensure_manager_config(
                     self.state,
                     self.session.run_id,
-                    model_tier=expected_tier,
+                    model_tier=manager_tier,
                     model_override=self.session.config.model,
                 )
                 await ensure_builder_config(
                     self.state,
                     self.session.run_id,
-                    model_tier=expected_tier,
                     model_override=self.session.config.model,
                 )
                 await ensure_planner_config(
@@ -196,37 +195,26 @@ class RunCoordinator:
                     model_override=self.session.config.model,
                 )
                 if (
-                    cfg.model_override != self.session.config.model
-                    or cfg.model_tier != expected_tier
+                    manager_cfg.model_override != self.session.config.model
+                    or manager_cfg.model_tier != manager_tier
                 ):
                     await self.state.agent_configs.update(
-                        cfg.config_id,
-                        model_tier=expected_tier,
+                        manager_cfg.config_id,
+                        model_tier=manager_tier,
                         model_override=self.session.config.model,
                     )
-                b_row = await self.state.agent_configs.get_by_run_and_role(
-                    self.session.run_id, "builder"
-                )
-                if b_row is not None and (
-                    b_row.model_override != self.session.config.model
-                    or b_row.model_tier != expected_tier
-                ):
-                    await self.state.agent_configs.update(
-                        b_row.config_id,
-                        model_tier=expected_tier,
-                        model_override=self.session.config.model,
+                for role in ("builder", "planner"):
+                    row = await self.state.agent_configs.get_by_run_and_role(
+                        self.session.run_id, role
                     )
-                p_row = await self.state.agent_configs.get_by_run_and_role(
-                    self.session.run_id, "planner"
-                )
-                if (
-                    p_row is not None
-                    and p_row.model_override != self.session.config.model
-                ):
-                    await self.state.agent_configs.update(
-                        p_row.config_id,
-                        model_override=self.session.config.model,
-                    )
+                    if (
+                        row is not None
+                        and row.model_override != self.session.config.model
+                    ):
+                        await self.state.agent_configs.update(
+                            row.config_id,
+                            model_override=self.session.config.model,
+                        )
             self._agent = await self.build_agent()
         return self._agent
 
@@ -535,10 +523,21 @@ class RunCoordinator:
             self.session.cumulative_requests += R[2]
             self.session.cumulative_tool_calls += R[3]
             self.session.last_context_tokens = R[0]
-            tier = str(self.session.config.tier or self.settings.default_tier)
+            cfg_row = (
+                await self.state.agent_configs.get_by_run_and_role(run_id, role)
+                if self.state is not None
+                else None
+            )
+            tier_for_events = (
+                cfg_row.model_tier
+                if cfg_row is not None
+                else str(self.session.config.tier or self.settings.default_tier)
+            )
             selection = self.settings.resolve_model_selection(
-                model_override=self.session.config.model,
-                tier=tier,
+                model_override=cfg_row.model_override
+                if cfg_row
+                else self.session.config.model,
+                tier=tier_for_events,
             )
             self.session.last_model = selection.model_ref
             mx = spec_for(selection.model_ref).max_context
@@ -559,7 +558,7 @@ class RunCoordinator:
                 LlmCallCompleted(
                     role=role,
                     model=selection.model_ref,
-                    tier=tier,
+                    tier=tier_for_events,
                     call_type="agent",
                     input_tokens=own[0],
                     output_tokens=own[1],

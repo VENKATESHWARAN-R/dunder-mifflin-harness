@@ -93,8 +93,8 @@ Full command set:
 |---|---|
 | `/help` (alias `/h`, `/?`) | List all commands with descriptions, examples, and keyboard shortcuts |
 | `/quit` (alias `/q`) | Exit the chat loop |
-| `/model [id]` (alias `/m`) | Show or set the session model override |
-| `/tier [scout\|worker\|architect]` (alias `/t`) | Show or set preferred model tier |
+| `/model [id]` (alias `/m`) | Show or set the session-wide model override (`SessionConfig.model`). Does not block when credentials are missing; may emit `WarningRaised` with a hint. |
+| `/tier [scout\|worker\|architect]` (alias `/t`) | Show or set the **manager’s** preferred tier (`SessionConfig.tier`). Echoes the resolved model id for the manager. Specialists (builder, planner, …) keep persona default tiers unless pinned by `/model`. |
 | `/mode [autopilot\|hitl]` | Show or set session run mode |
 | `/approval [interactive\|auto-edit\|yolo]` | Show or set approval policy |
 | `/debug [on\|off]` | Show or set verbose developer tracing |

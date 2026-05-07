@@ -11,7 +11,12 @@ from jac.cli.input import InputSession
 from jac.cli.parser import ParsedInputKind, parse_input
 from jac.cli.prompts import PromptViews
 from jac.cli.renderer import Renderer
-from jac.config import DEFAULT_MODEL, Settings
+from jac.config import (
+    DEFAULT_MODEL,
+    Settings,
+    credential_requirements_for_model,
+    infer_provider,
+)
 from jac.agents.plans import Plan
 from jac.runtime.approvals import (
     ApprovalMode,
@@ -23,6 +28,7 @@ from jac.runtime.events import (
     EventBus,
     FileEditPreviewed,
     QuestionRequested,
+    SessionConfigChanged,
     SessionUsageUpdated,
     ShellCommandCompleted,
     ShellCommandStarted,
@@ -105,6 +111,30 @@ class ChatApp:
         self.renderer.wire(self.events)
         self._wire_requests()
         self._register_commands()
+
+    def _resolved_model_for_tier(self, tier: ModelTier) -> str:
+        selection = self.settings.resolve_model_selection(
+            model_override=self.session.config.model,
+            tier=str(tier),
+        )
+        return selection.model_ref
+
+    async def _maybe_warn_missing_creds(self, model: str) -> None:
+        provider = infer_provider(model, self.settings.default_provider)
+        groups = credential_requirements_for_model(model, provider=provider)
+        missing = [
+            g
+            for g in groups
+            if not any(self.settings.optional_env_var(name) for name in g)
+        ]
+        if not missing:
+            return
+        names = " or ".join(name for g in missing for name in g)
+        await self.events.emit(
+            WarningRaised(
+                message=f"{model} needs {names}; set it before the next turn."
+            )
+        )
 
     def _session_usage_dict(self) -> dict[str, object]:
         model_ref = self.session.config.model or DEFAULT_MODEL
@@ -202,9 +232,17 @@ class ChatApp:
             if not model:
                 self.renderer.print_info(f"Current model: {self.session.config.model}")
                 return
+            old = self.session.config.model
+            if old == model:
+                self.renderer.print_info(f"Model already set to: {model}")
+                return
             self.session.config.model = model
             self.coordinator.reset_agent()
             self.renderer.print_info(f"Model set to: {model}")
+            await self._maybe_warn_missing_creds(model)
+            await self.events.emit(
+                SessionConfigChanged(key="model", old_value=old, new_value=model)
+            )
 
         async def tier_command(args: str) -> None:
             value = args.strip()
@@ -220,9 +258,23 @@ class ChatApp:
                     f"Example: /tier worker"
                 )
                 return
-            self.session.config.tier = ModelTier(value)
+            new_tier = ModelTier(value)
+            old = self.session.config.tier
+            if old == new_tier:
+                self.renderer.print_info(f"Preferred tier already set to: {value}")
+                return
+            self.session.config.tier = new_tier
             self.coordinator.reset_agent()
             self.renderer.print_info(f"Preferred tier set to: {value}")
+            resolved = self._resolved_model_for_tier(new_tier)
+            self.renderer.print_info(f"  → manager will use: {resolved}")
+            if self.session.config.model:
+                self.renderer.print_info(
+                    f"  (note: /model override {self.session.config.model} still applies)"
+                )
+            await self.events.emit(
+                SessionConfigChanged(key="tier", old_value=old, new_value=new_tier)
+            )
 
         async def mode_command(args: str) -> None:
             value = args.strip()
@@ -237,8 +289,16 @@ class ChatApp:
                     f"Example: /mode autopilot"
                 )
                 return
-            self.session.config.mode = RunMode(value)
+            new_mode = RunMode(value)
+            old = self.session.config.mode
+            if old == new_mode:
+                self.renderer.print_info(f"Mode already set to: {value}")
+                return
+            self.session.config.mode = new_mode
             self.renderer.print_info(f"Mode set to: {value}")
+            await self.events.emit(
+                SessionConfigChanged(key="mode", old_value=old, new_value=new_mode)
+            )
 
         async def debug_command(args: str) -> None:
             value = args.strip().lower()
@@ -252,10 +312,19 @@ class ChatApp:
                 )
                 return
             enabled = value == "on"
+            old = self.session.config.debug
+            if old == enabled:
+                self.renderer.print_info(
+                    f"Debug mode already: {'on' if enabled else 'off'}"
+                )
+                return
             self.session.config.debug = enabled
             if hasattr(self.renderer, "set_debug"):
                 self.renderer.set_debug(enabled)
             self.renderer.print_info(f"Debug mode set to: {'on' if enabled else 'off'}")
+            await self.events.emit(
+                SessionConfigChanged(key="debug", old_value=old, new_value=enabled)
+            )
 
         async def approval_command(args: str) -> None:
             value = args.strip()
@@ -273,9 +342,16 @@ class ChatApp:
                 )
                 return
             mode = ApprovalMode(value)
+            old = self.session.config.approval_mode
+            if old == mode:
+                self.renderer.print_info(f"Approval mode already set to: {mode}")
+                return
             self.session.config.approval_mode = mode
             self.approvals.mode = mode
             self.renderer.print_info(f"Approval mode set to: {mode}")
+            await self.events.emit(
+                SessionConfigChanged(key="approval_mode", old_value=old, new_value=mode)
+            )
 
         async def params_command(args: str) -> None:
             parts = args.split(maxsplit=1)
@@ -299,9 +375,20 @@ class ChatApp:
                     f"Supported: {', '.join(sorted(valid_keys))}"
                 )
                 return
+            old_params = dict(self.session.config.model_params)
+            if old_params.get(key) == value:
+                self.renderer.print_info(f"Parameter already set: {key}={value}")
+                return
             self.session.config.model_params[key] = value
             self.coordinator.reset_agent()
             self.renderer.print_info(f"Parameter set: {key}={value}")
+            await self.events.emit(
+                SessionConfigChanged(
+                    key="params",
+                    old_value=old_params,
+                    new_value=dict(self.session.config.model_params),
+                )
+            )
 
         async def context_command(_args: str) -> None:
             run_id = self.session.run_id

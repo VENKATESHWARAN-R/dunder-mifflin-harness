@@ -184,6 +184,15 @@ def default_model_tiers(provider: str = DEFAULT_PROVIDER) -> dict[str, list[str]
     }
 
 
+def tier_defaults_for(provider: str = DEFAULT_PROVIDER) -> dict[str, list[str]]:
+    """Return the shipped tier→model defaults for a provider.
+
+    Public API surface for docs/tests. Internally delegates to
+    `default_model_tiers`, which already returns editable lists.
+    """
+    return default_model_tiers(provider)
+
+
 def provider_definition(provider: str) -> ProviderDefinition:
     """Return provider metadata or raise a CLI-friendly configuration error."""
     try:

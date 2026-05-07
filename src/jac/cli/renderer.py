@@ -26,6 +26,7 @@ from jac.runtime.events import (
     NodeFailed,
     NodeStarted,
     RunFailed,
+    SessionConfigChanged,
     SessionUsageUpdated,
     ShellCommandCompleted,
     ShellCommandStarted,
@@ -59,6 +60,7 @@ class Renderer:
         events.on(ShellCommandStarted, self._on_shell_started)
         events.on(ShellCommandCompleted, self._on_shell_completed)
         events.on(SessionUsageUpdated, self._on_session_usage_updated)
+        events.on(SessionConfigChanged, self._on_session_config_changed)
         events.on(WarningRaised, self._on_warning)
         events.on(RunFailed, self._on_run_failed)
         events.on(AgentDelegated, self._on_agent_delegated)
@@ -149,6 +151,13 @@ class Renderer:
             f"({event.context_pct * 100:.0f}%)"
         )
         self.console.print(f"[dim]  ↳ {summary}[/dim]")
+
+    async def _on_session_config_changed(self, event: SessionConfigChanged) -> None:
+        if not self._debug:
+            return
+        self.console.print(
+            f"[dim][config][/dim] {event.key}: {event.old_value!r} → {event.new_value!r}"
+        )
 
     async def _on_attempt_recorded(self, event: AttemptRecorded) -> None:
         if not self._debug:

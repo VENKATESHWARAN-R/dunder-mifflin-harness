@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import fields
 
 from jac.runtime.approvals import (
     ApprovalDecision,
@@ -10,6 +11,7 @@ from jac.runtime.approvals import (
 from jac.runtime.events import (
     ApprovalRequested,
     EventBus,
+    SessionConfigChanged,
 )
 from jac.runtime.questions import (
     ChoiceOption,
@@ -18,6 +20,18 @@ from jac.runtime.questions import (
     QuestionResponse,
     validate_response,
 )
+
+
+def test_session_config_changed_dataclass_shape() -> None:
+    names = {f.name for f in fields(SessionConfigChanged)}
+    assert names == {"key", "old_value", "new_value"}
+
+
+def test_session_config_changed_has_contract_fields() -> None:
+    event = SessionConfigChanged(key="tier", old_value=None, new_value="scout")
+    assert event.key == "tier"
+    assert event.old_value is None
+    assert event.new_value == "scout"
 
 
 def test_event_bus_approval_handshake() -> None:

@@ -200,9 +200,12 @@ class SessionUsageUpdated(RuntimeEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class StateUpdated(RuntimeEvent):
-    key: str
-    value: Any
+class SessionConfigChanged(RuntimeEvent):
+    """Emitted after a slash command mutates session-level settings."""
+
+    key: str  # 'model' | 'tier' | 'mode' | 'approval_mode' | 'params' | 'debug'
+    old_value: Any
+    new_value: Any
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,4 @@
-> **Status:** Reference · **Last revised:** 2026-05-06 · **Type:** developer documentation
+> **Status:** Reference · **Last revised:** 2026-05-07 · **Type:** developer documentation
 
 # Agents Layer
 
@@ -126,6 +126,16 @@ Idempotent: returns the existing row if `(run_id, role)` already exists in `agen
 For C6 manager-specialist behavior, role-specific seed helpers (`ensure_manager_config`,
 `ensure_builder_config`, `ensure_planner_config`) are used by the coordinator so
 Scott, Jim, and Pam rows are always present before manager turns.
+
+## Tier resolution chain (C8)
+
+When building an agent for a role, `Settings.resolve_model_selection(...)` picks the live model in this order:
+
+1. **`agent_configs.model_override`** when set (session `/model` pins every role).
+2. Else **`agent_configs.model_tier`** for that row. The coordinator sets `model_tier` from **`session.config.tier` for the manager only** (slash `/tier`). On first insert, specialist rows use `Persona.default_tier` from [`personas.py`](../../src/jac/agents/personas.py); existing specialist tiers are not overwritten by session tier changes.
+3. Workspace/settings fall-through inside `Settings.resolve_model_selection` (`default_tier`, `JAC_MODEL`, profile, `model_tiers`, …).
+
+**Future extension (not implemented):** per-role tier overrides (e.g. `/tier planner architect`) could persist on `SessionConfig` as `role_tier_overrides: dict[str, ModelTier]` and be consulted in `RunCoordinator._ensure_agent` before persona defaults.
 
 ## `AgentConfig` dataclass (`src/jac/agents/base.py`)
 
