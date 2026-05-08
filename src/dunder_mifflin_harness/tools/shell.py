@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -50,6 +53,22 @@ class _ProcessInfo:
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 
+def _subprocess_group_kwargs() -> dict[str, bool]:
+    """Start shell commands in a separate process group when the platform supports it."""
+    return {"start_new_session": True} if os.name != "nt" else {}
+
+
+def _kill_process_group(process: asyncio.subprocess.Process) -> None:
+    """Kill the shell and any children that inherited its process group."""
+    if os.name != "nt":
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        return
+
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+
+
 # ---------------------------------------------------------------------------
 # Agent tools
 # ---------------------------------------------------------------------------
@@ -70,17 +89,19 @@ async def run_shell(
         cwd=str(resolved_cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **_subprocess_group_kwargs(),
     )
 
     timed_out = False
+    communicate_task = asyncio.create_task(process.communicate())
     try:
         stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
+            asyncio.shield(communicate_task), timeout=timeout_seconds,
         )
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_group(process)
+        stdout_bytes, stderr_bytes = await communicate_task
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
@@ -139,6 +160,7 @@ async def run_shell_background(
         cwd=str(resolved_cwd),
         stdout=stdout_file,
         stderr=stderr_file,
+        **_subprocess_group_kwargs(),
     )
     stdout_file.close()
     stderr_file.close()
