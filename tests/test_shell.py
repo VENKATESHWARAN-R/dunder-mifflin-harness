@@ -36,6 +36,23 @@ def test_run_shell_timeout(tmp_path: Path) -> None:
     assert result.timed_out
 
 
+def test_run_shell_timeout_kills_child_process_holding_pipes(tmp_path: Path) -> None:
+    async def invoke() -> object:
+        return await asyncio.wait_for(
+            run_shell(
+                command="python3 -c 'import time; time.sleep(5)'",
+                cwd=str(tmp_path),
+                timeout_seconds=0.1,
+            ),
+            timeout=2,
+        )
+
+    result = asyncio.run(invoke())
+
+    assert result.status == ToolStatus.TIMEOUT
+    assert result.timed_out
+
+
 def test_truncate_output_preserves_head_and_tail() -> None:
     text = "a" * 150 + "b" * 150
 

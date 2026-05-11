@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re as _re
+import stat as stat_module
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,6 +56,50 @@ def resolve_user_path(reference: str, cwd: Path) -> Path:
     return path.resolve()
 
 
+def _read_regular_file_bytes(
+    path: Path,
+    reference: str,
+    max_bytes: int,
+) -> tuple[bytes, int] | AttachmentWarning:
+    """Read at most max_bytes + 1 bytes from a regular file opened safely."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+
+    try:
+        fd = os.open(path, flags)
+    except PermissionError:
+        return AttachmentWarning(reference, f"permission denied: {reference}")
+    except OSError as exc:
+        return AttachmentWarning(reference, f"could not read {reference}: {exc}")
+
+    try:
+        with os.fdopen(fd, "rb") as file:
+            stat = os.fstat(file.fileno())
+            if stat_module.S_ISDIR(stat.st_mode):
+                return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+            if not stat_module.S_ISREG(stat.st_mode):
+                return AttachmentWarning(reference, f"only regular files can be attached: {reference}")
+            if stat.st_size > max_bytes:
+                return AttachmentWarning(
+                    reference,
+                    f"file is too large to attach ({stat.st_size} bytes): {reference}",
+                )
+            data = file.read(max_bytes + 1)
+    except PermissionError:
+        return AttachmentWarning(reference, f"permission denied: {reference}")
+    except OSError as exc:
+        return AttachmentWarning(reference, f"could not read {reference}: {exc}")
+
+    if len(data) > max_bytes:
+        return AttachmentWarning(
+            reference,
+            f"file is too large to attach (more than {max_bytes} bytes): {reference}",
+        )
+
+    return data, len(data)
+
+
 def load_file_attachment(
     reference: str,
     cwd: Path,
@@ -70,8 +116,11 @@ def load_file_attachment(
     except OSError as exc:
         return AttachmentWarning(reference, f"could not inspect {reference}: {exc}")
 
-    if path.is_dir():
+    if stat_module.S_ISDIR(stat.st_mode):
         return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+
+    if not stat_module.S_ISREG(stat.st_mode):
+        return AttachmentWarning(reference, f"only regular files can be attached: {reference}")
 
     if stat.st_size > max_bytes:
         return AttachmentWarning(
@@ -79,12 +128,10 @@ def load_file_attachment(
             f"file is too large to attach ({stat.st_size} bytes): {reference}",
         )
 
-    try:
-        data = path.read_bytes()
-    except PermissionError:
-        return AttachmentWarning(reference, f"permission denied: {reference}")
-    except OSError as exc:
-        return AttachmentWarning(reference, f"could not read {reference}: {exc}")
+    loaded = _read_regular_file_bytes(path, reference, max_bytes)
+    if isinstance(loaded, AttachmentWarning):
+        return loaded
+    data, size = loaded
 
     if b"\x00" in data:
         return AttachmentWarning(reference, f"binary file cannot be attached: {reference}")
@@ -107,7 +154,7 @@ def load_file_attachment(
         path=path,
         display_path=display_path,
         content=content,
-        size=stat.st_size,
+        size=size,
         mime_type=mime_type,
     )
 
@@ -237,6 +284,9 @@ setattr(write_file, "approval", ToolApprovalMeta(
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
     p = Path(path)
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     try:
         content = p.read_text(encoding="utf-8")
     except FileNotFoundError:
