@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re as _re
+import stat as stat_module
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,8 +63,13 @@ def load_file_attachment(
 ) -> FileAttachment | AttachmentWarning:
     """Load a text file attachment or return a visible warning."""
     path = resolve_user_path(reference, cwd)
+    fd: int | None = None
     try:
-        stat = path.stat()
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NONBLOCK"):
+            flags |= os.O_NONBLOCK
+        fd = os.open(path, flags)
+        file_stat = os.fstat(fd)
     except FileNotFoundError:
         return AttachmentWarning(reference, f"file not found: {reference}")
     except PermissionError:
@@ -70,21 +77,36 @@ def load_file_attachment(
     except OSError as exc:
         return AttachmentWarning(reference, f"could not inspect {reference}: {exc}")
 
-    if path.is_dir():
-        return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+    try:
+        if stat_module.S_ISDIR(file_stat.st_mode):
+            return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
 
-    if stat.st_size > max_bytes:
+        if not stat_module.S_ISREG(file_stat.st_mode):
+            return AttachmentWarning(reference, f"not a regular file: {reference}")
+
+        if file_stat.st_size > max_bytes:
+            return AttachmentWarning(
+                reference,
+                f"file is too large to attach ({file_stat.st_size} bytes): {reference}",
+            )
+
+        try:
+            with os.fdopen(fd, "rb") as handle:
+                fd = None
+                data = handle.read(max_bytes + 1)
+        except PermissionError:
+            return AttachmentWarning(reference, f"permission denied: {reference}")
+        except OSError as exc:
+            return AttachmentWarning(reference, f"could not read {reference}: {exc}")
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+    if len(data) > max_bytes:
         return AttachmentWarning(
             reference,
-            f"file is too large to attach ({stat.st_size} bytes): {reference}",
+            f"file is too large to attach ({len(data)} bytes): {reference}",
         )
-
-    try:
-        data = path.read_bytes()
-    except PermissionError:
-        return AttachmentWarning(reference, f"permission denied: {reference}")
-    except OSError as exc:
-        return AttachmentWarning(reference, f"could not read {reference}: {exc}")
 
     if b"\x00" in data:
         return AttachmentWarning(reference, f"binary file cannot be attached: {reference}")
@@ -107,7 +129,7 @@ def load_file_attachment(
         path=path,
         display_path=display_path,
         content=content,
-        size=stat.st_size,
+        size=file_stat.st_size,
         mime_type=mime_type,
     )
 
@@ -245,6 +267,9 @@ async def edit_file(path: str, old_string: str, new_string: str, replace_all: bo
         return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
+
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
 
     count = content.count(old_string)
     if count == 0:
