@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re as _re
+import stat as stat_module
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,7 +64,7 @@ def load_file_attachment(
     """Load a text file attachment or return a visible warning."""
     path = resolve_user_path(reference, cwd)
     try:
-        stat = path.stat()
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
     except FileNotFoundError:
         return AttachmentWarning(reference, f"file not found: {reference}")
     except PermissionError:
@@ -70,21 +72,43 @@ def load_file_attachment(
     except OSError as exc:
         return AttachmentWarning(reference, f"could not inspect {reference}: {exc}")
 
-    if path.is_dir():
-        return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
-
-    if stat.st_size > max_bytes:
-        return AttachmentWarning(
-            reference,
-            f"file is too large to attach ({stat.st_size} bytes): {reference}",
-        )
-
     try:
-        data = path.read_bytes()
+        stat_result = os.fstat(fd)
+        if stat_module.S_ISDIR(stat_result.st_mode):
+            return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+        if not stat_module.S_ISREG(stat_result.st_mode):
+            return AttachmentWarning(reference, f"only regular files can be attached: {reference}")
+
+        if stat_result.st_size > max_bytes:
+            return AttachmentWarning(
+                reference,
+                f"file is too large to attach ({stat_result.st_size} bytes): {reference}",
+            )
+
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining > 0:
+            try:
+                chunk = os.read(fd, min(remaining, 64 * 1024))
+            except BlockingIOError:
+                return AttachmentWarning(reference, f"could not read {reference}: file is not ready")
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        data = b"".join(chunks)
     except PermissionError:
         return AttachmentWarning(reference, f"permission denied: {reference}")
     except OSError as exc:
         return AttachmentWarning(reference, f"could not read {reference}: {exc}")
+    finally:
+        os.close(fd)
+
+    if len(data) > max_bytes:
+        return AttachmentWarning(
+            reference,
+            f"file is too large to attach (more than {max_bytes} bytes): {reference}",
+        )
 
     if b"\x00" in data:
         return AttachmentWarning(reference, f"binary file cannot be attached: {reference}")
@@ -107,7 +131,7 @@ def load_file_attachment(
         path=path,
         display_path=display_path,
         content=content,
-        size=stat.st_size,
+        size=len(data),
         mime_type=mime_type,
     )
 
@@ -185,6 +209,8 @@ async def read_file(path: str, start_line: int = 1, end_line: int | None = None)
         return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except UnicodeDecodeError:
+        return FileReadResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
     except OSError as exc:
         return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
@@ -236,6 +262,9 @@ setattr(write_file, "approval", ToolApprovalMeta(
 
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     p = Path(path)
     try:
         content = p.read_text(encoding="utf-8")
@@ -243,6 +272,8 @@ async def edit_file(path: str, old_string: str, new_string: str, replace_all: bo
         return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except UnicodeDecodeError:
+        return FileEditResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
