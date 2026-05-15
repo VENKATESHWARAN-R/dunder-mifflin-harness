@@ -125,7 +125,7 @@ def load_file_attachment(
         path=path,
         display_path=display_path,
         content=content,
-        size=stat.st_size,
+        size=opened_stat.st_size,
         mime_type=mime_type,
     )
 
