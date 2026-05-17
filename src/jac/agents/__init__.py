@@ -8,7 +8,6 @@ dependency-direction rules.
 from jac.agents.base import (
     ConfigurationError,
     ModelSpecs,
-    PerRunOverride,
     TierResolution,
     UserSettings,
     build_agent,
@@ -16,6 +15,7 @@ from jac.agents.base import (
     load_per_run_override,
     resolve_tier_and_model,
 )
+from jac.agents.overrides import PerRunOverride
 
 __all__ = [
     "ConfigurationError",

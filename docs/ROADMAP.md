@@ -108,24 +108,34 @@ flowchart TB
 
 - **Slice B — Agent-first vertical (2026-05-18).** Brainstorm + plan: [`~/.claude/plans/alright-so-as-you-woolly-puddle.md`](../../.claude/plans/alright-so-as-you-woolly-puddle.md) (local-only). Reset from scratch on `beta` after `df3d205 beta initialize`; legacy code preserved under `src-legacy/`, legacy tests parked under `tests-legacy/`.
   - **Files added:** `src/jac/agents/base.py` (factory; sole `Agent.from_file()` site), `src/jac/agents/__init__.py`, `src/jac/config.py` (minimal `pydantic-settings`), `src/jac/workspace.py` (resolves `~/.jac/`, override via `JAC_HOME`), `src/jac/data/model_specs.toml` (Anthropic-only tier defaults), `src/jac/data/personas/scott.yaml` (Pydantic AI `AgentSpec` shape, first-cut Scott), `lab/scripts/scott_hello.py` (smoke), `tests/agents/test_factory.py` (14 deterministic tests, `TestModel`-based).
-  - **Verified:** `just lint` ✓, `just typecheck` ✓, `just test` (14 passed) ✓. Single-`Agent()`-site invariant holds (`grep` confirms only `src/jac/agents/base.py:242` constructs).
+  - **Verified:** `just lint` ✓, `just typecheck` ✓, `just test` (14 passed) ✓. Single-`Agent()`-site invariant holds.
   - **Stubs / deviations:**
-    - `load_per_run_override(run_id)` returns an empty `PerRunOverride` regardless of input — the per-run SQLite branch of the three-tier model resolution is wired structurally but inert. **Becomes load-bearing in the next slice (state layer).**
+    - `load_per_run_override(run_id)` returns an empty `PerRunOverride` regardless of input — the per-run SQLite branch of the three-tier model resolution is wired structurally but inert. Resolved in Slice 2 (see below): the **real** async reader is `jac.state.agent_configs.fetch_per_run_override`; the runtime slice will call it and pass the result via the new `per_run=` kwarg on `build_agent`.
     - `build_pai_model` hard-errors on any provider other than `anthropic`. M1 is Anthropic-only by decision; multi-provider returns when `jac init` lands (post-M1 / later milestone).
     - No tool surface, no approval middleware, no MCP toolsets in the factory yet. By design — those land in the tools slice and the factory grows its tool-wrap there.
     - Live-provider smoke (`scott_hello.py "say hi"`) was not exercised — current user `.env` lacks `ANTHROPIC_API_KEY` and `~/.jac/settings.json` points tiers at `ollama:*`. Both error paths surface cleanly; happy path will run once a key is set and the user either edits `settings.json` or sets `JAC_HOME` to an empty dir.
     - `pyproject.toml` still declares `[project.scripts] jac = "jac.cli.main:main"` — that module doesn't exist yet. `uv tool install .` will fail until the CLI slice lands. Not blocking dev workflows.
     - Legacy tests under `tests-legacy/` are not collected by pytest. They import from deleted modules; they're kept as historical reference only.
 
+- **Slice 2 — State layer (2026-05-18).** Plan: same file as Slice B (rewritten in place after approval). Adds the durable substrate the downstream slices write into; makes the per-run override branch of the three-tier model resolution real.
+  - **Files added:** `src/jac/state/{__init__,db,runs,messages,attempts,agent_configs,tasks,mcp_servers,skills,run_mcp_servers,run_skills,seeder}.py`, `src/jac/state/migrations/{__init__.py,001_m1_initial.sql}`, `src/jac/agents/overrides.py` (`PerRunOverride` moved here so `state` doesn't import from `agents.base`), `tests/state/{conftest,test_migrations,test_runs,test_messages,test_attempts,test_agent_configs,test_tasks,test_seeder,test_run_bindings}.py`, `lab/scripts/state_hello.py`.
+  - **Files edited:** `src/jac/workspace.py` (added `project_root` + `project_dir`, walks up looking for `.agents/` then `.git/`); `src/jac/agents/base.py` (`build_agent` gains optional `per_run: PerRunOverride | None` kwarg; sync entry point preserved); `src/jac/agents/__init__.py` (re-exports `PerRunOverride` from its new home); `pyproject.toml` (added `pytest-asyncio>=1.3.0` dev dep + `[tool.pytest.ini_options] asyncio_mode = "auto"`).
+  - **Verified:** `just lint` ✓, `just typecheck` ✓, `just test` ✓ (14 Slice-B + 33 state = 47 passed). `lab/scripts/state_hello.py` writes a fresh SQLite file, exercises every M1 active table, prints summary counts cleanly. `sqlite3 ... ".tables"` confirms all 10 v1.5 tables present; `schema_meta.version='1.5'`. Single-`Agent()`-site invariant still holds.
+  - **Stubs / deviations:**
+    - `jac.state.agent_configs.fetch_per_run_override` is implemented and tested, but no production call site outside tests/smoke yet — the runtime slice wires it into the coordinator's per-turn rebuild path. Until then `build_agent()` without a `per_run=` kwarg falls back to the empty `load_per_run_override` sync stub. That's intentional, not a bug.
+    - `seed_workspace` runs end-to-end against an empty workspace and returns empty seed results — no `skills/*.md` or `mcp/*.json` files ship yet. CLI/onboarding will surface seeding output and seed initial files.
+    - Migration runner is single-migration-cold-start only: detects empty `schema_meta`, applies every `NNN_*.sql` in filename order. A real multi-migration ledger (`schema_migrations(ordinal)` table) lands when M2 introduces a second migration.
+    - `messages.list_for_run` orders by `rowid` (SQLite's monotonic insert-order column) instead of `created_at, message_id` — same-second appends would otherwise tie-break on UUID (non-deterministic). Documented inline in `messages.py`.
+    - Project-root discovery walks up looking for `.agents/` then `.git/`; no `pyproject.toml` fallback. Bounded by design until a real use case demands more.
+
 **Remaining slices (M1), ordered:**
 
-1. **State layer** — v1.5 migration, async SQLite repos for the M1 active tables (`runs`, `messages`, `attempts`, `agent_configs`, `tasks`, plus the `mcp_servers` / `skills` registries). Wires `load_per_run_override` to read from `agent_configs`.
-2. **Tools** — file (`read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`, `grep_files`), shell (`run_shell`, `run_shell_background`, `read_process_output`), and the long-running-memory task-CRUD (`add_task`, `update_task`, `complete_task`, `list_tasks`). Each tool carries `ToolApprovalMeta`; factory grows an approval-middleware wrap.
-3. **Runtime** — `EventBus`, `SessionState`, `RunCoordinator`, separate approval / question primitives (per the invariant).
-4. **Slim CLI** — `jac chat` REPL, slash commands, `@`-file refs, `!`-shell shortcut. ~500–600 LOC budget. Restore the `jac` console script.
-5. **A2A peer surface** — `surfaces/a2a/` adapter via `agent.to_a2a()`. ~80 LOC.
-6. **Context engineering** — history processor (strip tool-result noise, keep prompts + decisions), token-budget awareness, `AGENTS.md` / `JAC.md` instruction injection.
-7. **Scott YAML iteration** — 10+ passes against logs from the 3 internal acceptance tasks + the A2A round-trip.
+1. **Tools** — file (`read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`, `grep_files`), shell (`run_shell`, `run_shell_background`, `read_process_output`), and the long-running-memory task-CRUD (`add_task`, `update_task`, `complete_task`, `list_tasks` — writing through `state/tasks.py`). Each tool carries `ToolApprovalMeta`; factory grows an approval-middleware wrap.
+2. **Runtime** — `EventBus`, `SessionState`, `RunCoordinator`, separate approval / question primitives (per the invariant). Wires `fetch_per_run_override` into the per-turn rebuild.
+3. **Slim CLI** — `jac chat` REPL, slash commands, `@`-file refs, `!`-shell shortcut. ~500–600 LOC budget. Restore the `jac` console script.
+4. **A2A peer surface** — `surfaces/a2a/` adapter via `agent.to_a2a()`. ~80 LOC.
+5. **Context engineering** — history processor (strip tool-result noise, keep prompts + decisions), token-budget awareness, `AGENTS.md` / `JAC.md` instruction injection.
+6. **Scott YAML iteration** — 10+ passes against logs from the 3 internal acceptance tasks + the A2A round-trip.
 
 **Open questions still deferred (from the [reset brainstorm](../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md#open-questions-deferred-to-follow-up-sessions)):**
 
@@ -133,6 +143,8 @@ flowchart TB
 - `AGENTS.md` / `JAC.md` frontmatter rules — settle when context engineering lands.
 - Compaction strategy in M1 — minimum viable is "drop tool noise from history, keep user prompts + decisions + task list." Sufficiency is an M1 finding.
 - A2A peer surface scope — detailed spec when the A2A slice starts.
+- Per-run `agent_configs` initial-row seeding policy — who writes the manager row, and when? Currently nothing does; `fetch_per_run_override` correctly returns empty. The Runtime slice will write the row on run start.
+- Multi-migration runner shape — lands when M2 introduces a second migration (needs a `schema_migrations(ordinal)` ledger). Punted intentionally.
 
 ---
 

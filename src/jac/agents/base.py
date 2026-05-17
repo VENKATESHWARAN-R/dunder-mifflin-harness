@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
 
+from jac.agents.overrides import PerRunOverride
 from jac.config import Settings, Tier
 from jac.workspace import Workspace, discover_workspace
 
@@ -46,20 +47,14 @@ DEFAULT_TIER_FALLBACK: Tier = "worker"
 # ---- Per-run override seam (state layer fills this in later) ---------------
 
 
-@dataclass(frozen=True, slots=True)
-class PerRunOverride:
-    """Per-run overrides from `agent_configs`. Slice B always returns empty."""
-
-    tier: Tier | None = None
-    model_override: str | None = None
-
-
 def load_per_run_override(run_id: str | None) -> PerRunOverride:
     """Return per-run overrides for a run.
 
-    Slice B has no state layer, so this always yields an empty override.
-    When the state layer lands, this body switches to an async SQLite read;
-    the call sites in `build_agent` change accordingly.
+    Always returns an empty override. The real read against `agent_configs`
+    is async and lives in `jac.state.agent_configs.fetch_per_run_override` —
+    runtime callers fetch it ahead of time and pass the result via the
+    `per_run=` kwarg on `build_agent`. This sync stub stays so non-runtime
+    callers (the smoke script, the existing tests) don't need an event loop.
     """
     _ = run_id
     return PerRunOverride()
@@ -215,6 +210,7 @@ def build_agent(
     settings: Settings | None = None,
     workspace: Workspace | None = None,
     run_id: str | None = None,
+    per_run: PerRunOverride | None = None,
     model: Model | None = None,
 ) -> Agent[Any, Any]:
     """Build a Pydantic AI Agent from a persona YAML.
@@ -222,10 +218,15 @@ def build_agent(
     This is the **only** site that calls `Agent.from_file()`. Tier and model
     are resolved by `resolve_tier_and_model`; tests can inject a `TestModel`
     or `FunctionModel` via the `model=` kwarg to skip provider construction.
+
+    `per_run` lets async callers (the runtime coordinator) pre-fetch the
+    `agent_configs` row via `jac.state.agent_configs.fetch_per_run_override`
+    and pass it in, keeping this factory sync.
     """
     settings = settings or Settings()
     workspace = workspace or discover_workspace()
-    per_run = load_per_run_override(run_id)
+    if per_run is None:
+        per_run = load_per_run_override(run_id)
     shipped = _load_model_specs()
     user = _load_user_settings(workspace)
     resolution = resolve_tier_and_model(
