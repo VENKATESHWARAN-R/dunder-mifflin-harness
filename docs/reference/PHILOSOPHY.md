@@ -1,176 +1,158 @@
 # Project Philosophy
 
-> **Status:** Reference · **Last revised:** 2026-05-02 · **Type:** principles
+> **Status:** Reference · **Last revised:** 2026-05-08 · **Type:** principles
+>
+> Source-of-truth brainstorm: [`lab/brainstorm/2026-05-08-jac-reset-from-scratch.md`](../../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md). When this file disagrees with the brainstorm, the brainstorm wins until this file is revised.
 
-## Purpose
+## What JAC is
 
-JAC is a harness for long-running agentic software development. The core product is not the terminal UI, a single agent, or a specific provider. The core product is the runtime system that can plan, route, execute, evaluate, persist state, and explain what happened.
+> **JAC is a multi-agent CLI coding harness with two coupled goals.** As a *research harness*, it measures whether four fixed roles — **Michael Scott (manager)**, **Pam Beesly (planner)**, **Jim Halpert (builder)**, **Dwight Schrute (evaluator)** — with tiered model routing can build small applications autonomously at materially lower cost than a single-model baseline; the hypothesis is proven or disproven on the **Notes CLI** benchmark with a **single-function bug-fix** secondary. As a *daily tool*, it is a terminal coding assistant — chat, plan, build, evaluate, resume — backed by SQLite persistence, multi-provider tier routing with in-flight model swap, and a typed event/runtime contract that keeps the runtime independent of the terminal surface.
 
-Everything else is an adapter, tool, or workflow around that runtime.
+The four-persona cast is the **target architecture**. Phase 1 introduces personas incrementally, driven by run-log evidence — Scott alone in M1, others added when the data shows they're needed.
 
-## First Principle
+## The five principles
 
-Put code where its reason to change lives.
+Each principle rules something *out*. Read them as decision rules, not aspirations.
 
-- If it changes because the terminal experience changes, it belongs in `cli/`.
-- If it changes because a browser, A2A server, or CLI all need the same behavior, it belongs behind `runtime/`.
-- If it changes because an agent role or workflow strategy changes, it belongs in future `agents/`, `nodes/`, `workflows/`, or `modes/`.
-- If it changes because local execution changes, it belongs in `tools/` or a future execution/sandbox package.
-- If it changes because persisted state changes, it belongs in a future state/store package, not in the CLI.
+### 1. The runtime is the contract; the UI is one surface.
 
-## Dependency Direction
+The CLI is product, but anything that should outlive the terminal surface (browser, A2A, headless) lives in `runtime/`. UI may import runtime; runtime must not import UI.
 
-Dependencies should flow inward:
+**Rules out:** Rich rendering inside `runtime/`, slash-command logic that touches business state, `prompt_toolkit` references outside `cli/`, terminal prompts inside agent or tool code.
 
-```text
-cli/ or servers/
+**Test:** if you can describe a non-CLI surface (browser, A2A peer, headless run) consuming this code, it belongs in `runtime/` or below; if it only makes sense at a terminal, it belongs in `cli/`.
+
+### 2. Keep the spine thin.
+
+JAC's spine is: **prompt → plan → route → build → evaluate → ledger → report**. New structure (modules, abstractions, hooks, middleware) is justified only by a logged run that demonstrates the spine breaking under load.
+
+**Rules out:** speculative components, premature abstraction, scaling-problem solutions before scaling problems exist, "future-proof" interfaces with one implementation.
+
+**Test:** before adding a new module, name the existing run/log/error that motivated it. If you can't, don't add it.
+
+### 3. Measure before you abstract.
+
+No new persona, tool, contract, or dependency without a recorded ledger entry (attempts row, run trace, cost log) that motivates it. The ledger is the gate.
+
+**Rules out:** new tools added "because the agent might need them," new personas added because they'd be cool, new contracts written before code that uses them.
+
+**Test:** can you point at a specific row in `attempts` or a specific run trace that the new thing addresses? If not, it's not ready.
+
+### 4. State is durable; agents are disposable.
+
+Runs, messages, attempts, tasks, configs live in SQLite. Agent instances, sessions, in-memory caches are reconstructible from state at any time. Resume from disk must produce the same behaviour as the live session.
+
+**Rules out:** in-memory caches that aren't re-derivable from state, agent state that can't survive process restart, "soft" caches that mutate state without ledgering.
+
+**Test:** kill the process. Restart. Resume. Does behaviour match what would have happened without the kill? If not, you have hidden state.
+
+### 5. Config-as-data, not config-as-code.
+
+Declarative values live in YAML / TOML / JSON / Markdown by the [substrate rule](../contracts/SUBSTRATE.md). Python files contain code, never tunable values. Code patterns matching on role names, model names, persona names is forbidden.
+
+**Rules out:** Python files holding system prompts, model lists hardcoded in seed functions, `if role == "manager":` branches, persona-as-Python-class, tunable thresholds buried as integer literals.
+
+**Test:** could a non-developer change this value safely without editing Python? If not, and the value is genuinely tunable, it's misplaced.
+
+## Hygiene (working rules, not principles)
+
+These are practices, not north stars — they belong here so AI agents don't dilute the five principles above:
+
+- **Testable:** every new behaviour gets a test. Bug fixes get a test that fails before the fix.
+- **Documented:** when a layer's structure changes meaningfully, update the relevant `docs/dev/<layer>.md`. When a contract changes, bump `Last revised`. When a top-level concept enters or leaves, update `CLAUDE.md`.
+
+## Dependency direction
+
+```
+cli/ or surfaces/
   -> runtime/
-    -> workflows/, modes/
-      -> nodes/
-        -> agents/
-          -> tools/, state/, config
+    -> agents/, nodes/, workflows/    (nodes/, workflows/ arrive in M2/M3)
+      -> tools/, state/, config
 ```
 
 Outer layers may depend on inner layers. Inner layers must not import outer layers.
 
-Examples:
+| Layer | May import from |
+|---|---|
+| `cli/` or `surfaces/*/` | `runtime`, `config`, `state`, `workspace` |
+| `runtime/` | `agents`, `tools`, `state`, `runtime.events`, `runtime.models`, `config` |
+| `agents/` | `tools`, `state`, `runtime.events`, `runtime.models`, `config` |
+| `nodes/` (M2+) | `agents`, `tools`, `state`, `runtime.events`, `runtime.models`, `config` |
+| `workflows/` (M3+) | `nodes`, `state`, `runtime.events`, `runtime.models`, `config` |
+| `tools/` | `runtime.events` only (for tool-call events); nothing else from `jac.*` |
+| `state/` | `aiosqlite` only; nothing from `jac.*` |
+| `config.py`, `workspace.py` | nothing from `jac.*` (leaf imports) |
 
-- `cli/` may import `runtime.events`.
-- `runtime/` must not import `cli.renderer`.
-- `nodes/` may import `agents/` and `state/`.
-- `agents/` must not import `nodes/` or `workflows/`.
-- A future A2A server may import `runtime.RunCoordinator`.
-- A future workflow runner must not know whether the user is in a terminal, browser, or remote agent session.
+**Never:**
+- `agents.*` or `runtime.*` importing from `cli.*` or `surfaces.*`
+- `state.*` importing from `runtime.*`, `agents.*`, or `tools.*`
+- Any layer importing from `lab/specimens/`
 
-## Communication Model
+## Where new code goes
 
-Use typed events and explicit request/response objects across boundaries.
+### Terminal-only behaviour
+`cli/` — Click commands, slash commands, prompt_toolkit input, Rich rendering, prompt views.
 
-- Runtime emits events for progress, text, tools, files, shell commands, cost, warnings, and failures.
-- Runtime requests approvals when a concrete action may have side effects.
-- Runtime asks questions when it needs information to continue.
-- UI or server adapters render those requests and return structured responses.
+### A2A or future browser surface
+`surfaces/<name>/` — adapters that subscribe to runtime events and answer runtime requests. They translate between protocol/UI and the runtime event contract; they do not duplicate workflow or agent logic.
 
-Do not use terminal prompts, Rich objects, Click contexts, or prompt_toolkit sessions outside `cli/`.
+### Runtime behaviour
+`runtime/` — event types, request/response contracts, session configuration, approval policy, human questions, the `RunCoordinator` facade.
 
-## Where New Code Goes
+### Agent role definitions
+`agents/` for the factory and tool wrappers. Persona prompts and shapes live as YAML in `src/jac/data/personas/` (shipped) ← `~/.jac/personas/` (user) ← `<repo>/.agents/personas/` (project).
 
-### New CLI Feature
+`agents/base.py` (the factory) is **the only place** in the codebase that calls Pydantic AI's `Agent.from_file()` / `Agent.from_spec()` to instantiate live agents. Tier resolution, MCP wiring, approval-middleware wrapping happen there.
 
-Put terminal-only behavior in `src/jac/cli/`.
+### Workflow nodes (M2 and beyond, not yet)
+`nodes/` — small `BaseNode` subclasses with state-in / state-out. One unit of work per node. Nodes report progress through runtime events; they don't print.
 
-Use this for Click commands, slash commands, prompt_toolkit input, Rich rendering, and human prompt views. If the feature needs backend state or behavior, define that in `runtime/` first and let the CLI call it.
+### Workflows (M3 and beyond, not yet)
+`workflows/` — small Python files (~50–80 LOC) wiring nodes via `pydantic_graph`. Adding a new strategy is a new file in this folder, not a new code path inside an existing one.
 
-### New Runtime Behavior
+### Local tools
+`tools/` — local capabilities. Tools expose clear inputs/outputs, side-effect descriptions, and `ToolApprovalMeta`. File writes, shell commands, network calls are approval-aware via factory-side middleware.
 
-Put UI-agnostic session behavior in `src/jac/runtime/`.
+### Persistent state
+`state/` — durable storage. Runs, messages, attempts, tasks, agent_configs, MCP/skill registries. Migrations are append-only and ordered by filename.
 
-Use this for event types, request/response contracts, session configuration, approval policy, human questions, and the facade that coordinates runs.
+### Sandbox / execution backend (Phase 2 only)
+`execution/` — pluggable executor backends behind the shell tool. Default is local subprocess; container backend lands only if Phase-1 data motivates it.
 
-### New Custom Agent Or Sub-Agent
-
-Prefer a future `agents/` package for role definitions and agent construction.
-
-Agent code should describe role, model tier, prompt/instructions, allowed tools, and structured outputs. It should not render UI, read terminal input, or decide how sessions are displayed.
-
-If an agent is one step in a workflow, expose it through a node rather than calling it directly from the CLI.
-
-**Critical rule:** `agents/base.py` (the config_loader) is the only place in the codebase that
-instantiates live Pydantic AI `Agent` objects. It reads from `agent_configs`, resolves MCP
-toolsets and skills from the state store, and returns a fully-built agent. Nothing else should
-call `Agent(...)` directly. This keeps model tier resolution, MCP wiring, and skills injection
-in one auditable location.
-
-### New Node
-
-Use a future `nodes/` package.
-
-A node should be a small unit of work with a uniform state-in/state-out contract. It can call an LLM, inspect state, route tasks, execute tools, or evaluate results. It should report progress through runtime events instead of printing.
-
-### New Workflow Or Mode
-
-Use future `workflows/` and `modes/` packages.
-
-Workflows wire nodes into directed graphs using `pydantic_graph`. Modes choose a workflow
-composition and policy defaults. Autopilot and HITL should be separate compositions that share
-nodes.
-
-`RunCoordinator` (in `runtime/coordinator.py`) is the only entry point into the workflow layer.
-It delegates to a `pydantic_graph` `Graph` runner. The CLI never imports workflow or graph code
-directly.
-
-### New Tool
-
-Use `tools/` for local reusable capabilities and future tool wrappers.
-
-Tools should expose clear inputs, outputs, side-effect descriptions, and approval metadata. File writes, shell commands, network calls, and sandbox actions should be approval-aware.
-
-### MCP Server
-
-There are two distinct MCP concerns — keep them separate:
-
-- **Consuming MCP servers** (harness uses external MCP tools): handled in `agents/base.py` via
-  `MCPServerStdio` / `MCPServerStreamableHTTP` toolsets. Configuration lives in the `mcp_servers`
-  and `run_mcp_servers` state tables. See `docs/MCP_INTEGRATION.md`.
-
-- **Exposing the harness as an MCP server** (external tools call the harness): put this adapter
-  code in a future `servers/mcp/` package. It should expose runtime or tool capabilities through
-  MCP, not reimplement agent logic. If it needs a capability that only exists in CLI code, move
-  that capability inward first.
-
-### A2A Server
-
-Put A2A adapter code in a future `servers/a2a/` package.
-
-It should communicate with the same runtime event/request contract as the CLI. Cross-agent session communication should go through runtime/session/state abstractions, not direct CLI hooks.
-
-### Browser UI
-
-Put browser-serving code in a future `ui/` or `servers/web/` package.
-
-The browser UI should subscribe to runtime events and answer runtime requests. It should not duplicate workflow or agent code.
-
-### Sandbox Or Execution Environment
-
-Put sandbox abstractions in a future `execution/` package.
-
-The tool layer should call execution interfaces instead of hardcoding local, Docker, or cloud behavior. Changing execution environment should not change agent logic.
-
-### Persistent State
-
-Put durable storage in a future `state/` package.
-
-State should track runs, tasks, attempts, costs, configs, messages, and scoped context. CLI commands such as `/context`, `/cost`, or `resume` should read from this layer through runtime APIs.
-
-## Design Rules
-
-- Runtime contracts come before UI rendering.
-- Side effects go through tools or execution services.
-- Human interaction goes through approval or question requests.
-- Cost, model choice, and escalation should be observable events, not hidden logs.
-- Reference projects in `specimens/` are inspiration only.
-- Prefer replacing in-progress abstractions over layering compatibility shims around unshipped code.
-
-## Quick Placement Guide
+## Quick placement guide
 
 ```text
-Terminal command?                        cli/
+Terminal command?                        cli/main.py
 Slash command?                           cli/commands.py
 Prompt parsing?                          cli/parser.py
 Rich output?                             cli/renderer.py
 Approval/question contract?              runtime/
 Session config/state?                    runtime/
 Coordinating a run?                      runtime/coordinator.py
-Agent role definition?                   future agents/
-Agent instantiation (config_loader)?     future agents/base.py  ← only place Agent() is called
-Planner/build/evaluate step?             future nodes/
-Graph wiring?                            future workflows/  (uses pydantic_graph)
-Autopilot vs HITL selection?             future modes/
+A2A adapter?                             surfaces/a2a/
+Persona definition?                      data/personas/<role>.yaml
+Persona override?                        ~/.jac/personas/ or <repo>/.agents/personas/
+Agent instantiation?                     agents/base.py  ← only place Agent.from_file/from_spec is called
+Approval-middleware wrapping?            agents/base.py (factory side)
+Workflow node?                           nodes/  (M2+)
+Graph wiring?                            workflows/  (M3+)
 File/shell/local capability?             tools/
-Consuming an MCP server (tool access)?   agents/base.py + state/mcp_servers
-Exposing harness as MCP server?          future servers/mcp/
-A2A protocol surface?                    future servers/a2a/
-Sandbox backend?                         future execution/
-Run/task/attempt persistence?            future state/
-MCP server registry / skills registry?  future state/ (mcp_servers, skills tables)
+Consuming an MCP server?                 agents/base.py + state/mcp_servers
+A2A protocol surface?                    surfaces/a2a/
+Run/task/attempt persistence?            state/
+Skills + MCP registries?                 state/ (markdown→DB seeder)
+Tunable value?                           YAML / TOML / JSON / Markdown by SUBSTRATE.md — NEVER Python literal
 ```
+
+## Design rules
+
+- Runtime contracts come before UI rendering.
+- Side effects go through tools or future execution services.
+- Human interaction goes through approval or question requests, never raw terminal prompts.
+- Cost, model choice, and escalation are observable events on the bus and rows in the ledger — not hidden logs.
+- Reference projects in `lab/specimens/` are inspiration only; never imported.
+- Prefer replacing in-progress abstractions over layering compatibility shims around unshipped code.
+
+## Phase-1 reminder
+
+Phase 1's M1 ships **Scott alone**. There are no `nodes/` or `workflows/` packages yet — they enter when M2/M3 evidence requires them. Phase-2 components (compaction, hooks, skills, HITL, alt strategies, sandboxing, browser UI, multi-repo A2A, agent teams) are catalogued in [`docs/ROADMAP.md`](../ROADMAP.md) with explicit data triggers; none ship until M5's data motivates them.

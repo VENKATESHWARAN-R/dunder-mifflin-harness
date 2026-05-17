@@ -44,6 +44,7 @@ Use date prefixes (`2026-05-02-routing-heuristics.md`) so chronology is recovera
 | [brainstorm/2026-05-02-multi-repo-a2a-runs.md](brainstorm/2026-05-02-multi-repo-a2a-runs.md) | Per-repo agents communicating via A2A. Roadmap **C30**. |
 | [brainstorm/2026-05-04-manager-specialist-minion-pattern.md](brainstorm/2026-05-04-manager-specialist-minion-pattern.md) | _Superseded by 2026-05-05._ Original manager-specialist-minion sketch with analyst-Pam, Date Mike, and Holly. |
 | [brainstorm/2026-05-05-multi-agent-cast-final.md](brainstorm/2026-05-05-multi-agent-cast-final.md) | Final v0 cast: Scott + Pam (planner) + Jim + Dwight + universal `spawn_minion`. Drops Holly and analyst-Pam. Rewrites **C6b**, adds **C6c**, refines **C9**/**C12**, supersedes **C14**. |
+| [brainstorm/2026-05-08-pydantic-ai-harness-vs-jac.md](brainstorm/2026-05-08-pydantic-ai-harness-vs-jac.md) | `pydantic/pydantic-ai-harness` overlap analysis. Library vs application distinction, JAC's unique points, what to adopt vs build, CodeMode relevance. Pre-M1 positioning. |
 
 ### Specimens
 

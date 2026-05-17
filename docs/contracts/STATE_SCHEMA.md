@@ -1,8 +1,10 @@
 # State Schema Contract
 
-> **Status:** Locked · **Last revised:** 2026-05-07 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-08 · **Type:** contract
+>
+> _2026-05-08: Phase-0 reset. Reserved-but-unused tables (`agent_instances`, `agent_teams`, `agent_messages`, `context_store`) dropped. Multi-agent columns on `attempts` and `agent_configs` removed for the M1 single-agent rebuild. `agent_configs.system_prompt` is nullable; canonical persona prompt source is YAML per [`SUBSTRATE.md`](SUBSTRATE.md). Tables return when [`ROADMAP.md`](../ROADMAP.md) Phase-2 evidence triggers them. Source-of-truth brainstorm: [`lab/brainstorm/2026-05-08-jac-reset-from-scratch.md`](../../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md)._
 
-**Schema version:** 1.4  
+**Schema version:** 1.5
 **Storage:** SQLite (single file, local-first, crash-safe)
 
 This document is the authoritative contract for the persistent state store.
@@ -19,6 +21,17 @@ Future code should derive from this document, not the other way around.
 - Nullable columns are explicit (`-- nullable`). Non-null columns default to being required.
 - Schema changes go through a migration file, never ad-hoc `ALTER TABLE`.
 - Cost values are REAL (float). Token counts are INTEGER.
+- **Per [`SUBSTRATE.md`](SUBSTRATE.md): SQLite holds per-run state and registries that mirror disk-backed config. Persona prompts live in YAML; user settings in JSON; vendor specs in TOML; skills/instructions in Markdown. The DB is not the canonical source for any value that has a config-file home.**
+
+## Three-tier model resolution
+
+For every agent build, the model used is resolved by walking three substrates — first non-null wins:
+
+1. **Per-run override** — `agent_configs.model_override` or `agent_configs.tier` for `(run_id, role)`. Set by `/model`, `/tier`, escalation, hot-reload.
+2. **User preference** — `~/.jac/settings.json` or `<repo>/.agents/settings.json` (`tiers.<tier_name>` map per profile, with `JAC_PROFILE_<SLUG>_*` env overlay).
+3. **Shipped default** — `src/jac/data/model_specs.toml` (`tier_defaults_for(provider)`).
+
+This is enforced in `agents/base.py` (the single agent factory site).
 
 ---
 
@@ -46,145 +59,117 @@ CREATE TABLE runs (
 
 ### `tasks`
 
-One row per planned task within a run. Written by the `plan` node.
+One row per task tracked within a run. **Active in M1** — Scott maintains the list via `add_task` / `update_task` / `complete_task` / `list_tasks` tools. The list is injected as a system reminder every turn so it survives compaction and resume — this is what makes JAC a long-running harness rather than a chatbot.
 
 ```sql
 CREATE TABLE tasks (
-    task_id             TEXT PRIMARY KEY,
-    run_id              TEXT NOT NULL REFERENCES runs(run_id),
-    title               TEXT NOT NULL,
-    description         TEXT NOT NULL,
-    acceptance_criteria TEXT NOT NULL,  -- what evaluate checks against
-    status              TEXT NOT NULL DEFAULT 'pending',
-    -- pending | in_progress | passed | failed | skipped
-    complexity          TEXT NOT NULL DEFAULT 'moderate',
-    -- simple | moderate | complex
-    tier                TEXT NOT NULL DEFAULT 'worker',
-    -- scout | worker | architect
-    attempt_count       INTEGER NOT NULL DEFAULT 0,
-    order_index         INTEGER NOT NULL,
-    parent_task_id      TEXT REFERENCES tasks(task_id)  -- nullable; populated by sub-workflow nesting (C23)
+    task_id      TEXT PRIMARY KEY,
+    run_id       TEXT NOT NULL REFERENCES runs(run_id),
+    title        TEXT NOT NULL,
+    description  TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    -- pending | in_progress | completed | failed | cancelled
+    order_index  INTEGER NOT NULL,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
 );
 ```
+
+**Slimmed for M1** — `acceptance_criteria`, `complexity`, `tier`, `attempt_count`, `parent_task_id` removed from the M1 migration. They return as Phase-2 evidence triggers them:
+
+| Column | Returns when |
+|---|---|
+| `acceptance_criteria` | Pam (planner) ships and writes structured criteria per task |
+| `tier` | Per-task tier routing is exercised (typically with multi-role) |
+| `complexity` | Task complexity classification influences routing |
+| `attempt_count` | Retry / escalation counters are wired |
+| `parent_task_id` | Sub-workflow nesting lands |
 
 ---
 
 ### `attempts`
 
-One row per build attempt on a task. Written by `build` and updated by `evaluate`.
+One row per agent run within a session. Written when a turn starts; updated when usage and (later) eval results are known. `task_id` is nullable — chat-style turns that don't progress a task still record an attempt for cost/usage accounting.
 
 ```sql
 CREATE TABLE attempts (
-    attempt_id          TEXT PRIMARY KEY,
-    task_id             TEXT NOT NULL REFERENCES tasks(task_id),
-    run_id              TEXT NOT NULL REFERENCES runs(run_id),
-    parent_attempt_id   TEXT REFERENCES attempts(attempt_id),  -- nullable; set when a specialist or minion is called from a parent agent
-    call_type           TEXT NOT NULL DEFAULT 'agent',
-    -- agent | direct_llm | minion
-    -- direct_llm = single model call without full agent loop (Scott's direct replies, routing decisions)
-    role                TEXT NOT NULL DEFAULT 'builder',
-    -- which persona made this attempt: manager | planner | builder | evaluator | minion:...
-    model               TEXT NOT NULL,   -- exact model id, e.g. anthropic:claude-sonnet-4-6
-    tier                TEXT NOT NULL,   -- scout | worker | architect
-    tokens_in           INTEGER NOT NULL DEFAULT 0,
-    tokens_out          INTEGER NOT NULL DEFAULT 0,
-    requests            INTEGER NOT NULL DEFAULT 0,
-    tool_calls          INTEGER NOT NULL DEFAULT 0,
-    cost                REAL NOT NULL DEFAULT 0.0,
-    duration_ms         INTEGER NOT NULL DEFAULT 0,
-    eval_score          REAL,            -- nullable until evaluate runs, 0.0–1.0
-    eval_passed         INTEGER,         -- nullable until evaluate runs, 0 or 1
-    eval_feedback       TEXT,            -- nullable
-    status              TEXT NOT NULL DEFAULT 'running',
-    -- running | passed | failed | escalated
-    created_at          TEXT NOT NULL
+    attempt_id    TEXT PRIMARY KEY,
+    run_id        TEXT NOT NULL REFERENCES runs(run_id),
+    task_id       TEXT REFERENCES tasks(task_id),  -- nullable; null = chat turn or session-level
+    call_type     TEXT NOT NULL DEFAULT 'agent',
+    -- agent | direct_llm
+    -- direct_llm = single model call without full agent loop (e.g., a future Scout summariser)
+    role          TEXT NOT NULL DEFAULT 'manager',
+    -- which persona made this attempt; M1 has 'manager' only (Scott).
+    -- M2+ adds 'planner' | 'builder' | 'evaluator' as personas arrive.
+    model         TEXT NOT NULL,   -- exact model id, e.g. anthropic:claude-sonnet-4-6
+    tier          TEXT NOT NULL,   -- scout | worker | architect
+    tokens_in     INTEGER NOT NULL DEFAULT 0,
+    tokens_out    INTEGER NOT NULL DEFAULT 0,
+    requests      INTEGER NOT NULL DEFAULT 0,
+    tool_calls    INTEGER NOT NULL DEFAULT 0,
+    cost          REAL NOT NULL DEFAULT 0.0,
+    duration_ms   INTEGER NOT NULL DEFAULT 0,
+    eval_score    REAL,            -- nullable until evaluator runs, 0.0–1.0
+    eval_passed   INTEGER,         -- nullable until evaluator runs, 0 or 1
+    eval_feedback TEXT,            -- nullable
+    status        TEXT NOT NULL DEFAULT 'running',
+    -- running | passed | failed
+    created_at    TEXT NOT NULL
 );
 ```
 
-**Note on `call_type`:**
-- `agent` = standard full agent run.
-- `direct_llm` = single model call without full agent loop (for example Scout summariser over large tool results, or future direct routing calls).
-- `minion` = single-shot child agent spawned by `spawn_minion`; `parent_attempt_id` points to the spawning attempt.
+**Slimmed for M1** — `parent_attempt_id`, `is_minion`-related role prefixes, and `escalated` status removed. They return when multi-agent delegation lands:
 
-**C7 usage:** `tokens_in`, `tokens_out`, `requests`, `tool_calls`, and `duration_ms` are populated per attempt from Pydantic AI usage (deltas per row; see `docs/dev/runtime-layer.md`). The `cost` column remains reserved for a future pricing component.
+| Column / variant | Returns when |
+|---|---|
+| `parent_attempt_id` | Multi-agent delegation lands (M2+); Jim's attempt rows reference Scott's. |
+| `call_type='minion'` | Phase-2 if `spawn_minion` is reintroduced via evidence trigger. |
+| `status='escalated'` | HR escalation (Phase 2) wires up. |
 
-**Note on `parent_attempt_id`:** Reconstructs the call tree for cost rollup and
-audit. When Scott calls `summon_jim`, Jim's attempt row sets
-`parent_attempt_id = Scott's attempt_id`. For C6c and later, minion attempts set
-`parent_attempt_id` to the calling agent's attempt. A null `parent_attempt_id`
-means the attempt was the top-level call in the run (typically Scott).
+**Usage tracking:** `tokens_in`, `tokens_out`, `requests`, `tool_calls`, and `duration_ms` are populated per attempt from Pydantic AI usage. `cost` is reserved for a future pricing component (M5 report computes cost from tokens × pricing-from-`model_specs.toml`).
 
 ---
 
 ### `agent_configs`
 
-Stored configuration for each agent role within a run. Loaded at agent instantiation time.
-Supports mid-run updates (e.g., tier escalation updates the model/tier fields for that role).
+Per-run override layer for agent configs. **The canonical persona shape lives in YAML** under `src/jac/data/personas/<role>.yaml` (with user/project overrides per [`SUBSTRATE.md`](SUBSTRATE.md)). This table holds *only what's per-run-mutable*: tier/model overrides, tool toggles, escalation state.
+
+`system_prompt` is **nullable** — null means "use the persona YAML's `instructions` verbatim." Non-null means "this run overrides the persona prompt" (used by Phase-2 hot-reload, A/B experiments).
 
 ```sql
 CREATE TABLE agent_configs (
-    config_id           TEXT PRIMARY KEY,
-    run_id              TEXT NOT NULL REFERENCES runs(run_id),
-    role                TEXT NOT NULL,
-    -- v0 roles: manager | planner | builder | evaluator
-    -- future roles: support | security | dba | tester | reviewer (added when those personas ship)
-    -- minion roles: prefixed 'minion:' e.g. 'minion:web_research' (ensures UNIQUE is preserved)
-    persona             TEXT,           -- nullable; full character name e.g. 'Michael Scott'
-    display_name        TEXT,           -- nullable; short name shown in events e.g. 'Scott'
-    is_minion           INTEGER NOT NULL DEFAULT 0,  -- 0 = native specialist, 1 = temp/minion (depth ≤ 1)
-    parent_role         TEXT,           -- nullable; role of the agent that spawned this minion
-    depth               INTEGER NOT NULL DEFAULT 0,
-    -- 0 = native specialist (Scott, Pam, Jim, Dwight)
-    -- 1 = spawned minion; minions cannot spawn further (enforced at runtime)
-    model_tier          TEXT NOT NULL,  -- scout | worker | architect
-    model_override      TEXT,           -- nullable; overrides tier default if set
-    system_prompt       TEXT NOT NULL,
-    allowed_tools       TEXT NOT NULL DEFAULT '[]',  -- JSON array of tool/MCP server ids
-    max_context_tokens  INTEGER NOT NULL DEFAULT 8000,
-    created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL,
+    config_id          TEXT PRIMARY KEY,
+    run_id             TEXT NOT NULL REFERENCES runs(run_id),
+    role               TEXT NOT NULL,
+    -- M1 role: 'manager' (Scott).
+    -- M2+ adds 'planner' (Pam) | 'builder' (Jim) | 'evaluator' (Dwight) as personas arrive.
+    -- New personas land as YAML files in data/personas/; this column is data, never matched on in code.
+    model_tier         TEXT NOT NULL,         -- scout | worker | architect
+    model_override     TEXT,                  -- nullable; overrides tier default if set
+    system_prompt      TEXT,                  -- nullable; null = use persona YAML; non-null = per-run override
+    allowed_tools      TEXT NOT NULL DEFAULT '[]',  -- JSON array of tool/MCP server ids
+    max_context_tokens INTEGER NOT NULL DEFAULT 8000,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL,
     UNIQUE(run_id, role)
 );
 ```
 
-**Default tiers per persona (v0):**
+**Default tiers per persona (target architecture):**
 
-| Persona | Role | Default tier | Rationale |
+| Persona | Role | Default tier | Phase-1 milestone |
 |---|---|---|---|
-| Michael Scott | `manager` | worker | Tool-routing across many options needs reliable reasoning; Scout is too weak. |
-| Pam Beesly | `planner` | architect | End-to-end planning and decomposition have the highest cost-of-error multiplier. |
-| Jim Halpert | `builder` | worker | Executes scoped implementation tasks from the plan loop. |
-| Dwight Schrute | `evaluator` | worker | Grading against structured acceptance criteria is well-scoped. |
+| Michael Scott | `manager` | worker | M1 |
+| Pam Beesly | `planner` | architect | M2 or M3 (evidence-driven) |
+| Jim Halpert | `builder` | worker | M2 or M3 (evidence-driven) |
+| Dwight Schrute | `evaluator` | worker | M2 or M3 (evidence-driven) |
 
-**Note on `allowed_tools`:** Stores MCP server IDs and local tool names as a JSON array.
-Example: `["filesystem", "shell", "git", "mcp:playwright"]`
-MCP server entries are prefixed with `mcp:` to distinguish them from local tools.
-The agent instantiation layer resolves these to actual tool/toolset objects at runtime.
+The full persona blueprint (instructions, capabilities, model_settings) lives in the YAML file, not here. Code that builds an agent calls the factory at `agents/base.py`, which reads the YAML, applies the three-tier model resolution, and overlays this row's overrides.
 
-**Note on minion roles:** Minion `role` values are prefixed with `minion:` (for
-example, `minion:web_research`, `minion:env_probe`) to preserve the
-`UNIQUE(run_id, role)` constraint while allowing multiple distinct minions per
-run. The spawning agent assigns the role string.
+**Slimmed for M1** — `persona`, `display_name`, `is_minion`, `parent_role`, `depth` columns removed. The persona name and display name come from the YAML file's `persona` / `display_name` keys (or implicit from filename). Minion-related columns return only via Phase-2 evidence trigger.
 
----
-
-### `context_store`
-
-Scoped key-value store for inter-agent communication and per-role working context.
-Each agent role sees only its own scope. The `shared` scope is readable by all agents in a run.
-
-```sql
-CREATE TABLE context_store (
-    id          TEXT PRIMARY KEY,
-    run_id      TEXT NOT NULL REFERENCES runs(run_id),
-    scope       TEXT NOT NULL,
-    -- agent role (planner | builder | evaluator) or 'shared'
-    key         TEXT NOT NULL,
-    value       TEXT NOT NULL,  -- JSON-serialized
-    updated_at  TEXT NOT NULL,
-    UNIQUE(run_id, scope, key)
-);
-```
+**Note on `allowed_tools`:** JSON array of tool ids and MCP server ids. Local tools by name (`filesystem`, `shell`); MCP servers prefixed `mcp:` (`mcp:playwright`). Resolved by the agent factory against `TOOL_REGISTRY` and `mcp_servers`.
 
 ---
 
@@ -308,103 +293,35 @@ CREATE TABLE run_skills (
 
 ---
 
-### `agent_instances` (activated by C15)
+## Tables removed in the 2026-05-08 reset (Phase-2 candidates)
 
-Tracks dynamically spawned agent instances within a run. Used when multiple agents run in
-parallel (e.g., a builder agent and a tester agent running concurrently within the same run).
-Instances are created from `agent_configs` and can be spawned mid-run.
+The following tables were defined in schema 1.4 but never populated. They are **dropped from the M1 migration** and return only via Phase-2 evidence triggers documented in [`ROADMAP.md`](../ROADMAP.md):
 
-```sql
-CREATE TABLE agent_instances (
-    instance_id     TEXT PRIMARY KEY,
-    run_id          TEXT NOT NULL REFERENCES runs(run_id),
-    config_id       TEXT NOT NULL REFERENCES agent_configs(config_id),
-    team_id         TEXT REFERENCES agent_teams(team_id),  -- nullable
-    role            TEXT NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'idle',
-    -- idle | working | waiting | done
-    current_task_id TEXT REFERENCES tasks(task_id),  -- nullable
-    created_at      TEXT NOT NULL,
-    updated_at      TEXT NOT NULL
-);
-```
+| Removed table | Phase-2 trigger to bring back |
+|---|---|
+| `agent_instances` | A workflow needs concurrent specialists, not just delegation |
+| `agent_teams` | Same trigger |
+| `agent_messages` | Same trigger (paired with `agent_instances`) |
+| `context_store` | Multi-task / context routing requires shared cross-agent scoped state |
 
----
-
-### `agent_teams` (activated by C15)
-
-Groups agent instances into teams with a coordination strategy. A team is a set of agents
-that collaborate on a run — e.g., a developer team (builder + tester) running in parallel
-where both agents share a common message queue.
-
-```sql
-CREATE TABLE agent_teams (
-    team_id     TEXT PRIMARY KEY,
-    run_id      TEXT NOT NULL REFERENCES runs(run_id),
-    name        TEXT NOT NULL,   -- e.g., 'dev_team', 'review_team'
-    strategy    TEXT NOT NULL DEFAULT 'parallel',
-    -- parallel | sequential | mixed
-    created_at  TEXT NOT NULL
-);
-```
-
----
-
-### `agent_messages` (activated by C15)
-
-Inter-agent coordination queue. Acts as a lightweight shared message board between agent
-instances — similar to a Jira board where a tester posts a bug and the builder picks it up
-from its queue when it finishes its current task.
-
-```sql
-CREATE TABLE agent_messages (
-    message_id      TEXT PRIMARY KEY,
-    run_id          TEXT NOT NULL REFERENCES runs(run_id),
-    from_instance   TEXT NOT NULL,  -- agent_instances.instance_id or 'system'
-    to_instance     TEXT NOT NULL,  -- agent_instances.instance_id or 'broadcast'
-    message_type    TEXT NOT NULL,
-    -- bug_report | task_complete | handoff | question | info | review_request
-    payload         TEXT NOT NULL DEFAULT '{}',  -- JSON
-    status          TEXT NOT NULL DEFAULT 'queued',
-    -- queued | read | processed
-    priority        INTEGER NOT NULL DEFAULT 0,  -- higher = more urgent
-    created_at      TEXT NOT NULL,
-    read_at         TEXT,       -- nullable
-    processed_at    TEXT        -- nullable
-);
-```
-
-**Coordination pattern:**
-- Tester agent finds a bug → posts `bug_report` to builder's `to_instance`
-- Builder finishes current task → reads its queue → picks up `bug_report` → handles it
-- Builder posts `task_complete` back to tester → tester resumes testing that feature
-- `broadcast` messages go to all active instances in the run
+When a trigger fires, re-introduce the table via a new migration **and** add it back to this contract — never re-add a table without ledger evidence motivating it.
 
 ---
 
 ## Activation Sequence
 
-The schema is fully defined here so direction is locked, but tables come online as the
-roadmap components that need them ship. Component IDs reference [`docs/ROADMAP.md`](../ROADMAP.md).
-
 | Table | First populated by | Notes |
 |---|---|---|
-| `runs` | C1 | Active from the SQLite cut-over. |
-| `messages` | C1 | Active from the SQLite cut-over. |
-| `agent_configs` | C5 | Active from the agent factory; gains persona/minion fields at C6; hot-reload semantics at C20. |
-| `run_mcp_servers` | C5 | Run-start config; mid-run toggle command added at C18. |
-| `run_skills` | C5 | Run-start config; mid-run toggle command added at C18. |
-| `attempts` | C6 | Scott + Jim call tree recorded. Per-attempt token usage (`tokens_in/out`, `requests`, `tool_calls`, `duration_ms`) and `direct_llm` rows ship at C7 (migration `003_c7_usage.sql`). |
-| `tasks` | C6b ✓ | Pam (planner) emits a structured task list. |
-| `context_store` | C11 | Reserved until multi-task/context routing requires shared cross-agent state. |
-| `mcp_servers` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; live transports added at C17. |
-| `skills` | C2 ✓ | Registry seeded from disk by `state/seeder.py`; dynamic injection added at C16. |
-| `agent_instances` | C15 | Reserved until multi-agent runs land. |
-| `agent_teams` | C15 | Reserved until multi-agent runs land. |
-| `agent_messages` | C15 | Reserved until multi-agent runs land. |
-
-Reserved tables exist in the schema from the first migration so foreign keys and join shapes
-don't churn when later components arrive.
+| `runs` | M1 | Active from M1; one row per harness invocation. |
+| `messages` | M1 | Active from M1; full message history; basis for resume. |
+| `attempts` | M1 | Active from M1; one row per agent run within a session, with token usage and (when evaluator lands) eval results. |
+| `tasks` | M1 | **Active from M1.** Scott maintains the list via task-CRUD tools; injected as system reminder every turn (context-resilient memory). |
+| `agent_configs` | M1 | Per-run override layer; canonical persona shape is YAML at `data/personas/<role>.yaml`. M1 has one row (Scott). |
+| `run_mcp_servers` | M1 | Run-start MCP server bindings (kept in M1 even though no MCP servers ship live until Phase 2 evidence trigger). |
+| `run_skills` | M1 | Run-start skill bindings (same — registry kept; live skill injection is Phase 2). |
+| `mcp_servers` | M1 | Registry seeded from disk by `state/seeder.py`. Live transports remain a Phase-2 evidence-trigger item. |
+| `skills` | M1 | Registry seeded from disk by `state/seeder.py`. Dynamic injection is Phase 2. |
+| _(removed in 2026-05-08 reset)_ | — | `agent_instances`, `agent_teams`, `agent_messages`, `context_store` — see table above for re-add triggers. |
 
 ---
 
@@ -421,5 +338,7 @@ CREATE TABLE schema_meta (
     key     TEXT PRIMARY KEY,
     value   TEXT NOT NULL
 );
--- Seed: INSERT INTO schema_meta VALUES ('version', '1.2');  -- example after migration 003 (see `db.py` mapping)
+-- Seed (M1): INSERT INTO schema_meta VALUES ('version', '1.5');
 ```
+
+The M1 rebuild ships a single migration (`001_m1_initial.sql`) that creates the tables described above at version `1.5`. The historical migrations from C0–C8 (`001_initial.sql` through `003_c7_usage.sql`) are superseded — they describe a schema that's being cut.

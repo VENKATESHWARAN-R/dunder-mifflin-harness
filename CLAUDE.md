@@ -4,25 +4,41 @@ This file provides guidance to AI Agents when working with code in this reposito
 
 ## Project Overview
 
-JAC ("Just Another CLI") is an R&D harness exploring whether a multi-agent system with tiered model routing can match Anthropic's long-running coding harness at 3–5× lower cost. The repo directory is `dunder-mifflin-harness` (a nod to the predecessor project), but the product is **JAC**.
+JAC ("Just Another CLI") is a multi-agent CLI coding harness with two coupled goals: (1) measure whether four roles with tiered model routing can build small applications autonomously at materially lower cost than a single-Opus baseline, on the **Notes CLI** benchmark + a **single-function bug-fix** secondary; and (2) be a usable terminal coding assistant — chat, plan, build, evaluate, resume — backed by SQLite persistence and an event/runtime contract that's surface-independent. Repo directory is `dunder-mifflin-harness` (predecessor project nod); the product is **JAC**.
 
-This file is intentionally stable guidance. Do not treat it as the source of
-truth for shipped component status, active tables, or milestone progress.
-Use:
+> **2026-05-08 reset.** The original 31-component plan is replaced by 5 milestones (M1–M5) for Phase 1 + an evidence-gated Phase-2 catalog. M1 ships Scott alone; later personas land driven by M1+ run-log evidence. Source-of-truth brainstorm: [`lab/brainstorm/2026-05-08-jac-reset-from-scratch.md`](lab/brainstorm/2026-05-08-jac-reset-from-scratch.md). C0–C8 historical and being cut/rebuilt in M1.
 
-- `docs/ROADMAP.md` for shipped/planned component status
-- `docs/contracts/STATE_SCHEMA.md` for table definitions + activation sequence
-- `docs/dev/*.md` for "what is currently built" in each layer
+This file is stable guidance, not status truth. Use:
+
+- [`docs/reference/PHILOSOPHY.md`](docs/reference/PHILOSOPHY.md) — the five principles
+- [`docs/contracts/SUBSTRATE.md`](docs/contracts/SUBSTRATE.md) — YAML/TOML/JSON/Markdown/SQLite boundary
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — Phase-1 milestones (M1–M5) + Phase-2 catalog
+- [`docs/contracts/STATE_SCHEMA.md`](docs/contracts/STATE_SCHEMA.md) — current schema (1.5)
+- `docs/dev/*.md` — what is currently built per layer (these go stale during M1 rebuild; refreshed after M1 lands)
 
 ## Core Invariants
 
-Load-bearing rules that hold across the codebase. Distilled from `docs/reference/PHILOSOPHY.md` and `docs/dev/architecture.md` — read those for the full rationale.
+Five principles + operational rules. Each rules something *out*. Full text + teeth in [`docs/reference/PHILOSOPHY.md`](docs/reference/PHILOSOPHY.md).
 
-- **Dependency direction is inward, never outward.** `cli → runtime → agents → tools / state / config`. Inner layers must not import outer layers (no `runtime` importing `cli.renderer`, no `agents` importing `runtime.coordinator`, no `state` importing anything from `jac.*`). The full per-layer matrix lives at [`docs/dev/architecture.md`](docs/dev/architecture.md#dependency-rules) — consult it before adding a new import across packages.
-- **`src/jac/agents/base.py` is the only site that constructs `pydantic_ai.Agent(...)`.** Tier resolution, MCP toolset wiring, and skills injection live there. If you find yourself writing `Agent(...)` elsewhere, route through `config_loader` instead. This is what makes mid-run config changes (C20 hot-reload) tractable.
-- **Two communication primitives, not one.** `EventBus` emits typed dataclass events (one-way, fire-and-forget; subscribers in `cli.renderer`). Approvals and questions are **request/response with `asyncio.Future` waiters** — they block the coordinator until the UI answers. Don't conflate them: events for progress/observation, requests for "I need a decision before I continue."
-- **Slash commands are local control, not model input.** They mutate session/runtime config and never get sent to the LLM. New session-level toggles belong on `SessionConfig` + a slash handler, not in a system prompt.
-- **No hardcoding unless purely needed.** User-tunable values → `settings.json` / env. External-service spec (model context windows, provider IDs, etc.) → shipped TOML under `src/jac/data/`. Per-run/per-agent config → state DB. Hardcode only when the value is genuinely a code-internal constant (enum members, framework defaults, sentinel strings). When in doubt, prefer data over code — it diffs cleaner and updates without touching Python.
+**Principles:**
+
+1. **The runtime is the contract; the UI is one surface.** UI may import runtime; runtime never imports UI. Anything that should outlive the terminal (browser, A2A, headless) lives in `runtime/`.
+2. **Keep the spine thin.** Spine: prompt → plan → route → build → evaluate → ledger → report. New structure justified only by a logged run that breaks the spine.
+3. **Measure before you abstract.** No new persona, tool, contract, or dependency without a `attempts` row or run trace that motivates it.
+4. **State is durable; agents are disposable.** SQLite holds runs/messages/attempts/tasks/configs. Agent objects, sessions, in-memory caches must be reconstructible from state.
+5. **Config-as-data, not config-as-code.** YAML / TOML / JSON / Markdown / SQLite per [`SUBSTRATE.md`](docs/contracts/SUBSTRATE.md). Python files contain code, never tunable values. No `if role == "manager":` branches.
+
+**Operational invariants (don't violate these even if a principle seems to permit it):**
+
+- **Dependency direction is inward.** `cli` or `surfaces/*` → `runtime` → `agents` → `tools / state / config`. The full layer matrix is in [`PHILOSOPHY.md`](docs/reference/PHILOSOPHY.md#dependency-direction).
+- **`src/jac/agents/base.py` is the only site that calls `pydantic_ai.Agent.from_file()` / `Agent.from_spec()`.** Tier resolution, MCP toolset wiring, approval middleware, and persona-YAML loading happen there. If you find yourself constructing an Agent elsewhere, route through the factory.
+- **Two communication primitives, not one.** `EventBus` emits typed dataclass events (one-way, fire-and-forget). Approvals and questions are request/response with `asyncio.Future` waiters — they block the coordinator until the UI answers. Don't conflate them.
+- **Slash commands are local control, not model input.** They mutate session/runtime config and never get sent to the LLM.
+- **Three-tier model resolution.** For every agent build, model is resolved by walking: (1) per-run `agent_configs` override in SQLite → (2) user `settings.json` → (3) shipped `data/model_specs.toml`. First non-null wins.
+
+## Phase-1 reminder
+
+M1 ships **Scott alone**. There are no `nodes/` or `workflows/` packages yet — they enter when M2/M3 evidence requires them. Phase-2 components (compaction, hooks, skills, HITL, alt strategies, sandboxing, browser UI, multi-repo A2A, agent teams) are catalogued in [`docs/ROADMAP.md`](docs/ROADMAP.md) with explicit data triggers; none ship until M5's data motivates them. If you're adding code that looks like Phase-2 capability, stop and re-read principle B3 (measure before you abstract).
 
 ## Commands
 
@@ -59,19 +75,30 @@ uv run jac chat
 ## Repo Layout
 
 ```
-src/jac/        # the product — terminal adapter + runtime + tools
+src/jac/        # the product — terminal adapter + runtime + tools + state
+src/jac/data/   # shipped declarative data: personas/*.yaml, model_specs.toml
 tests/          # pytest suite mirroring src/jac/
-docs/           # authoritative docs (contracts/, reference/, implementation_docs/) + ROADMAP.md
+docs/           # contracts/, reference/, ROADMAP.md, dev/, guide/, implementation_docs/ (historical)
 lab/            # experiments (brainstorm/, scripts/, notebooks/, specimens/)
 ```
 
+**M1 layout (target):**
+
 - `src/jac/cli/` — terminal adapter only: Click commands, prompt_toolkit input, slash commands, Rich rendering, prompt views.
-- `src/jac/runtime/` — UI-agnostic runtime: events, sessions, approvals, questions, `RunCoordinator`.
-- `src/jac/agents/` — agent factory: primary managed site for agent construction. `config_loader` reads DB config and builds agents.
-- `src/jac/tools/` — shared local tool helpers (filesystem attachments, shell execution).
-- `src/jac/config.py` — env-backed settings.
+- `src/jac/surfaces/a2a/` — A2A peer adapter (Pydantic AI's `agent.to_a2a()`).
+- `src/jac/runtime/` — UI-agnostic runtime: events, sessions, approvals, questions, `RunCoordinator`, model factory.
+- `src/jac/agents/` — agent factory at `agents/base.py`, the sole site of `Agent.from_file()` / `Agent.from_spec()` calls. Persona YAML loader + tool/MCP resolution + approval middleware composition.
+- `src/jac/tools/` — local tool helpers (filesystem, shell, task-list CRUD). Each tool carries `ToolApprovalMeta`.
+- `src/jac/state/` — SQLite repos and migrations (M1 starting at `001_m1_initial.sql`).
+- `src/jac/data/personas/` — shipped persona YAMLs (M1: `scott.yaml`).
+- `src/jac/data/model_specs.toml` — shipped vendor data (model context windows, tier defaults).
+- `src/jac/config.py` — env-backed settings (`pydantic-settings`).
+- `src/jac/workspace.py` — workspace discovery (`~/.jac/`, `<repo>/.agents/`).
+
+**M2/M3 additions (not yet present):** `src/jac/nodes/` (BaseNode subclasses), `src/jac/workflows/` (small Python files wiring nodes via `pydantic_graph`).
+
 - `lab/` — research workspace; the `lab` dependency group covers extras only used here.
-- `docs/dev/` — layer deep-dives and component history. **Read the relevant `docs/dev/<layer>.md` before touching an existing layer.** Index at `docs/dev/README.md`.
+- `docs/dev/` — layer deep-dives. **Stale during M1 rebuild — they describe pre-reset code.** Refreshed after M1 lands.
 
 ## Doc System
 
@@ -98,13 +125,19 @@ Full doc index: [`docs/README.md`](docs/README.md). Locked contracts in `docs/co
 
 | New thing | Path | Required reading |
 |---|---|---|
-| Runtime or CLI code | `src/jac/runtime/` or `src/jac/cli/` | `docs/reference/PHILOSOPHY.md` |
-| Local tool helper | `src/jac/tools/` | `docs/contracts/TOOLS_CONTRACT.md` |
+| Runtime or CLI code | `src/jac/runtime/` or `src/jac/cli/` | [`PHILOSOPHY.md`](docs/reference/PHILOSOPHY.md) |
+| A2A or future browser surface adapter | `src/jac/surfaces/<name>/` | [`PHILOSOPHY.md`](docs/reference/PHILOSOPHY.md) — must consume runtime events, never duplicate logic |
+| New persona | `src/jac/data/personas/<role>.yaml` (shipped) or `~/.jac/personas/` (user) | [`SUBSTRATE.md`](docs/contracts/SUBSTRATE.md) — never as Python literal |
+| Local tool helper | `src/jac/tools/` | [`TOOLS_CONTRACT.md`](docs/contracts/TOOLS_CONTRACT.md) |
+| Workflow node (M2+) | `src/jac/nodes/` (package doesn't exist yet) | Wait until M2 evidence requires it |
+| Workflow wiring (M3+) | `src/jac/workflows/<name>.py` (package doesn't exist yet) | Wait until M3 evidence requires it |
+| Vendor-data file | `src/jac/data/<name>.toml` | [`SUBSTRATE.md`](docs/contracts/SUBSTRATE.md) |
+| Skill / MCP server stub | Markdown / JSON in `~/.jac/` or `<repo>/.agents/` | [`WORKSPACE.md`](docs/contracts/WORKSPACE.md), [`SUBSTRATE.md`](docs/contracts/SUBSTRATE.md) |
 | Test | `tests/` (mirror package layout) | — |
 | Locked design doc | `docs/contracts/` + add to `docs/README.md` | Add status header dated today |
 | Stable narrative doc | `docs/reference/` + add to `docs/README.md` | Add status header dated today |
 | Implementation plan (handoff for coding) | `docs/implementation_docs/<slug>.md` | After analysis + human agreement; see **Planning vs implementation** below |
-| Developer doc update (layer changed) | `docs/dev/<layer>.md` | After the component ships; see **Developer Docs** below |
+| Developer doc update (layer changed) | `docs/dev/<layer>.md` | After M1 lands or a layer changes meaningfully post-M1 |
 | Rough idea, half-formed | `lab/brainstorm/YYYY-MM-DD-<slug>.md` | Promote later if it matures |
 | Runnable experiment | `lab/scripts/` + add row to `lab/README.md` | — |
 | Notebook | `lab/notebooks/` + add row to `lab/README.md` | — |
@@ -119,36 +152,37 @@ Use the `brainstrom` skill for free-form design sessions. When a discussion fina
 
 ## Database Scope
 
-Do not encode "currently active tables" in this file. Always check
-`docs/contracts/STATE_SCHEMA.md` (Activation Sequence) before writing to a new
-table or changing persistence behavior.
+Always check [`STATE_SCHEMA.md`](docs/contracts/STATE_SCHEMA.md) (Activation Sequence) before writing to a new table or changing persistence behavior. Schema is at v1.5 after the 2026-05-08 reset.
+
+**M1 active tables:** `runs`, `messages`, `attempts`, `tasks`, `agent_configs` (single-row), `mcp_servers`, `skills`, `run_mcp_servers`, `run_skills`. Reserved-but-unused tables (`agent_instances`, `agent_teams`, `agent_messages`, `context_store`) were **dropped** in the reset and only return via Phase-2 evidence triggers.
 
 When proposing state changes:
-- Schema changes (fields, relationships) → update `STATE_SCHEMA.md` first, write a new numbered migration alongside the code.
-- New table going live → confirm it lines up with the activation sequence, or revise it with reasoning.
+- Schema changes (fields, relationships) → update `STATE_SCHEMA.md` first, then write a new numbered migration.
+- Re-introducing a removed table → confirm the Phase-2 trigger fired (record in the relevant brainstorm note); add the table back to `STATE_SCHEMA.md`; write a migration.
 - Migrations are append-only and ordered by filename; never edit a shipped migration.
+- Per [`SUBSTRATE.md`](docs/contracts/SUBSTRATE.md): SQLite holds per-run state. Persona prompts → YAML; user settings → JSON; vendor specs → TOML; skills/instructions → Markdown. The DB is not the canonical source for any value with a config-file home.
 
 ## Architecture Direction
 
-The planned harness is three layers: **Nodes** (atomic LLM/deterministic units) → **Workflows** (directed graphs, `pydantic_graph`) → **Modes** (Autopilot vs HITL). Model tiers are Scout (cheap/fast), Worker (balanced), Architect (most capable). See [`docs/reference/IDEA.md`](docs/reference/IDEA.md) §5 for the full design and [`docs/dev/architecture.md`](docs/dev/architecture.md) for what's built. Read both before touching the orchestration layer.
+The target architecture is four-role multi-agent (manager + planner + builder + evaluator) with tiered model routing. Phase 1 builds the cast incrementally: M1 ships Scott (manager) alone with full tool surface, A2A peer surface, and long-running task orchestration; M2 onward adds personas based on M1 logs. See [`docs/reference/IDEA.md`](docs/reference/IDEA.md) "Locked product definition (2026-05-08)" for the full framing and [`docs/ROADMAP.md`](docs/ROADMAP.md) for milestone-level scope.
+
+When `nodes/` and `workflows/` packages enter (M2/M3): nodes are `BaseNode` subclasses with state-in/state-out `run()` methods; workflows are small Python files (~50–80 LOC) that wire nodes via `pydantic_graph`. **Workflows are not YAML** — `pydantic_graph` has no YAML loader; conditional edges live in code.
 
 ## Current Design Decisions
 
-- The CLI is a presentation adapter, not the agent orchestrator.
-- Runtime communication uses typed events and explicit request/response handshakes.
-- Approvals and user questions are separate primitives.
-- Slash commands mutate local session/runtime config and are not sent to the model.
-- Orchestration is graph-based with conditional branching (not a linear pipeline).
-- **Orchestration library: Pydantic AI throughout.** Agents for roles, `pydantic_graph` for the workflow graph (introduced at C10), `pydantic_evals` for evaluation. No LangGraph, no ADK in core (LangGraph lives only in `lab/` for research).
-- **State store: SQLite.** Single file, local-first, crash-safe. Schema in `docs/contracts/STATE_SCHEMA.md`.
-- Agent configs (model tier, prompts, tools) are stored in the state store and loaded at instantiation time — enabling mid-run updates (hot-reload at C20).
-- Context reads are scoped per agent role: agents see only what's relevant to their task.
-- Only one workflow ships before C22 (feature-by-feature) but node interfaces are designed for reuse from day one.
-- HITL and Autopilot are **separate workflow compositions** sharing the same node library.
-- The CLI/runtime event contract is the stable integration point for terminal UI now and browser/A2A surfaces later.
-- **Not everything is an agent.** Simple one-off tasks use direct LLM calls (`pydantic_ai.direct`). These are still recorded in the `attempts` table with `call_type = 'direct_llm'` for cost tracking.
-- **Tools are MCP-first.** Agent tool access is configured via `allowed_tools` in `agent_configs` as a JSON array of tool names and MCP server IDs. Local tools only until remote MCP transports come online at C17.
-- **Agent teams (C15).** Multiple agent instances can run in parallel within a run and coordinate via the `agent_messages` queue. Schema is defined now; wiring lands at C15.
+- **Dual product goal.** JAC is a research harness (cost-quality measurement on Notes CLI + bug-fix benchmarks) AND a usable terminal coding assistant.
+- **The CLI is one surface, not the orchestrator.** Anything that should outlive the terminal lives in `runtime/`. A2A peer surface lands in M1 alongside the CLI.
+- **Runtime communication uses typed events and explicit request/response handshakes.** Approvals and questions are separate primitives — never use approval prompts for clarification.
+- **Slash commands mutate local session/runtime config; never sent to the model.**
+- **Orchestration library: Pydantic AI throughout.** `Agent.from_file()` / `Agent.from_spec()` for persona loading; `pydantic_graph` for workflow graphs (M3+); `pydantic_evals` for evaluation when it matters. No LangGraph, no ADK in core.
+- **State store: SQLite** at `<workspace>/state.db`. Schema in [`STATE_SCHEMA.md`](docs/contracts/STATE_SCHEMA.md).
+- **Personas live as YAML** under `src/jac/data/personas/<role>.yaml` (shipped) ← `~/.jac/personas/` (user) ← `<repo>/.agents/personas/` (project). Code never holds persona prompts as Python strings (substrate rule, principle 5).
+- **Three-tier model resolution.** Per-run `agent_configs` override → user `settings.json` → shipped `data/model_specs.toml`. First non-null wins. In-flight model swap is built into the factory from M1 day one.
+- **Context reads are scoped per agent role** (when multiple roles exist post-M1).
+- **The `tasks` table is JAC's context-resilient memory** — Scott maintains it via task-CRUD tools; the list is injected as a system reminder every turn so it survives compaction and resume. This is what makes JAC a long-running harness.
+- **Not everything is an agent.** Simple one-off calls use `pydantic_ai.direct` and are recorded in `attempts` with `call_type='direct_llm'`.
+- **Tools are MCP-aware.** `allowed_tools` in `agent_configs` is a JSON array of tool names and MCP server IDs (`mcp:` prefix). Local tools only in M1; remote MCP transports are a Phase-2 evidence-trigger item.
+- **Multi-agent infra is post-evidence.** `spawn_minion`, agent teams, `agent_messages`, `context_store` only return via Phase-2 evidence triggers documented in [`ROADMAP.md`](docs/ROADMAP.md).
 
 ## Change-impact doc checklist
 
@@ -162,9 +196,15 @@ When code changes, update docs by impact area (not just by file touched):
 - **Runtime events/request-response semantics changed**:
   - `docs/contracts/EVENT_CONTRACT.md` (Locked)
   - relevant `docs/dev/runtime-layer.md`, `docs/dev/cli-layer.md`
-- **Agent/tool wiring changed** (`config_loader`, approval wrapper, delegation, MCP/skills wiring):
+- **Agent/tool wiring changed** (factory at `agents/base.py`, approval wrapper, delegation, MCP/skills wiring):
   - `docs/contracts/TOOLS_CONTRACT.md`, `docs/contracts/MCP_INTEGRATION.md` (Locked)
   - `docs/dev/agents-layer.md`, `docs/dev/runtime-layer.md`
+- **Persona shape, prompt, or new persona added** (YAML files):
+  - `src/jac/data/personas/<role>.yaml` (shipped) or `~/.jac/personas/` (user override)
+  - `docs/contracts/SUBSTRATE.md` (if a substrate boundary moves)
+  - `docs/contracts/STATE_SCHEMA.md` (if `agent_configs.role` adds a new value worth documenting)
+- **Substrate boundary moved** (e.g., a value migrated Python → YAML/TOML/JSON/Markdown):
+  - `docs/contracts/SUBSTRATE.md` "Current violations" section gets a record
 - **State/schema/persistence changed** (tables, columns, activation, status semantics):
   - `docs/contracts/STATE_SCHEMA.md` (Locked, first)
   - new migration in `src/jac/state/migrations/`
@@ -215,11 +255,18 @@ Trivial one-line fixes and test-only tweaks do not need this ceremony.
 
 ## Working Rules
 
-- Dependencies flow inward (see **Core Invariants** above and [`docs/dev/architecture.md`](docs/dev/architecture.md#dependency-rules) for the layer matrix).
-- Add backend behavior behind runtime events or workflow nodes before exposing it in the CLI.
+**Hygiene (every change):**
+- **Testable.** Every new behaviour gets a test. Bug fixes get a test that fails before the fix. Use `TestModel` / `FunctionModel` from Pydantic AI for deterministic agent tests; never call live providers in unit tests.
+- **Documented.** When a layer's structure changes meaningfully, update the relevant `docs/dev/<layer>.md`. When a contract changes, bump `Last revised`. When a top-level concept enters or leaves, update this file.
+
+**Code placement:**
+- Dependencies flow inward (see **Core Invariants** above and [`PHILOSOPHY.md`](docs/reference/PHILOSOPHY.md#dependency-direction) for the layer matrix).
+- Add backend behavior behind runtime events or future workflow nodes before exposing it in the CLI.
 - Prefer small, testable modules over large app objects.
 - Reuse existing settings, event, approval, question, and tool helper patterns before creating new abstractions.
-- Avoid hardcoding values that belong in settings, the state DB, or a shipped data file (see **Core Invariants**).
+- Avoid hardcoding values that belong in settings, the state DB, or a shipped data file (see [`SUBSTRATE.md`](docs/contracts/SUBSTRATE.md) and **Core Invariants**).
+
+**Doc discipline:**
 - Keep docs aligned when changing boundaries or adding a new top-level subsystem — update the relevant contract and `docs/README.md` index.
 - Respect the doc status field. Don't change a `Locked` contract casually; if you do, bump `Last revised`.
 - Don't import from `lab/specimens/`. Specimens are inspiration only.

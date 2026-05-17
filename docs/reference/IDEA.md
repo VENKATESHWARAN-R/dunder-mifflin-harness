@@ -1,10 +1,35 @@
 # JAC — IDEA
 
-> **Status:** Reference · **Last revised:** 2026-05-02 · **Type:** project genesis
+> **Status:** Reference · **Last revised:** 2026-05-08 · **Type:** project genesis
 
 > A research & development project exploring whether a multi-agent system with smart model routing
 > can match or exceed the performance of Anthropic's long-running agentic coding harness,
 > at significantly lower cost.
+
+---
+
+## Locked product definition (2026-05-08)
+
+Phase-0 reset locked the following definition. Source-of-truth brainstorm: [`lab/brainstorm/2026-05-08-jac-reset-from-scratch.md`](../../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md). The genesis sections below (§1–§11) are preserved as historical record; where they disagree with this section, this section wins.
+
+> **JAC is a multi-agent CLI coding harness with two coupled goals.** As a *research harness*, it measures whether four fixed roles — **Michael Scott (manager)**, **Pam Beesly (planner)**, **Jim Halpert (builder)**, **Dwight Schrute (evaluator)** — with tiered model routing can build small applications autonomously at materially lower cost than a single-model baseline; the hypothesis is proven or disproven on the **Notes CLI** benchmark with a **single-function bug-fix** secondary. As a *daily tool*, it is a terminal coding assistant — chat, plan, build, evaluate, resume — backed by SQLite persistence, multi-provider tier routing with in-flight model swap, and a typed event/runtime contract that keeps the runtime independent of the terminal surface.
+
+**Cast (target architecture):** Scott (manager / Worker), Pam (planner / Architect), Jim (builder / Worker), Dwight (evaluator / Worker). YAML personas under `src/jac/data/personas/`. **Phase 1 introduces personas incrementally** — M1 ships Scott alone; subsequent personas are added when run-log evidence requires them.
+
+**Benchmarks:**
+- **Primary:** Notes CLI ([`V0_BENCHMARK.md`](./V0_BENCHMARK.md)).
+- **Secondary:** single-function bug-fix in a known repo (spec drafted before M4).
+
+**Kill conditions** (any one ends Phase 1 with a writeup):
+1. **Cost ratio fails** — JAC ≥ 80% of single-Opus baseline cost for equivalent quality.
+2. **Quality collapses** — can't pass ≥5/7 features on Notes CLI in 5 trials.
+3. **Orchestration overhead eats savings** — planner/evaluator/escalation cost ≥ tier-routing savings.
+
+**Substrate rule:** [`SUBSTRATE.md`](../contracts/SUBSTRATE.md) — YAML / TOML / JSON / Markdown / SQLite, code never holds config.
+
+**Five principles:** [`PHILOSOPHY.md`](./PHILOSOPHY.md) — runtime-vs-UI contract, thin spine, measure before abstract, state durable / agents disposable, config-as-data.
+
+**Roadmap shape:** [`ROADMAP.md`](../ROADMAP.md) — M1–M5 milestones + Phase-2 evidence-gated catalog (replaces the original 31-component plan; C0–C8 historical).
 
 ---
 

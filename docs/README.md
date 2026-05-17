@@ -24,7 +24,8 @@ Every doc starts with a status header so you can tell at a glance where it sits:
 
 | Doc | Purpose |
 |---|---|
-| [contracts/STATE_SCHEMA.md](contracts/STATE_SCHEMA.md) | SQLite tables: runs, tasks, attempts, agent_configs, context, MCP registry. |
+| [contracts/SUBSTRATE.md](contracts/SUBSTRATE.md) | Substrate boundary — YAML / TOML / JSON / Markdown / SQLite, code never holds config. Foundational. |
+| [contracts/STATE_SCHEMA.md](contracts/STATE_SCHEMA.md) | SQLite tables: runs, messages, attempts, tasks, agent_configs, MCP/skills registry. |
 | [contracts/EVENT_CONTRACT.md](contracts/EVENT_CONTRACT.md) | Typed events, requests, commands between runtime and any UI surface. |
 | [contracts/CLI_DESIGN.md](contracts/CLI_DESIGN.md) | Terminal adapter design — input grammar, rendering, slash commands. |
 | [contracts/MCP_INTEGRATION.md](contracts/MCP_INTEGRATION.md) | How MCP servers and skills load from the DB into Pydantic AI agents. |
@@ -43,7 +44,7 @@ Every doc starts with a status header so you can tell at a glance where it sits:
 
 | Doc | Purpose |
 |---|---|
-| [ROADMAP.md](ROADMAP.md) | Component plan in dependency order (C0..Cn). C0..C5, C5a, and C6 done; C6b next. |
+| [ROADMAP.md](ROADMAP.md) | Phase 1 milestones (M1–M5) + Phase 2 evidence-gated catalog. **Reset 2026-05-08:** C0–C8 historical and being cut/rebuilt in M1. |
 
 ## Guide
 
@@ -74,6 +75,8 @@ Contributor and AI-agent reference — what is built, how layers connect, where 
 ## Implementation Docs
 
 Per-component handoff docs that scope what is being built before it ships. See `docs/implementation_docs/`. These are **transient** — delete or archive once the component lands.
+
+The current implementation_docs (C5–C8) are **historical** as of the 2026-05-08 reset — they describe code being cut and rebuilt in M1. They will be archived once M1 ships; until then they remain as a record of what was learned.
 
 ## Promotion path
 
