@@ -1,6 +1,6 @@
 # Roadmap — JAC
 
-> **Status:** Living · **Last revised:** 2026-05-08 · **Type:** Phase-1 milestones + Phase-2 evidence-gated catalog
+> **Status:** Living · **Last revised:** 2026-05-18 · **Type:** Phase-1 milestones + Phase-2 evidence-gated catalog
 >
 > _2026-05-08: full reset. The 31-component plan is replaced by 5 milestones (M1–M5) for Phase 1 + an evidence-gated catalog for Phase 2. Source-of-truth brainstorm: [`lab/brainstorm/2026-05-08-jac-reset-from-scratch.md`](../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md). C0–C8 preserved in the **Done** section as historical record._
 
@@ -99,6 +99,40 @@ flowchart TB
 - 3 internal autonomous tasks, with task-list lifecycle visible across the lifecycle (created → in_progress → completed) **and** surviving compactions / process resumes.
 
 **Cut list (delivered as part of M1 rebuild):** see [the brainstorm note](../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md#cut-list-m1-rebuild) for the full breakdown. Headline: ~1,800 LOC removed (multi-agent infra, persona/mode Python literals, slash-mode machinery, role pattern-matching, reserved tables, undo stack + retry handler + CLI polish, persona display rendering theater, onboarder slim). ~280 LOC added (A2A adapter, history processor, instruction injection). Net target: ~5,200–5,500 LOC.
+
+#### Progress tracker
+
+> Per the **Working Rules** in [`CLAUDE.md`](../CLAUDE.md): update this section after every non-trivial implementation slice. Each entry: what shipped, what's stubbed, why, what's left.
+
+**Shipped slices:**
+
+- **Slice B — Agent-first vertical (2026-05-18).** Brainstorm + plan: [`~/.claude/plans/alright-so-as-you-woolly-puddle.md`](../../.claude/plans/alright-so-as-you-woolly-puddle.md) (local-only). Reset from scratch on `beta` after `df3d205 beta initialize`; legacy code preserved under `src-legacy/`, legacy tests parked under `tests-legacy/`.
+  - **Files added:** `src/jac/agents/base.py` (factory; sole `Agent.from_file()` site), `src/jac/agents/__init__.py`, `src/jac/config.py` (minimal `pydantic-settings`), `src/jac/workspace.py` (resolves `~/.jac/`, override via `JAC_HOME`), `src/jac/data/model_specs.toml` (Anthropic-only tier defaults), `src/jac/data/personas/scott.yaml` (Pydantic AI `AgentSpec` shape, first-cut Scott), `lab/scripts/scott_hello.py` (smoke), `tests/agents/test_factory.py` (14 deterministic tests, `TestModel`-based).
+  - **Verified:** `just lint` ✓, `just typecheck` ✓, `just test` (14 passed) ✓. Single-`Agent()`-site invariant holds (`grep` confirms only `src/jac/agents/base.py:242` constructs).
+  - **Stubs / deviations:**
+    - `load_per_run_override(run_id)` returns an empty `PerRunOverride` regardless of input — the per-run SQLite branch of the three-tier model resolution is wired structurally but inert. **Becomes load-bearing in the next slice (state layer).**
+    - `build_pai_model` hard-errors on any provider other than `anthropic`. M1 is Anthropic-only by decision; multi-provider returns when `jac init` lands (post-M1 / later milestone).
+    - No tool surface, no approval middleware, no MCP toolsets in the factory yet. By design — those land in the tools slice and the factory grows its tool-wrap there.
+    - Live-provider smoke (`scott_hello.py "say hi"`) was not exercised — current user `.env` lacks `ANTHROPIC_API_KEY` and `~/.jac/settings.json` points tiers at `ollama:*`. Both error paths surface cleanly; happy path will run once a key is set and the user either edits `settings.json` or sets `JAC_HOME` to an empty dir.
+    - `pyproject.toml` still declares `[project.scripts] jac = "jac.cli.main:main"` — that module doesn't exist yet. `uv tool install .` will fail until the CLI slice lands. Not blocking dev workflows.
+    - Legacy tests under `tests-legacy/` are not collected by pytest. They import from deleted modules; they're kept as historical reference only.
+
+**Remaining slices (M1), ordered:**
+
+1. **State layer** — v1.5 migration, async SQLite repos for the M1 active tables (`runs`, `messages`, `attempts`, `agent_configs`, `tasks`, plus the `mcp_servers` / `skills` registries). Wires `load_per_run_override` to read from `agent_configs`.
+2. **Tools** — file (`read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`, `grep_files`), shell (`run_shell`, `run_shell_background`, `read_process_output`), and the long-running-memory task-CRUD (`add_task`, `update_task`, `complete_task`, `list_tasks`). Each tool carries `ToolApprovalMeta`; factory grows an approval-middleware wrap.
+3. **Runtime** — `EventBus`, `SessionState`, `RunCoordinator`, separate approval / question primitives (per the invariant).
+4. **Slim CLI** — `jac chat` REPL, slash commands, `@`-file refs, `!`-shell shortcut. ~500–600 LOC budget. Restore the `jac` console script.
+5. **A2A peer surface** — `surfaces/a2a/` adapter via `agent.to_a2a()`. ~80 LOC.
+6. **Context engineering** — history processor (strip tool-result noise, keep prompts + decisions), token-budget awareness, `AGENTS.md` / `JAC.md` instruction injection.
+7. **Scott YAML iteration** — 10+ passes against logs from the 3 internal acceptance tasks + the A2A round-trip.
+
+**Open questions still deferred (from the [reset brainstorm](../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md#open-questions-deferred-to-follow-up-sessions)):**
+
+- Final slash-command list for M1 — settle before the CLI slice.
+- `AGENTS.md` / `JAC.md` frontmatter rules — settle when context engineering lands.
+- Compaction strategy in M1 — minimum viable is "drop tool noise from history, keep user prompts + decisions + task list." Sufficiency is an M1 finding.
+- A2A peer surface scope — detailed spec when the A2A slice starts.
 
 ---
 

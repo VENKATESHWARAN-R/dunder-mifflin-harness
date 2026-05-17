@@ -270,3 +270,15 @@ Trivial one-line fixes and test-only tweaks do not need this ceremony.
 - Keep docs aligned when changing boundaries or adding a new top-level subsystem — update the relevant contract and `docs/README.md` index.
 - Respect the doc status field. Don't change a `Locked` contract casually; if you do, bump `Last revised`.
 - Don't import from `lab/specimens/`. Specimens are inspiration only.
+
+**Progress tracker (every implementation slice):**
+After any non-trivial implementation slice within a milestone, update the **Progress tracker** subsection of the relevant milestone in [`docs/ROADMAP.md`](docs/ROADMAP.md). The tracker is the durable handoff between sessions — without it, a fresh session has to re-derive state from git log and code reading. Each entry records:
+
+- **Shipped slice** — date (absolute, `YYYY-MM-DD`), one-line summary of what landed, key files added/changed.
+- **Stubs / deviations** — anything implemented differently than the milestone spec implies: returning empty values, hardcoded scope, a deferred branch, etc. Always say *why* (usually "downstream slice will replace this") so a future session knows when the stub becomes load-bearing vs. when it's still fine.
+- **Remaining slices** — what's left in this milestone, in order.
+- **Open questions still deferred** — items the brainstorm flagged that this slice didn't resolve.
+
+Keep tracker entries terse — link to commits, implementation docs, or brainstorm notes for the long form. A tracker is a status snapshot, not a history book.
+
+Trivial one-line fixes and test-only tweaks don't earn a tracker entry. A new file under `src/jac/`, a new schema row, a new contract revision, or anything that closes/opens a roadmap line item does.

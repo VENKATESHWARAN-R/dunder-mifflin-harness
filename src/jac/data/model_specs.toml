@@ -1,0 +1,32 @@
+# Model specs shipped with JAC. Update when providers ship new models.
+#
+# - [defaults]    fallback values used when a per-model entry omits a field.
+# - [tiers]       shipped tier -> model_ref mapping. First match for a tier in the
+#                 three-tier resolution (per-run SQLite override -> user
+#                 settings.json -> this file). See `agents/base.py`.
+# - [models."<provider>:<model_id>"]
+#                 vendor facts JAC needs at runtime. `model_ref` matches Pydantic
+#                 AI's KnownModelName form, so values here can be passed straight
+#                 into `Agent.from_file(..., model=...)`.
+#
+# M1 ships Anthropic only. Other providers join when `jac init` lands.
+
+[defaults]
+max_context = 200000
+
+[tiers]
+scout = "anthropic:claude-haiku-4-5"
+worker = "anthropic:claude-sonnet-4-6"
+architect = "anthropic:claude-opus-4-7"
+
+[models."anthropic:claude-opus-4-7"]
+max_context = 200000
+
+[models."anthropic:claude-sonnet-4-6"]
+max_context = 200000
+
+[models."anthropic:claude-haiku-4-5"]
+max_context = 200000
+
+[models."anthropic:claude-haiku-4-5-20251001"]
+max_context = 200000
