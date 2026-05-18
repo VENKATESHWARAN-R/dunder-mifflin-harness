@@ -130,7 +130,15 @@ class AttemptsRepo:
                 tool_calls = ?, cost = ?, duration_ms = ?
             WHERE attempt_id = ?
             """,
-            (tokens_in, tokens_out, requests, tool_calls, cost, duration_ms, attempt_id),
+            (
+                tokens_in,
+                tokens_out,
+                requests,
+                tool_calls,
+                cost,
+                duration_ms,
+                attempt_id,
+            ),
         )
         await self._connection.commit()
 

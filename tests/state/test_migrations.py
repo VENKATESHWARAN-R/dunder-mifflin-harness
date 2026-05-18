@@ -74,9 +74,7 @@ async def test_foreign_keys_enforced(tmp_path: Path) -> None:
     store = await open_state_store(tmp_path / "state.db")
     try:
         try:
-            await store.messages.append(
-                run_id="nonexistent", role="user", content="hi"
-            )
+            await store.messages.append(run_id="nonexistent", role="user", content="hi")
         except aiosqlite.IntegrityError:
             return
         raise AssertionError("expected IntegrityError on FK violation")

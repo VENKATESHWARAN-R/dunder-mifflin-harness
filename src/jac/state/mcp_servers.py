@@ -60,7 +60,15 @@ class McpServersRepo:
                     source_scope = ?, source_path = ?, updated_at = ?
                 WHERE mcp_server_id = ?
                 """,
-                (description, transport, config, source_scope, source_path, now, mcp_server_id),
+                (
+                    description,
+                    transport,
+                    config,
+                    source_scope,
+                    source_path,
+                    now,
+                    mcp_server_id,
+                ),
             )
         else:
             mcp_server_id = uuid4().hex
@@ -73,8 +81,15 @@ class McpServersRepo:
                 VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
                 """,
                 (
-                    mcp_server_id, name, description, transport, config,
-                    source_scope, source_path, now, now,
+                    mcp_server_id,
+                    name,
+                    description,
+                    transport,
+                    config,
+                    source_scope,
+                    source_path,
+                    now,
+                    now,
                 ),
             )
         await self._connection.commit()
@@ -100,7 +115,9 @@ class McpServersRepo:
         return _mcp_from_row(row) if row is not None else None
 
     async def list_all(self) -> list[McpServerRow]:
-        cursor = await self._connection.execute("SELECT * FROM mcp_servers ORDER BY name")
+        cursor = await self._connection.execute(
+            "SELECT * FROM mcp_servers ORDER BY name"
+        )
         rows = await cursor.fetchall()
         await cursor.close()
         return [_mcp_from_row(r) for r in rows]

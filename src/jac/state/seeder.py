@@ -77,7 +77,9 @@ async def seed_workspace(workspace: Workspace, state: StateStore) -> SeedResult:
     _collect_mcp(workspace.user_dir / "mcp", "user", mcp_map, result.errors)
 
     if workspace.project_dir is not None:
-        _collect_skills(workspace.project_dir / "skills", "project", skill_map, result.errors)
+        _collect_skills(
+            workspace.project_dir / "skills", "project", skill_map, result.errors
+        )
         _collect_mcp(workspace.project_dir / "mcp", "project", mcp_map, result.errors)
 
     for entry in skill_map.values():
@@ -107,7 +109,9 @@ async def seed_workspace(workspace: Workspace, state: StateStore) -> SeedResult:
         skill_paths = {str(e.path) for e in skill_map.values() if e.scope == scope}
         mcp_paths = {str(e.path) for e in mcp_map.values() if e.scope == scope}
         result.deleted_skills += await state.skills.delete_stale(scope, skill_paths)
-        result.deleted_mcp_servers += await state.mcp_servers.delete_stale(scope, mcp_paths)
+        result.deleted_mcp_servers += await state.mcp_servers.delete_stale(
+            scope, mcp_paths
+        )
 
     return result
 

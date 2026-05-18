@@ -1,6 +1,6 @@
 # Tools Contract
 
-> **Status:** Locked · **Last revised:** 2026-05-06 · **Type:** contract
+> **Status:** Locked · **Last revised:** 2026-05-18 · **Type:** contract
 
 This document is the authoritative reference for writing agent tools in JAC.
 Read it before adding a new tool. Any tool that doesn't follow this contract will be
@@ -11,10 +11,22 @@ rejected at code review.
 ## What Is a Tool?
 
 A tool is a plain async Python function that gives an agent a capability (read a file,
-run a shell command, search code). Tools live in `src/jac/tools/`.
+run a shell command, search code, mutate the run's task list). Tools live in `src/jac/tools/`.
 
 Tools are **not** agents. They do not call LLMs, loop, or make decisions. They perform
 one well-defined operation and return a structured result.
+
+There are two flavors:
+
+- **Stateless tools** — file / shell. Plain async functions whose only inputs are the
+  LLM-supplied kwargs. The factory passes them to `Agent.from_file(tools=[...])` as-is.
+- **Stateful tools** — task-CRUD. They take Pydantic AI's
+  `RunContext[ScottDeps]` as the first positional argument so the runtime can
+  inject the per-run `run_id` and a repo handle. See **Stateful tools
+  (`RunContext[Deps]`)** below.
+
+Both styles carry the same `.approval: ToolApprovalMeta` attribute and are wrapped by
+the same factory-side approval middleware.
 
 ---
 
@@ -22,10 +34,11 @@ one well-defined operation and return a structured result.
 
 ```
 tools/
-  types.py          ← all shared result types and approval metadata type
-  filesystem.py     ← file read/write/search tools  (also has CLI attachment helpers)
-  shell.py          ← shell execution tool           (also has CLI shell executor)
-  __init__.py       ← TOOL_REGISTRY — the only import surface for config_loader
+  types.py          ← shared result types, approval metadata, ScottDeps
+  filesystem.py     ← file read / write / search tools
+  shell.py          ← shell execution + background process registry
+  tasks.py          ← task-CRUD tools (RunContext[ScottDeps])
+  __init__.py       ← TOOL_REGISTRY — the only import surface for the factory
 ```
 
 Future tools go in a new file under `tools/`. Register them in `TOOL_REGISTRY` in
@@ -70,25 +83,6 @@ class MyToolResult(ToolResult):
 
 Pydantic serializes this to JSON for the agent. Design the fields so the JSON is
 readable — the LLM sees it directly.
-
-### Result interception for large outputs (C6c)
-
-Local tools run through this wrapper chain:
-
-`raw_tool -> approval wrapper -> result filter wrapper -> agent`
-
-When a tool response serializes above ~4k estimated tokens, the result filter:
-
-- stores the verbatim JSON payload in a per-run in-memory cache
-- returns `SummarizedToolResult` to the agent:
-  - `summary`: Scout-generated condensed output
-  - `summarized`: `true`
-  - `original_tokens`: estimated original token count
-  - `full_result_handle`: lookup key for `fetch_full_result`
-  - `note`: guidance to call `fetch_full_result(handle=...)`
-
-`fetch_full_result` is marked `category="cache_passthrough"` and is excluded from
-result re-summarization.
 
 ### Error handling rules
 
@@ -155,24 +149,29 @@ description_fn=lambda command, cwd=None, **_: (
 | Tool | Timeout |
 |---|---|
 | Agent default (`Agent(tool_timeout=...)`) | 180s |
-| `read_file` / `read_file_smart` | 30s |
-| `spawn_minion` | internal 240s default (300s hard cap) |
+| `read_file` | 30s |
 
-`None` means "use the agent default".
+`None` means "use the agent default". The approval wrapper enforces the timeout via
+`asyncio.wait_for` and returns `ToolResult(status=TIMEOUT, error=...)` on overrun —
+the tool itself never sees the cancellation.
 
 ---
 
 ## Tool Registry
 
 `tools/__init__.py` exports `TOOL_REGISTRY`, a dict that maps group names to lists of
-tool functions. `config_loader` in `agents/base.py` uses this to resolve the
-`allowed_tools` JSON array from `agent_configs`.
+tool functions. `build_agent` in `agents/base.py` uses this to resolve the
+`allowed_tools` JSON array from `agent_configs` (or the M1 default
+`["filesystem", "shell", "tasks"]` until the Runtime slice writes the agent_configs
+row at run start).
 
 ```python
 TOOL_REGISTRY: dict[str, list[ToolFn]] = {
-    "filesystem":       [read_file, write_file, edit_file, list_directory, search_files, grep_files],
-    "filesystem:read":  [read_file, list_directory, search_files, grep_files],
-    "shell":            [run_shell],
+    "filesystem":      [read_file, write_file, edit_file, list_directory, search_files, grep_files],
+    "filesystem:read": [read_file, list_directory, search_files, grep_files],
+    "shell":           [run_shell, run_shell_background, read_process_output],
+    "shell:read":      [read_process_output],
+    "tasks":           [add_task, update_task, complete_task, list_tasks],
 }
 ```
 
@@ -183,6 +182,8 @@ TOOL_REGISTRY: dict[str, list[ToolFn]] = {
 | `"filesystem"` | Full read + write access |
 | `"filesystem:read"` | Read-only subset |
 | `"shell"` | Shell execution |
+| `"shell:read"` | Read-only subset (output polling only) |
+| `"tasks"` | Task-list CRUD (requires `deps_type=ScottDeps`) |
 | `"mcp:<name>"` | Resolved via `mcp_servers` table — not in this registry |
 
 To add a new tool group: add it to `TOOL_REGISTRY` in `__init__.py`. The key becomes
@@ -286,31 +287,63 @@ output, not just new bytes since the last read.
 
 ---
 
-## Sub-Agent Tooling Direction (C6c+)
+## Stateful tools (`RunContext[Deps]`)
 
-The prior C14 recruiter-based `spawn_agent` design is superseded in the roadmap.
-The current direction is a universal `spawn_minion` capability (C6c) available to
-all agents with shared invariants:
+Some tools need per-run state that the LLM cannot supply — the `run_id` to scope
+their writes against, a database handle, or other runtime-only dependencies. JAC
+uses Pydantic AI's `RunContext[DepsT]` for this; the runtime coordinator builds
+a deps instance once per run and passes it to `agent.run(..., deps=...)`.
 
-- Depth bound (`depth <= 1`) to prevent recursive fan-out.
-- Tool whitelist bounded by the caller's allowance.
-- Usage/cost budget inheritance from the caller.
-- Factory-mediated instantiation (no ad-hoc `Agent(...)` calls outside the factory).
+For Scott, deps live in `jac.tools.types.ScottDeps`:
 
-Concrete C6c surface:
+```python
+@dataclass(frozen=True, slots=True)
+class ScottDeps:
+    run_id: str
+    tasks_repo: TasksRepo  # typed as Any in source to avoid state→tools cycle
+```
 
-- `spawn_minion(task, tools=None, tier='scout', timeout_sec=240) -> str`
-- `fetch_full_result(handle) -> ToolResult(content=...)`
-- `read_file_smart(path) -> FileReadSmartResult`
+A stateful tool takes `ctx: RunContext[ScottDeps]` as its first positional argument,
+then its normal kwargs. The `.approval` metadata attaches the same way as a stateless
+tool — the wrapper accepts `*args, **kwargs` and forwards `ctx` through `fn(*args, **kwargs)`.
 
-`spawn_minion` invariants:
+```python
+async def add_task(
+    ctx: RunContext[ScottDeps],
+    title: str,
+    description: str = "",
+) -> TaskResult:
+    deps = ctx.deps
+    try:
+        row = await deps.tasks_repo.create(
+            run_id=deps.run_id,
+            title=title,
+            description=description,
+            status="pending",
+        )
+    except Exception as exc:  # noqa: BLE001 — tools must not raise
+        return TaskResult(status=ToolStatus.ERROR, error=str(exc))
+    return TaskResult(task=_row_to_info(row))
 
-- minion depth is capped at 1 (`depth <= 1`)
-- explicit `tools` must be a subset of caller's `allowed_tools`
-- implicit `tools=None` inherits caller tools with destructive groups rewritten:
-  - `filesystem` -> `filesystem:read`
-  - `shell` -> `shell:read`
-- minion attempts are recorded as `call_type='minion'` with `parent_attempt_id`
+
+setattr(add_task, "approval", ToolApprovalMeta(
+    category="task",
+    risk_level=RiskLevel.LOW,
+    reversible=True,
+    description_fn=lambda title="", **_: f"Add task: `{title}`",
+))
+```
+
+Important rules:
+
+- **Tools never construct deps themselves.** `agent.run(deps=...)` is the only
+  injection point. Unit tests build a real `RunContext` (no mocks) via the
+  `task_ctx` fixture in `tests/tools/conftest.py`.
+- **`description_fn` receives only kwargs**, not `ctx`. The wrapper strips
+  the positional `ctx` before calling the description function.
+- **The dependency direction stays inward.** `tools/` may not import from
+  `runtime/`, `agents/`, or `cli/`. `ScottDeps.tasks_repo` is typed as `Any`
+  in `tools/types.py` so the tools module doesn't import `jac.state`.
 
 ---
 

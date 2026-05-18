@@ -28,8 +28,13 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import Agent
 
+from jac.agents.approval import make_approval_wrapper
+from jac.agents.approval_callbacks import ApprovalCallback, auto_deny_callback
 from jac.agents.overrides import PerRunOverride
 from jac.config import Settings, Tier
+from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
+from jac.tools import TOOL_REGISTRY
+from jac.tools.types import ScottDeps
 from jac.workspace import Workspace, discover_workspace
 
 if TYPE_CHECKING:
@@ -42,6 +47,13 @@ _DATA_PACKAGE = "jac.data"
 _MODEL_SPECS_NAME = "model_specs.toml"
 DEFAULT_PERSONA = "scott.yaml"
 DEFAULT_TIER_FALLBACK: Tier = "worker"
+
+DEFAULT_TOOL_GROUPS: tuple[str, ...] = ("filesystem", "shell", "tasks")
+"""Scott's default tool surface for M1.
+
+Hard-coded here until Slice 4 (Runtime) writes the per-run `agent_configs`
+row on run start and sources `allowed_tools` from SQLite.
+"""
 
 
 # ---- Per-run override seam (state layer fills this in later) ---------------
@@ -212,12 +224,24 @@ def build_agent(
     run_id: str | None = None,
     per_run: PerRunOverride | None = None,
     model: Model | None = None,
+    tools_groups: list[str] | None = None,
+    approval_policy: ApprovalPolicy | None = None,
+    approval_callback: ApprovalCallback | None = None,
+    deps_type: type[Any] = ScottDeps,
 ) -> Agent[Any, Any]:
     """Build a Pydantic AI Agent from a persona YAML.
 
-    This is the **only** site that calls `Agent.from_file()`. Tier and model
-    are resolved by `resolve_tier_and_model`; tests can inject a `TestModel`
-    or `FunctionModel` via the `model=` kwarg to skip provider construction.
+    This is the **only** site that calls `Agent.from_file()`. Tier and
+    model are resolved by `resolve_tier_and_model`; tests can inject a
+    `TestModel` / `FunctionModel` via the `model=` kwarg.
+
+    Tools are resolved from `tools_groups` against `TOOL_REGISTRY`, wrapped
+    with the approval middleware (`policy` decides what auto-approves;
+    `callback` resolves anything that doesn't), and passed to
+    `Agent.from_file(tools=...)`. `deps_type` is forwarded so stateful
+    tools — task-CRUD — receive `RunContext[ScottDeps]` at call time; the
+    runtime coordinator constructs the `ScottDeps` instance and supplies
+    it via `agent.run(..., deps=...)`.
 
     `per_run` lets async callers (the runtime coordinator) pre-fetch the
     `agent_configs` row via `jac.state.agent_configs.fetch_per_run_override`
@@ -236,8 +260,51 @@ def build_agent(
         shipped=shipped,
     )
 
-    pai_model: Model = model if model is not None else build_pai_model(
-        resolution.model_ref, settings
+    pai_model: Model = (
+        model if model is not None else build_pai_model(resolution.model_ref, settings)
     )
+    policy = approval_policy or ApprovalPolicy(mode=ApprovalMode.INTERACTIVE)
+    callback = approval_callback or auto_deny_callback
+    groups = (
+        list(tools_groups) if tools_groups is not None else list(DEFAULT_TOOL_GROUPS)
+    )
+    wrapped_tools = _resolve_and_wrap_tools(groups, policy, callback)
+
     target = Path(persona_path) if persona_path else default_persona_path()
-    return Agent.from_file(target, model=pai_model)
+    return Agent.from_file(
+        target,
+        model=pai_model,
+        tools=wrapped_tools,
+        deps_type=deps_type,
+    )
+
+
+def _resolve_and_wrap_tools(
+    groups: list[str],
+    policy: ApprovalPolicy,
+    callback: ApprovalCallback,
+) -> list[Any]:
+    """Resolve tool groups against `TOOL_REGISTRY` and wrap each raw tool.
+
+    Unknown groups raise `ConfigurationError` so a typo in `allowed_tools`
+    surfaces immediately rather than silently shipping a hobbled agent.
+    Duplicate tools (a function appearing in two groups) are de-duplicated
+    by identity so the agent only sees each tool once.
+    """
+    seen: set[int] = set()
+    wrapped: list[Any] = []
+    for group in groups:
+        if group.startswith("mcp:"):
+            # MCP servers resolve against the `mcp_servers` table elsewhere.
+            continue
+        if group not in TOOL_REGISTRY:
+            raise ConfigurationError(
+                f"Unknown tool group {group!r}; available: "
+                f"{sorted(TOOL_REGISTRY.keys())}"
+            )
+        for fn in TOOL_REGISTRY[group]:
+            if id(fn) in seen:
+                continue
+            seen.add(id(fn))
+            wrapped.append(make_approval_wrapper(fn, policy, callback))
+    return wrapped

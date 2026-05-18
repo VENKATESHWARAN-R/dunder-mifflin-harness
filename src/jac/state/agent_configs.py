@@ -76,8 +76,16 @@ class AgentConfigsRepo:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                config_id, run_id, role, model_tier, model_override,
-                system_prompt, allowed_tools, max_context_tokens, now, now,
+                config_id,
+                run_id,
+                role,
+                model_tier,
+                model_override,
+                system_prompt,
+                allowed_tools,
+                max_context_tokens,
+                now,
+                now,
             ),
         )
         await self._connection.commit()
@@ -121,9 +129,15 @@ class AgentConfigsRepo:
         if current is None:
             return None
         new_tier = model_tier if model_tier is not None else current.model_tier
-        new_override = model_override if model_override is not None else current.model_override
-        new_prompt = system_prompt if system_prompt is not None else current.system_prompt
-        new_tools = allowed_tools if allowed_tools is not None else current.allowed_tools
+        new_override = (
+            model_override if model_override is not None else current.model_override
+        )
+        new_prompt = (
+            system_prompt if system_prompt is not None else current.system_prompt
+        )
+        new_tools = (
+            allowed_tools if allowed_tools is not None else current.allowed_tools
+        )
         new_max = (
             max_context_tokens
             if max_context_tokens is not None

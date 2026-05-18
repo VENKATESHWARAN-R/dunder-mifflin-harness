@@ -216,3 +216,109 @@ def test_build_agent_runs_against_test_model(tmp_path: Path) -> None:
     )
     result = agent.run_sync("ping")
     assert result.output == "hello from scott"
+
+
+# ---- Tools + deps + approval wiring (Slice 3) -----------------------------
+
+
+def _agent(tmp_path: Path, **kwargs):  # noqa: ANN202 — pytest helper
+    return build_agent(
+        settings=_settings("worker"),
+        workspace=Workspace(user_dir=tmp_path),
+        model=TestModel(),
+        **kwargs,
+    )
+
+
+def test_build_agent_registers_default_tool_groups(tmp_path: Path) -> None:
+    """Default groups: filesystem + shell + tasks → 13 tools."""
+    from jac.tools.types import ScottDeps
+
+    agent = _agent(tmp_path)
+    tools = agent.toolsets[0].tools  # type: ignore[union-attr]
+    names = set(tools.keys())
+    assert {
+        "read_file",
+        "write_file",
+        "edit_file",
+        "list_directory",
+        "search_files",
+        "grep_files",
+        "run_shell",
+        "run_shell_background",
+        "read_process_output",
+        "add_task",
+        "update_task",
+        "complete_task",
+        "list_tasks",
+    } == names
+    assert agent.deps_type is ScottDeps
+
+
+def test_build_agent_accepts_narrowed_tool_groups(tmp_path: Path) -> None:
+    agent = _agent(tmp_path, tools_groups=["filesystem:read"])
+    names = set(agent.toolsets[0].tools.keys())  # type: ignore[union-attr]
+    assert names == {"read_file", "list_directory", "search_files", "grep_files"}
+
+
+def test_build_agent_dedupes_overlapping_groups(tmp_path: Path) -> None:
+    """`read_file` lives in both `filesystem` and `filesystem:read`."""
+    agent = _agent(tmp_path, tools_groups=["filesystem", "filesystem:read"])
+    names = [n for n in agent.toolsets[0].tools.keys()]  # type: ignore[union-attr]
+    assert names.count("read_file") == 1
+
+
+def test_build_agent_rejects_unknown_tool_group(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError, match="Unknown tool group"):
+        _agent(tmp_path, tools_groups=["wizardry"])
+
+
+def test_build_agent_skips_mcp_prefixed_groups(tmp_path: Path) -> None:
+    """`mcp:<id>` entries resolve elsewhere; they must not raise here."""
+    agent = _agent(tmp_path, tools_groups=["filesystem:read", "mcp:some-server"])
+    names = set(agent.toolsets[0].tools.keys())  # type: ignore[union-attr]
+    assert names == {"read_file", "list_directory", "search_files", "grep_files"}
+
+
+async def test_build_agent_runs_task_tool_via_function_model(tmp_path: Path) -> None:
+    """End-to-end: FunctionModel issues `add_task`, the wrapper passes through
+    YOLO policy, and the task row lands in SQLite."""
+    from uuid import uuid4
+
+    from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+    from pydantic_ai.models.function import FunctionModel
+
+    from jac.runtime.approvals import ApprovalMode, ApprovalPolicy
+    from jac.state import open_state_store
+    from jac.tools.types import ScottDeps
+
+    store = await open_state_store(tmp_path / "state.db")
+    try:
+        run_id = uuid4().hex
+        await store.runs.create(run_id, prompt="test")
+
+        calls = {"n": 0}
+
+        async def behaviour(messages, info):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return ModelResponse(
+                    parts=[ToolCallPart(tool_name="add_task", args={"title": "yo"})]
+                )
+            return ModelResponse(parts=[TextPart(content="done")])
+
+        agent = build_agent(
+            settings=_settings("worker"),
+            workspace=Workspace(user_dir=tmp_path),
+            model=FunctionModel(behaviour),
+            approval_policy=ApprovalPolicy(mode=ApprovalMode.YOLO),
+        )
+        deps = ScottDeps(run_id=run_id, tasks_repo=store.tasks)
+        result = await agent.run("kick", deps=deps)
+        assert result.output == "done"
+
+        rows = await store.tasks.list_for_run(run_id)
+        assert len(rows) == 1
+        assert rows[0].title == "yo"
+    finally:
+        await store.close()

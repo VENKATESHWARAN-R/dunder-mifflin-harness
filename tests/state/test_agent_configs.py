@@ -23,9 +23,7 @@ async def test_create_and_get(state: StateStore, run_id: str) -> None:
 async def test_update_patches_only_provided_fields(
     state: StateStore, run_id: str
 ) -> None:
-    await state.agent_configs.create(
-        run_id=run_id, role="manager", model_tier="worker"
-    )
+    await state.agent_configs.create(run_id=run_id, role="manager", model_tier="worker")
     patched = await state.agent_configs.update(
         run_id, "manager", model_override="anthropic:claude-opus-4-7"
     )
@@ -37,9 +35,7 @@ async def test_update_patches_only_provided_fields(
 async def test_unique_run_role_constraint(state: StateStore, run_id: str) -> None:
     import aiosqlite
 
-    await state.agent_configs.create(
-        run_id=run_id, role="manager", model_tier="worker"
-    )
+    await state.agent_configs.create(run_id=run_id, role="manager", model_tier="worker")
     try:
         await state.agent_configs.create(
             run_id=run_id, role="manager", model_tier="scout"
@@ -73,8 +69,6 @@ async def test_fetch_override_round_trips_tier_and_model(
 async def test_fetch_override_ignores_unknown_tier_name(
     state: StateStore, run_id: str
 ) -> None:
-    await state.agent_configs.create(
-        run_id=run_id, role="manager", model_tier="wizard"
-    )
+    await state.agent_configs.create(run_id=run_id, role="manager", model_tier="wizard")
     override = await fetch_per_run_override(state, run_id, role="manager")
     assert override.tier is None

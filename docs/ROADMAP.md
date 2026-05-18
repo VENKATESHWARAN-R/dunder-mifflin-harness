@@ -1,6 +1,6 @@
 # Roadmap — JAC
 
-> **Status:** Living · **Last revised:** 2026-05-18 · **Type:** Phase-1 milestones + Phase-2 evidence-gated catalog
+> **Status:** Living · **Last revised:** 2026-05-18 · **Type:** Phase-1 milestones + Phase-2 evidence-gated catalog (Slice 3 — Tools — landed)
 >
 > _2026-05-08: full reset. The 31-component plan is replaced by 5 milestones (M1–M5) for Phase 1 + an evidence-gated catalog for Phase 2. Source-of-truth brainstorm: [`lab/brainstorm/2026-05-08-jac-reset-from-scratch.md`](../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md). C0–C8 preserved in the **Done** section as historical record._
 
@@ -128,14 +128,27 @@ flowchart TB
     - `messages.list_for_run` orders by `rowid` (SQLite's monotonic insert-order column) instead of `created_at, message_id` — same-second appends would otherwise tie-break on UUID (non-deterministic). Documented inline in `messages.py`.
     - Project-root discovery walks up looking for `.agents/` then `.git/`; no `pyproject.toml` fallback. Bounded by design until a real use case demands more.
 
+- **Slice 3 — Tools (2026-05-18).** Plan: [`~/.claude/plans/alright-so-what-s-next-fluttering-volcano.md`](../../.claude/plans/alright-so-what-s-next-fluttering-volcano.md) (local-only). Lands Scott's full tool surface: 6 filesystem + 3 shell + 4 task-CRUD tools, each carrying `ToolApprovalMeta`. The factory grows an approval-middleware wrap; task-CRUD tools take `RunContext[ScottDeps]` so the runtime can inject `(run_id, tasks_repo)` per turn. The Locked `TOOLS_CONTRACT.md` is updated alongside the code (strips C6c, adds the stateful-tools section, bumps `Last revised`).
+  - **Files added:** `src/jac/tools/{__init__,types,filesystem,shell,tasks}.py`, `src/jac/runtime/{__init__,approvals}.py` (contracts only — no `EventBus` yet), `src/jac/agents/{approval,approval_callbacks}.py`, `tests/tools/{__init__,conftest,test_types,test_filesystem,test_shell,test_tasks,test_registry}.py`, `tests/runtime/{__init__,test_approvals}.py`, `tests/agents/test_approval_wrapper.py`, `lab/scripts/tools_hello.py`.
+  - **Files edited:** `src/jac/agents/base.py` (`build_agent` gains `tools_groups` / `approval_policy` / `approval_callback` / `deps_type` kwargs; resolves groups via `TOOL_REGISTRY` and wraps each tool through `make_approval_wrapper` before passing to `Agent.from_file(tools=..., deps_type=ScottDeps)`); `src/jac/agents/__init__.py` (re-exports `ScottDeps`, `ApprovalCallback`, `auto_deny_callback`); `tests/agents/test_factory.py` (+6 tests covering tool resolution, dedupe, unknown-group rejection, mcp-prefix skip, FunctionModel end-to-end task-tool round-trip); `docs/contracts/TOOLS_CONTRACT.md` (strip C6c — result-interception, `spawn_minion`, `read_file_smart`, `fetch_full_result`; add "Stateful tools (`RunContext[Deps]`)" section; refresh registry + timeout tables; bump `Last revised: 2026-05-18`).
+  - **Verified:** `just lint` ✓, `just typecheck` ✓, `just test` ✓ (109 passed: 47 prior + 62 new). `uv run python lab/scripts/tools_hello.py` exercises the full wrap chain end-to-end against a fresh SQLite — FunctionModel issues `add_task → list_tasks → complete_task → list_tasks`, the `tasks` table reflects each step, final status is `completed`. Single-`Agent.from_file()` invariant still holds (`rg "Agent\.from_file\(|Agent\(" src/jac` → one hit, in `agents/base.py`).
+  - **Stubs / deviations:**
+    - **Approval callback** is `auto_deny_callback` by default — denies anything the `ApprovalPolicy` can't auto-resolve. Slice 4 (Runtime) swaps in the EventBus-backed callback that handshakes via `asyncio.Future` against the CLI. Until then `ApprovalMode.YOLO` is the only way to drive non-READ_ONLY tools in tests/lab scripts.
+    - **`allowed_tools` is hard-coded** to `("filesystem", "shell", "tasks")` in `agents.base.DEFAULT_TOOL_GROUPS`. Slice 4's coordinator will write the per-run `agent_configs` row on run start and source the groups from SQLite instead.
+    - **`runtime/approvals.py` ships contracts only.** `ApprovalPolicy`, `ApprovalRequest`, `ApprovalResponse`, `ApprovalDecision`, `ApprovalMode` are real and tested; there is no `EventBus`, `RunCoordinator`, `SessionState`, or `FileEditPreviewed` / `FileEditApplied` event yet. The wrapper computes the diff and stashes it in `ApprovalRequest.preview` so Slice 4 can surface it as an event when the bus lands.
+    - **`list_processes` from the legacy shell surface is dropped.** Single-session JAC keeps process IDs in the in-memory `PROCESS_REGISTRY`; the agent rarely needs the listing. Returns via a Phase-2 evidence trigger if logs show otherwise.
+    - **`read_file_smart` / large-output summariser / `spawn_minion` / `fetch_full_result` stay cut** per the M1 reset — Phase-2 evidence-gated, not stubbed.
+    - **`scott.yaml` did not gain a `tools:` block.** Tools are per-run state (`agent_configs.allowed_tools`), not persona identity (substrate boundary). Slice 4 wires this up.
+    - **`ScottDeps.tasks_repo` is typed as `Any`** in `tools/types.py` to avoid a `state → tools` import cycle; the runtime constructs the deps with the real `TasksRepo` and Pydantic AI passes them through unchanged.
+    - **Cleanup hook (`tools.shell.cleanup_processes`) is callable but not yet hooked.** Slice 4 will call it at session-end; the autouse fixture in `tests/tools/test_shell.py` exercises it directly.
+
 **Remaining slices (M1), ordered:**
 
-1. **Tools** — file (`read_file`, `write_file`, `edit_file`, `list_directory`, `search_files`, `grep_files`), shell (`run_shell`, `run_shell_background`, `read_process_output`), and the long-running-memory task-CRUD (`add_task`, `update_task`, `complete_task`, `list_tasks` — writing through `state/tasks.py`). Each tool carries `ToolApprovalMeta`; factory grows an approval-middleware wrap.
-2. **Runtime** — `EventBus`, `SessionState`, `RunCoordinator`, separate approval / question primitives (per the invariant). Wires `fetch_per_run_override` into the per-turn rebuild.
-3. **Slim CLI** — `jac chat` REPL, slash commands, `@`-file refs, `!`-shell shortcut. ~500–600 LOC budget. Restore the `jac` console script.
-4. **A2A peer surface** — `surfaces/a2a/` adapter via `agent.to_a2a()`. ~80 LOC.
-5. **Context engineering** — history processor (strip tool-result noise, keep prompts + decisions), token-budget awareness, `AGENTS.md` / `JAC.md` instruction injection.
-6. **Scott YAML iteration** — 10+ passes against logs from the 3 internal acceptance tasks + the A2A round-trip.
+1. **Runtime** — `EventBus`, `SessionState`, `RunCoordinator`, separate approval / question primitives (per the invariant). Wires `fetch_per_run_override` into the per-turn rebuild and replaces `auto_deny_callback` with the real EventBus-backed approval handshake. Seeds the `agent_configs` row on run start so `allowed_tools` becomes DB-sourced.
+2. **Slim CLI** — `jac chat` REPL, slash commands, `@`-file refs, `!`-shell shortcut. ~500–600 LOC budget. Restore the `jac` console script.
+3. **A2A peer surface** — `surfaces/a2a/` adapter via `agent.to_a2a()`. ~80 LOC.
+4. **Context engineering** — history processor (strip tool-result noise, keep prompts + decisions), token-budget awareness, `AGENTS.md` / `JAC.md` instruction injection.
+5. **Scott YAML iteration** — 10+ passes against logs from the 3 internal acceptance tasks + the A2A round-trip.
 
 **Open questions still deferred (from the [reset brainstorm](../lab/brainstorm/2026-05-08-jac-reset-from-scratch.md#open-questions-deferred-to-follow-up-sessions)):**
 

@@ -14,9 +14,7 @@ async def test_create_auto_increments_order_index(
     assert (t0.order_index, t1.order_index, t2.order_index) == (0, 1, 2)
 
 
-async def test_explicit_order_index_preserved(
-    state: StateStore, run_id: str
-) -> None:
+async def test_explicit_order_index_preserved(state: StateStore, run_id: str) -> None:
     row = await state.tasks.create(run_id=run_id, title="x", order_index=42)
     assert row.order_index == 42
 
@@ -31,9 +29,7 @@ async def test_list_for_run_orders_by_order_index(
     assert [t.title for t in tasks] == ["a", "b", "c"]
 
 
-async def test_list_for_run_filter_by_status(
-    state: StateStore, run_id: str
-) -> None:
+async def test_list_for_run_filter_by_status(state: StateStore, run_id: str) -> None:
     await state.tasks.create(run_id=run_id, title="open1")
     done = await state.tasks.create(run_id=run_id, title="done1")
     await state.tasks.update_status(done.task_id, "completed")
@@ -45,12 +41,8 @@ async def test_list_for_run_filter_by_status(
 async def test_update_fields_patches_only_provided(
     state: StateStore, run_id: str
 ) -> None:
-    row = await state.tasks.create(
-        run_id=run_id, title="orig", description="orig desc"
-    )
-    updated = await state.tasks.update_fields(
-        row.task_id, title="new title"
-    )
+    row = await state.tasks.create(run_id=run_id, title="orig", description="orig desc")
+    updated = await state.tasks.update_fields(row.task_id, title="new title")
     assert updated is not None
     assert updated.title == "new title"
     assert updated.description == "orig desc"

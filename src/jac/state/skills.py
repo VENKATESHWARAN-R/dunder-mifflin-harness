@@ -62,7 +62,16 @@ class SkillsRepo:
                     source_scope = ?, source_path = ?, updated_at = ?
                 WHERE skill_id = ?
                 """,
-                (description, domain, content, version, source_scope, source_path, now, skill_id),
+                (
+                    description,
+                    domain,
+                    content,
+                    version,
+                    source_scope,
+                    source_path,
+                    now,
+                    skill_id,
+                ),
             )
         else:
             skill_id = uuid4().hex
@@ -75,8 +84,16 @@ class SkillsRepo:
                 VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
                 """,
                 (
-                    skill_id, name, description, domain, content, version,
-                    source_scope, source_path, now, now,
+                    skill_id,
+                    name,
+                    description,
+                    domain,
+                    content,
+                    version,
+                    source_scope,
+                    source_path,
+                    now,
+                    now,
                 ),
             )
         await self._connection.commit()
