@@ -99,6 +99,7 @@ async def run_shell(
         )
 
     timed_out = False
+    cleanup_failed = False
     stdout_bytes = b""
     stderr_bytes = b""
     communicate_task = asyncio.create_task(process.communicate())
@@ -109,14 +110,25 @@ async def run_shell(
     except TimeoutError:
         timed_out = True
         _kill_process_group(process)
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            communicate_task, timeout=5.0,
-        )
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                asyncio.shield(communicate_task), timeout=5.0,
+            )
+        except TimeoutError:
+            cleanup_failed = True
+            communicate_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await communicate_task
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
     stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
     truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    warnings = []
+    if truncated:
+        warnings.append("output was truncated")
+    if cleanup_failed:
+        warnings.append("timed out process did not finish cleanup; output unavailable")
 
     if timed_out:
         status = ToolStatus.TIMEOUT
@@ -127,7 +139,7 @@ async def run_shell(
 
     return ShellToolResult(
         status=status,
-        warnings=["output was truncated"] if truncated else [],
+        warnings=warnings,
         error=f"exited with code {process.returncode}" if status == ToolStatus.ERROR else None,
         stdout=truncate_output(stdout_raw, max_output_chars),
         stderr=truncate_output(stderr_raw, max_output_chars),

@@ -80,6 +80,7 @@ def load_file_attachment(
         return AttachmentWarning(reference, f"could not open {reference}: {exc}")
 
     try:
+        assert fd is not None
         stat_result = os.fstat(fd)
         if _stat.S_ISDIR(stat_result.st_mode):
             return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
