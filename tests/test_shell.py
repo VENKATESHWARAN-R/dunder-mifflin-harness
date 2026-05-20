@@ -1,7 +1,12 @@
 import asyncio
+import time
 from pathlib import Path
 
-from dunder_mifflin_harness.tools.shell import run_shell, truncate_output
+from dunder_mifflin_harness.tools.shell import (
+    run_shell,
+    run_shell_background,
+    truncate_output,
+)
 from dunder_mifflin_harness.tools.types import ToolStatus
 
 
@@ -34,6 +39,46 @@ def test_run_shell_timeout(tmp_path: Path) -> None:
 
     assert result.status == ToolStatus.TIMEOUT
     assert result.timed_out
+
+
+def test_run_shell_timeout_kills_child_process_group(tmp_path: Path) -> None:
+    start = time.monotonic()
+
+    result = asyncio.run(
+        run_shell(
+            command="python3 -c 'import time; time.sleep(30)'",
+            cwd=str(tmp_path),
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result.status == ToolStatus.TIMEOUT
+    assert result.timed_out
+    assert time.monotonic() - start < 2.0
+
+
+def test_run_shell_missing_cwd_returns_error(tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+
+    result = asyncio.run(
+        run_shell(command="printf hello", cwd=str(missing))
+    )
+
+    assert result.status == ToolStatus.ERROR
+    assert result.exit_code == -1
+    assert str(missing) in result.error
+
+
+def test_run_shell_background_missing_cwd_returns_error(tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+
+    result = asyncio.run(
+        run_shell_background(command="sleep 30", cwd=str(missing))
+    )
+
+    assert result.status == ToolStatus.ERROR
+    assert result.process_id == ""
+    assert str(missing) in result.error
 
 
 def test_truncate_output_preserves_head_and_tail() -> None:
