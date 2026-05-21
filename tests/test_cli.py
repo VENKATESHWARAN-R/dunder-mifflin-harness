@@ -1,4 +1,7 @@
+import asyncio
 import importlib
+from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -68,6 +71,33 @@ def test_run_accepts_mode_after_subcommand(
     assert exit_code == 0
     assert seen["prompt"] == "say hi"
     assert captured.out == "ok\n"
+
+
+def test_run_prompt_loads_file_attachments(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    note = tmp_path / "note.txt"
+    note.write_text("hello from attachment", encoding="utf-8")
+    seen: dict[str, str] = {}
+
+    class FakeCoordinator:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        async def submit_message(self, message: Any) -> str:
+            seen["prompt"] = message.as_prompt()
+            return "ok"
+
+    cli_module = importlib.import_module("dunder_mifflin_harness.cli.main")
+    monkeypatch.setattr(cli_module, "RunCoordinator", FakeCoordinator)
+    monkeypatch.chdir(tmp_path)
+
+    output = asyncio.run(cli_module.run_prompt("summarize @note.txt"))
+
+    assert output == "ok"
+    assert "Attached files:" in seen["prompt"]
+    assert "hello from attachment" in seen["prompt"]
 
 
 def test_public_cli_exports_main() -> None:

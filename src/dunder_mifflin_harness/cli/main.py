@@ -8,6 +8,7 @@ from collections.abc import Sequence
 import click
 
 from dunder_mifflin_harness.cli.app import ChatApp
+from dunder_mifflin_harness.cli.parser import ParsedInputKind, parse_input
 from dunder_mifflin_harness.config import ConfigurationError, Settings
 from dunder_mifflin_harness.runtime.approvals import ApprovalMode
 from dunder_mifflin_harness.runtime.coordinator import RunCoordinator, UserMessage
@@ -31,6 +32,15 @@ async def run_prompt(
         )
     )
     coordinator = RunCoordinator(settings=resolved_settings, session=session)
+    parsed = parse_input(
+        prompt,
+        cwd=session.config.cwd,
+        max_attachment_bytes=session.config.max_attachment_bytes,
+    )
+    if parsed.kind == ParsedInputKind.PLAIN:
+        return await coordinator.submit_message(
+            UserMessage(text=parsed.text, attachments=parsed.attachments)
+        )
     return await coordinator.submit_message(UserMessage(text=prompt))
 
 

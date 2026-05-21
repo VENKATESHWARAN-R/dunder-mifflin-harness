@@ -1,4 +1,6 @@
 import asyncio
+import shlex
+import sys
 from pathlib import Path
 
 from dunder_mifflin_harness.tools.shell import run_shell, truncate_output
@@ -34,6 +36,32 @@ def test_run_shell_timeout(tmp_path: Path) -> None:
 
     assert result.status == ToolStatus.TIMEOUT
     assert result.timed_out
+
+
+def test_run_shell_spawn_error_returns_tool_result(tmp_path: Path) -> None:
+    missing = tmp_path / "missing"
+
+    result = asyncio.run(run_shell(command="echo hi", cwd=str(missing)))
+
+    assert result.status == ToolStatus.ERROR
+    assert result.exit_code == -1
+    assert "failed to start command" in (result.error or "")
+
+
+def test_run_shell_large_output_is_truncated(tmp_path: Path) -> None:
+    command = (
+        f"{shlex.quote(sys.executable)} -c "
+        + shlex.quote("import sys; sys.stdout.write('x' * 5000)")
+    )
+
+    result = asyncio.run(
+        run_shell(command=command, cwd=str(tmp_path), max_output_chars=100)
+    )
+
+    assert result.status == ToolStatus.OK
+    assert result.truncated
+    assert result.warnings == ["output was truncated"]
+    assert len(result.stdout) == 100
 
 
 def test_truncate_output_preserves_head_and_tail() -> None:
