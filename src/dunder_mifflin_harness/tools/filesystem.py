@@ -140,10 +140,63 @@ _DEFAULT_IGNORE: frozenset[str] = frozenset({
     "dist", "build", ".build",
     ".DS_Store",
 })
+_MAX_TEXT_FILE_BYTES = 1_000_000
+_MAX_SEARCH_RESULTS = 1_000
 
 
 def _preview(s: str, max_len: int = 40) -> str:
     return s[:max_len] + "..." if len(s) > max_len else s
+
+
+def _inspect_regular_file(path: Path) -> tuple[bool, int, str | None]:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return False, 0, "not_found"
+    except PermissionError:
+        return False, 0, "permission_denied"
+    except OSError as exc:
+        return False, 0, str(exc)
+
+    if not path.is_file():
+        return False, stat.st_size, f"not a regular file: {path}"
+    return True, stat.st_size, None
+
+
+def _is_ignored(path: Path, root: Path, ignore: frozenset[str]) -> bool:
+    try:
+        relative_parts = path.relative_to(root).parts
+    except ValueError:
+        relative_parts = path.parts
+    return any(part in ignore for part in relative_parts)
+
+
+def _iter_files(root: Path, recursive: bool, include: str | None, ignore: frozenset[str]):
+    file_glob = include or "*"
+    if recursive:
+        stack = [root]
+        while stack:
+            current = stack.pop()
+            try:
+                children = sorted(current.iterdir(), reverse=True)
+            except (OSError, PermissionError):
+                continue
+            for child in children:
+                if child.name in ignore:
+                    continue
+                if child.is_dir():
+                    stack.append(child)
+                elif child.match(file_glob):
+                    yield child
+    else:
+        try:
+            candidates = sorted(root.glob(file_glob))
+        except (OSError, PermissionError):
+            return
+        for candidate in candidates:
+            if _is_ignored(candidate, root, ignore):
+                continue
+            yield candidate
 
 
 def _collect_dir_entries(
@@ -179,26 +232,52 @@ def _collect_dir_entries(
 async def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> FileReadResult:
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
+    is_regular, size, inspect_error = _inspect_regular_file(p)
+    if not is_regular:
+        if inspect_error == "not_found":
+            return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
+        if inspect_error == "permission_denied":
+            return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        return FileReadResult(status=ToolStatus.ERROR, error=inspect_error or f"could not inspect: {path}", path=path)
+    if size > _MAX_TEXT_FILE_BYTES and end_line is None:
+        return FileReadResult(
+            status=ToolStatus.ERROR,
+            error=(
+                f"file is too large to read safely ({size} bytes); "
+                "use start_line and end_line to read a slice"
+            ),
+            path=path,
+        )
+
+    lines: list[str] = []
+    output_chars = 0
+    output_truncated = False
+    total = 0
+    start_idx = max(0, start_line - 1)
     try:
-        raw = p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
-    except PermissionError:
-        return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        with p.open("r", encoding="utf-8") as handle:
+            for total, line in enumerate(handle, 1):
+                line_idx = total - 1
+                if line_idx < start_idx:
+                    continue
+                if end_line is not None and total > end_line:
+                    continue
+                if output_chars + len(line) > _MAX_TEXT_FILE_BYTES:
+                    output_truncated = True
+                    continue
+                lines.append(line)
+                output_chars += len(line)
+    except UnicodeDecodeError:
+        return FileReadResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
     except OSError as exc:
         return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
-    lines = raw.splitlines(keepends=True)
-    total = len(lines)
-    start_idx = max(0, start_line - 1)
-    # end_line is 1-indexed inclusive; Python slice end_line excludes index end_line-1 → use end_line directly
-    sliced = lines[start_idx:end_line]
-    truncated = len(sliced) < total
+    truncated = output_truncated or len(lines) < total
     return FileReadResult(
         path=path,
-        content="".join(sliced),
+        content="".join(lines),
         lines_total=total,
-        lines_returned=len(sliced),
+        lines_returned=len(lines),
         truncated=truncated,
         warnings=["reading partial file; use start_line/end_line to navigate"] if truncated else [],
     )
@@ -236,13 +315,28 @@ setattr(write_file, "approval", ToolApprovalMeta(
 
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     p = Path(path)
+    is_regular, size, inspect_error = _inspect_regular_file(p)
+    if not is_regular:
+        if inspect_error == "not_found":
+            return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
+        if inspect_error == "permission_denied":
+            return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        return FileEditResult(status=ToolStatus.ERROR, error=inspect_error or f"could not inspect: {path}", path=path)
+    if size > _MAX_TEXT_FILE_BYTES:
+        return FileEditResult(
+            status=ToolStatus.ERROR,
+            error=f"file is too large to edit safely ({size} bytes): {path}",
+            path=path,
+        )
+
     try:
         content = p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
-    except PermissionError:
-        return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except UnicodeDecodeError:
+        return FileEditResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
@@ -301,13 +395,26 @@ setattr(list_directory, "approval", ToolApprovalMeta(
 ))
 
 
-async def search_files(root: str, pattern: str) -> SearchResult:
+async def search_files(root: str, pattern: str, max_results: int = _MAX_SEARCH_RESULTS) -> SearchResult:
     """Find files under root matching a glob pattern (recursive)."""
     p = Path(root)
     if not p.exists():
         return SearchResult(status=ToolStatus.NOT_FOUND, error=f"root not found: {root}", root=root, pattern=pattern)
-    matches = [str(m) for m in sorted(p.rglob(pattern))]
-    return SearchResult(root=root, pattern=pattern, matches=matches)
+    if not p.is_dir():
+        return SearchResult(status=ToolStatus.ERROR, error=f"root is not a directory: {root}", root=root, pattern=pattern)
+
+    matches: list[str] = []
+    truncated = False
+    for filepath in _iter_files(p, recursive=True, include=pattern, ignore=_DEFAULT_IGNORE):
+        if not filepath.is_file():
+            continue
+        if len(matches) >= max_results:
+            truncated = True
+            break
+        matches.append(str(filepath))
+
+    warnings = [f"results capped at {max_results}; refine your pattern"] if truncated else []
+    return SearchResult(root=root, pattern=pattern, matches=matches, warnings=warnings)
 
 
 setattr(search_files, "approval", ToolApprovalMeta(
@@ -336,42 +443,54 @@ async def grep_files(
     if not p.exists():
         return GrepResult(status=ToolStatus.NOT_FOUND, error=f"root not found: {root}")
 
-    glob_fn = p.rglob if recursive else p.glob
-    file_glob = include or "*"
     matches: list[GrepMatch] = []
     searched = 0
     total_matches = 0
+    warnings: list[str] = []
 
-    for filepath in sorted(glob_fn(file_glob)):
+    for filepath in _iter_files(p, recursive=recursive, include=include, ignore=_DEFAULT_IGNORE):
         if not filepath.is_file():
+            continue
+        try:
+            size = filepath.stat().st_size
+        except OSError:
+            continue
+        if size > _MAX_TEXT_FILE_BYTES:
+            warnings.append(f"skipped large file: {filepath}")
             continue
         searched += 1
         try:
-            text = filepath.read_text(encoding="utf-8", errors="replace")
+            text = filepath.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            warnings.append(f"skipped non-UTF-8 file: {filepath}")
         except OSError:
             continue
-
-        file_lines = text.splitlines()
-        for lineno, line in enumerate(file_lines, 1):
-            if not rx.search(line):
-                continue
-            total_matches += 1
-            if len(matches) < max_matches:
-                before = file_lines[max(0, lineno - 1 - context_lines) : lineno - 1]
-                after = file_lines[lineno : min(len(file_lines), lineno + context_lines)]
-                matches.append(GrepMatch(
-                    file=str(filepath),
-                    line_number=lineno,
-                    line=line,
-                    context_before=before,
-                    context_after=after,
-                ))
-
-    warnings: list[str] = []
-    if total_matches > max_matches:
-        warnings.append(
-            f"results capped at {max_matches}; {total_matches} total matches found — refine your pattern"
-        )
+        else:
+            file_lines = text.splitlines()
+            for lineno, line in enumerate(file_lines, 1):
+                if not rx.search(line):
+                    continue
+                total_matches += 1
+                if len(matches) < max_matches:
+                    before = file_lines[max(0, lineno - 1 - context_lines) : lineno - 1]
+                    after = file_lines[lineno : min(len(file_lines), lineno + context_lines)]
+                    matches.append(GrepMatch(
+                        file=str(filepath),
+                        line_number=lineno,
+                        line=line,
+                        context_before=before,
+                        context_after=after,
+                    ))
+                if len(matches) >= max_matches:
+                    warnings.append(
+                        f"results capped at {max_matches}; refine your pattern"
+                    )
+                    return GrepResult(
+                        matches=matches,
+                        searched_files=searched,
+                        total_matches=total_matches,
+                        warnings=warnings,
+                    )
 
     return GrepResult(
         matches=matches,
