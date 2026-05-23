@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re as _re
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 
 from dunder_mifflin_harness.tools.types import (
@@ -140,10 +142,94 @@ _DEFAULT_IGNORE: frozenset[str] = frozenset({
     "dist", "build", ".build",
     ".DS_Store",
 })
+_MAX_TEXT_FILE_BYTES = 1_000_000
+_MAX_SEARCH_RESULTS = 1_000
 
 
 def _preview(s: str, max_len: int = 40) -> str:
     return s[:max_len] + "..." if len(s) > max_len else s
+
+
+def _inspect_readable_text_file(
+    path: Path,
+    display_path: str,
+    max_bytes: int = _MAX_TEXT_FILE_BYTES,
+) -> str | None:
+    """Return an error message when a text tool should not read this path."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return f"file not found: {display_path}"
+    except PermissionError:
+        return f"permission denied: {display_path}"
+    except OSError as exc:
+        return str(exc)
+
+    if not path.is_file():
+        return f"not a regular file: {display_path}"
+    if stat.st_size > max_bytes:
+        return (
+            f"file is too large to read "
+            f"({stat.st_size} bytes > {max_bytes} bytes): {display_path}"
+        )
+    return None
+
+
+def _decode_utf8(data: bytes, display_path: str) -> tuple[str | None, str | None]:
+    try:
+        return data.decode("utf-8"), None
+    except UnicodeDecodeError:
+        return None, f"file is not valid UTF-8 text: {display_path}"
+
+
+def _iter_files(
+    root: Path,
+    include: str,
+    recursive: bool,
+    ignore: frozenset[str],
+) -> tuple[list[Path], int]:
+    """Collect candidate files while pruning noisy directories and bounding traversal."""
+    files: list[Path] = []
+    seen = 0
+
+    if root.is_file():
+        matches_root = fnmatch(root.name, include) or fnmatch(str(root), include)
+        return ([root] if matches_root else []), 1
+
+    if not root.is_dir():
+        return [], 0
+
+    if recursive:
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [
+                dirname
+                for dirname in dirnames
+                if dirname not in ignore and not dirname.startswith(".")
+            ]
+            for filename in filenames:
+                candidate = Path(dirpath) / filename
+                relative = candidate.relative_to(root).as_posix()
+                if filename in ignore or not (
+                    fnmatch(filename, include) or fnmatch(relative, include)
+                ):
+                    continue
+                seen += 1
+                if len(files) < _MAX_SEARCH_RESULTS:
+                    files.append(candidate)
+    else:
+        try:
+            children = sorted(root.iterdir())
+        except OSError:
+            return [], 0
+        for child in children:
+            if child.name in ignore or child.name.startswith(".") or not child.is_file():
+                continue
+            if fnmatch(child.name, include) or fnmatch(child.relative_to(root).as_posix(), include):
+                seen += 1
+                if len(files) < _MAX_SEARCH_RESULTS:
+                    files.append(child)
+
+    return sorted(files), seen
 
 
 def _collect_dir_entries(
@@ -179,14 +265,20 @@ def _collect_dir_entries(
 async def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> FileReadResult:
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
+    if error := _inspect_readable_text_file(p, path):
+        status = ToolStatus.NOT_FOUND if error.startswith("file not found") else ToolStatus.ERROR
+        if error.startswith("permission denied"):
+            status = ToolStatus.PERMISSION_DENIED
+        return FileReadResult(status=status, error=error, path=path)
+
     try:
-        raw = p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
-    except PermissionError:
-        return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        data = p.read_bytes()
     except OSError as exc:
         return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
+    raw, decode_error = _decode_utf8(data, path)
+    if decode_error:
+        return FileReadResult(status=ToolStatus.ERROR, error=decode_error, path=path)
+    assert raw is not None
 
     lines = raw.splitlines(keepends=True)
     total = len(lines)
@@ -237,14 +329,22 @@ setattr(write_file, "approval", ToolApprovalMeta(
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
     p = Path(path)
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+    if error := _inspect_readable_text_file(p, path):
+        status = ToolStatus.NOT_FOUND if error.startswith("file not found") else ToolStatus.ERROR
+        if error.startswith("permission denied"):
+            status = ToolStatus.PERMISSION_DENIED
+        return FileEditResult(status=status, error=error, path=path)
+
     try:
-        content = p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
-    except PermissionError:
-        return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        data = p.read_bytes()
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
+    content, decode_error = _decode_utf8(data, path)
+    if decode_error:
+        return FileEditResult(status=ToolStatus.ERROR, error=decode_error, path=path)
+    assert content is not None
 
     count = content.count(old_string)
     if count == 0:
@@ -306,8 +406,11 @@ async def search_files(root: str, pattern: str) -> SearchResult:
     p = Path(root)
     if not p.exists():
         return SearchResult(status=ToolStatus.NOT_FOUND, error=f"root not found: {root}", root=root, pattern=pattern)
-    matches = [str(m) for m in sorted(p.rglob(pattern))]
-    return SearchResult(root=root, pattern=pattern, matches=matches)
+    files, seen = _iter_files(p, pattern, recursive=True, ignore=_DEFAULT_IGNORE)
+    warnings = []
+    if seen > len(files):
+        warnings.append(f"results capped at {_MAX_SEARCH_RESULTS}; refine your pattern")
+    return SearchResult(root=root, pattern=pattern, matches=[str(m) for m in files], warnings=warnings)
 
 
 setattr(search_files, "approval", ToolApprovalMeta(
@@ -336,20 +439,27 @@ async def grep_files(
     if not p.exists():
         return GrepResult(status=ToolStatus.NOT_FOUND, error=f"root not found: {root}")
 
-    glob_fn = p.rglob if recursive else p.glob
     file_glob = include or "*"
+    files, seen = _iter_files(p, file_glob, recursive=recursive, ignore=_DEFAULT_IGNORE)
     matches: list[GrepMatch] = []
     searched = 0
     total_matches = 0
 
-    for filepath in sorted(glob_fn(file_glob)):
-        if not filepath.is_file():
+    for filepath in files:
+        if error := _inspect_readable_text_file(filepath, str(filepath)):
+            if not error.startswith("file is too large") and not error.startswith("file is not valid"):
+                continue
+            searched += 1
             continue
         searched += 1
         try:
-            text = filepath.read_text(encoding="utf-8", errors="replace")
+            data = filepath.read_bytes()
         except OSError:
             continue
+        text, decode_error = _decode_utf8(data, str(filepath))
+        if decode_error:
+            continue
+        assert text is not None
 
         file_lines = text.splitlines()
         for lineno, line in enumerate(file_lines, 1):
@@ -368,6 +478,8 @@ async def grep_files(
                 ))
 
     warnings: list[str] = []
+    if seen > len(files):
+        warnings.append(f"searched files capped at {_MAX_SEARCH_RESULTS}; refine your include pattern")
     if total_matches > max_matches:
         warnings.append(
             f"results capped at {max_matches}; {total_matches} total matches found — refine your pattern"

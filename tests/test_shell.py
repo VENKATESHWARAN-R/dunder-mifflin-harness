@@ -1,4 +1,7 @@
 import asyncio
+import shlex
+import sys
+import time
 from pathlib import Path
 
 from dunder_mifflin_harness.tools.shell import run_shell, truncate_output
@@ -34,6 +37,45 @@ def test_run_shell_timeout(tmp_path: Path) -> None:
 
     assert result.status == ToolStatus.TIMEOUT
     assert result.timed_out
+
+
+def test_run_shell_timeout_kills_child_process_promptly(tmp_path: Path) -> None:
+    command = f"{shlex.quote(sys.executable)} -c 'import time; time.sleep(30)'"
+
+    started_at = time.monotonic()
+    result = asyncio.run(
+        run_shell(command=command, cwd=str(tmp_path), timeout_seconds=0.1)
+    )
+    duration = time.monotonic() - started_at
+
+    assert result.status == ToolStatus.TIMEOUT
+    assert result.timed_out
+    assert duration < 2.0
+
+
+def test_run_shell_spawn_failure_returns_structured_error(tmp_path: Path) -> None:
+    missing_cwd = tmp_path / "missing"
+
+    result = asyncio.run(run_shell(command="pwd", cwd=str(missing_cwd)))
+
+    assert result.status == ToolStatus.ERROR
+    assert result.exit_code == -1
+    assert "could not start command" in (result.error or "")
+
+
+def test_run_shell_truncates_large_output(tmp_path: Path) -> None:
+    command = (
+        f"{shlex.quote(sys.executable)} "
+        "-c 'import sys; sys.stdout.write(\"x\" * 50000)'"
+    )
+
+    result = asyncio.run(
+        run_shell(command=command, cwd=str(tmp_path), max_output_chars=1000)
+    )
+
+    assert result.status == ToolStatus.OK
+    assert result.truncated
+    assert len(result.stdout) <= 1000
 
 
 def test_truncate_output_preserves_head_and_tail() -> None:
