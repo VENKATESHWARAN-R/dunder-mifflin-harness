@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -30,11 +32,7 @@ def truncate_output(text: str, max_chars: int) -> str:
         return text[:max_chars]
     half = (max_chars - 80) // 2
     omitted = len(text) - (half * 2)
-    return (
-        f"{text[:half]}\n"
-        f"... truncated {omitted} characters ...\n"
-        f"{text[-half:]}"
-    )
+    return f"{text[:half]}\n... truncated {omitted} characters ...\n{text[-half:]}"
 
 
 @dataclass
@@ -48,6 +46,145 @@ class _ProcessInfo:
 
 # In-memory registry of background processes — lives for the duration of the harness session.
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
+
+
+class _BoundedOutput:
+    """Capture command output without allowing unbounded memory growth."""
+
+    def __init__(self, max_bytes: int) -> None:
+        self.max_bytes = max(0, max_bytes)
+        self.total_bytes = 0
+        self._data = bytearray()
+        self._head = bytearray()
+        self._tail = bytearray()
+
+    @property
+    def truncated(self) -> bool:
+        return self.total_bytes > self.max_bytes
+
+    def append(self, chunk: bytes) -> None:
+        if not chunk:
+            return
+
+        self.total_bytes += len(chunk)
+        if not self.truncated:
+            self._data.extend(chunk)
+            return
+
+        if not self._head and not self._tail:
+            combined = bytes(self._data) + chunk
+            self._data.clear()
+            if self.max_bytes < 200:
+                self._head.extend(combined[: self.max_bytes])
+                return
+
+            half = (self.max_bytes - 80) // 2
+            self._head.extend(combined[:half])
+            self._tail.extend(combined[-half:])
+            return
+
+        if self.max_bytes < 200:
+            return
+
+        half = (self.max_bytes - 80) // 2
+        self._tail.extend(chunk)
+        if len(self._tail) > half:
+            del self._tail[: len(self._tail) - half]
+
+    def text(self) -> str:
+        if not self.truncated:
+            return bytes(self._data).decode("utf-8", errors="replace")
+
+        head = bytes(self._head).decode("utf-8", errors="replace")
+        if self.max_bytes < 200:
+            return head
+
+        tail = bytes(self._tail).decode("utf-8", errors="replace")
+        omitted = max(0, self.total_bytes - len(self._head) - len(self._tail))
+        return f"{head}\n... truncated {omitted} bytes ...\n{tail}"
+
+
+async def _read_stream(
+    stream: asyncio.StreamReader | None,
+    capture: _BoundedOutput,
+) -> None:
+    if stream is None:
+        return
+    while True:
+        chunk = await stream.read(8192)
+        if not chunk:
+            return
+        capture.append(chunk)
+
+
+async def _finish_readers(tasks: list[asyncio.Task[None]]) -> None:
+    if not tasks:
+        return
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=1.0,
+        )
+    except TimeoutError:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _send_process_signal(
+    process: asyncio.subprocess.Process,
+    sig: signal.Signals,
+) -> None:
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        return
+    except OSError:
+        try:
+            process.send_signal(sig)
+        except ProcessLookupError:
+            return
+
+
+async def _terminate_process_tree(process: asyncio.subprocess.Process) -> None:
+    _send_process_signal(process, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(process.wait(), timeout=1.0)
+        return
+    except TimeoutError:
+        pass
+
+    _send_process_signal(process, signal.SIGKILL)
+    try:
+        await asyncio.wait_for(process.wait(), timeout=1.0)
+    except TimeoutError:
+        return
+
+
+def _read_text_file_limited(path: str, max_chars: int) -> tuple[str, bool]:
+    max_bytes = max(0, max_chars)
+    file_path = Path(path)
+    size = file_path.stat().st_size
+    if size <= max_bytes:
+        return file_path.read_text(encoding="utf-8", errors="replace"), False
+
+    if max_bytes < 200:
+        with file_path.open("rb") as handle:
+            return handle.read(max_bytes).decode("utf-8", errors="replace"), True
+
+    half = (max_bytes - 80) // 2
+    with file_path.open("rb") as handle:
+        head = handle.read(half)
+        handle.seek(-half, os.SEEK_END)
+        tail = handle.read(half)
+
+    omitted = max(0, size - len(head) - len(tail))
+    text = (
+        f"{head.decode('utf-8', errors='replace')}\n"
+        f"... truncated {omitted} bytes ...\n"
+        f"{tail.decode('utf-8', errors='replace')}"
+    )
+    return text, True
 
 
 # ---------------------------------------------------------------------------
@@ -65,27 +202,45 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    stdout_capture = _BoundedOutput(max_output_chars)
+    stderr_capture = _BoundedOutput(max_output_chars)
+    reader_tasks = [
+        asyncio.create_task(_read_stream(process.stdout, stdout_capture)),
+        asyncio.create_task(_read_stream(process.stderr, stderr_capture)),
+    ]
+
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        await _terminate_process_tree(process)
+
+    await _finish_readers(reader_tasks)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
-    stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
-    stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    stdout_raw = stdout_capture.text()
+    stderr_raw = stderr_capture.text()
+    truncated = stdout_capture.truncated or stderr_capture.truncated
 
     if timed_out:
         status = ToolStatus.TIMEOUT
@@ -97,9 +252,11 @@ async def run_shell(
     return ShellToolResult(
         status=status,
         warnings=["output was truncated"] if truncated else [],
-        error=f"exited with code {process.returncode}" if status == ToolStatus.ERROR else None,
-        stdout=truncate_output(stdout_raw, max_output_chars),
-        stderr=truncate_output(stderr_raw, max_output_chars),
+        error=f"exited with code {process.returncode}"
+        if status == ToolStatus.ERROR
+        else None,
+        stdout=stdout_raw,
+        stderr=stderr_raw,
         exit_code=process.returncode if process.returncode is not None else -1,
         command=command,
         cwd=str(resolved_cwd),
@@ -109,14 +266,18 @@ async def run_shell(
     )
 
 
-setattr(run_shell, "approval", ToolApprovalMeta(
-    category="shell",
-    risk_level=RiskLevel.HIGH,
-    reversible=False,
-    description_fn=lambda command, cwd=None, **_: (
-        f"Run `{command}`" + (f" in `{cwd}`" if cwd else "")
+setattr(
+    run_shell,
+    "approval",
+    ToolApprovalMeta(
+        category="shell",
+        risk_level=RiskLevel.HIGH,
+        reversible=False,
+        description_fn=lambda command, cwd=None, **_: (
+            f"Run `{command}`" + (f" in `{cwd}`" if cwd else "")
+        ),
     ),
-))
+)
 
 
 async def run_shell_background(
@@ -128,18 +289,38 @@ async def run_shell_background(
     process_id = uuid.uuid4().hex[:8]
 
     stdout_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stdout", mode="w",
+        delete=False,
+        suffix=f".{process_id}.stdout",
+        mode="w",
     )
     stderr_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stderr", mode="w",
+        delete=False,
+        suffix=f".{process_id}.stderr",
+        mode="w",
     )
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=stdout_file,
-        stderr=stderr_file,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=stdout_file,
+            stderr=stderr_file,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        stdout_name = stdout_file.name
+        stderr_name = stderr_file.name
+        stdout_file.close()
+        stderr_file.close()
+        Path(stdout_name).unlink(missing_ok=True)
+        Path(stderr_name).unlink(missing_ok=True)
+        return BackgroundProcessResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            command=command,
+            cwd=str(resolved_cwd),
+        )
+
     stdout_file.close()
     stderr_file.close()
 
@@ -158,14 +339,18 @@ async def run_shell_background(
     )
 
 
-setattr(run_shell_background, "approval", ToolApprovalMeta(
-    category="shell",
-    risk_level=RiskLevel.HIGH,
-    reversible=False,
-    description_fn=lambda command, cwd=None, **_: (
-        f"Start background: `{command}`" + (f" in `{cwd}`" if cwd else "")
+setattr(
+    run_shell_background,
+    "approval",
+    ToolApprovalMeta(
+        category="shell",
+        risk_level=RiskLevel.HIGH,
+        reversible=False,
+        description_fn=lambda command, cwd=None, **_: (
+            f"Start background: `{command}`" + (f" in `{cwd}`" if cwd else "")
+        ),
     ),
-))
+)
 
 
 async def list_processes() -> ProcessListResult:
@@ -183,12 +368,16 @@ async def list_processes() -> ProcessListResult:
     return ProcessListResult(processes=entries)
 
 
-setattr(list_processes, "approval", ToolApprovalMeta(
-    category="shell",
-    risk_level=RiskLevel.READ_ONLY,
-    reversible=True,
-    description_fn=lambda **_: "List background processes",
-))
+setattr(
+    list_processes,
+    "approval",
+    ToolApprovalMeta(
+        category="shell",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda **_: "List background processes",
+    ),
+)
 
 
 async def read_process_output(
@@ -206,24 +395,38 @@ async def read_process_output(
 
     running = info.process.returncode is None
     try:
-        stdout_raw = Path(info.stdout_path).read_text(encoding="utf-8", errors="replace")
-        stderr_raw = Path(info.stderr_path).read_text(encoding="utf-8", errors="replace")
+        stdout_raw, stdout_truncated = _read_text_file_limited(
+            info.stdout_path,
+            max_output_chars,
+        )
+        stderr_raw, stderr_truncated = _read_text_file_limited(
+            info.stderr_path,
+            max_output_chars,
+        )
     except OSError as exc:
-        return ProcessOutputResult(status=ToolStatus.ERROR, error=str(exc), running=running)
+        return ProcessOutputResult(
+            status=ToolStatus.ERROR, error=str(exc), running=running
+        )
 
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = stdout_truncated or stderr_truncated
     return ProcessOutputResult(
         warnings=["output was truncated"] if truncated else [],
-        stdout=truncate_output(stdout_raw, max_output_chars),
-        stderr=truncate_output(stderr_raw, max_output_chars),
+        stdout=stdout_raw,
+        stderr=stderr_raw,
         running=running,
         exit_code=info.process.returncode,
     )
 
 
-setattr(read_process_output, "approval", ToolApprovalMeta(
-    category="shell",
-    risk_level=RiskLevel.READ_ONLY,
-    reversible=True,
-    description_fn=lambda process_id="", **_: f"Read output of process `{process_id}`",
-))
+setattr(
+    read_process_output,
+    "approval",
+    ToolApprovalMeta(
+        category="shell",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda process_id="", **_: (
+            f"Read output of process `{process_id}`"
+        ),
+    ),
+)
