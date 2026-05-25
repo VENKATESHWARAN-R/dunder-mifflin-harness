@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re as _re
+import stat as stat_module
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,29 +64,19 @@ def load_file_attachment(
     """Load a text file attachment or return a visible warning."""
     path = resolve_user_path(reference, cwd)
     try:
-        stat = path.stat()
+        data, stat = _safe_read_regular_bytes(path, max_bytes)
     except FileNotFoundError:
         return AttachmentWarning(reference, f"file not found: {reference}")
     except PermissionError:
         return AttachmentWarning(reference, f"permission denied: {reference}")
     except OSError as exc:
-        return AttachmentWarning(reference, f"could not inspect {reference}: {exc}")
+        return AttachmentWarning(reference, f"could not read {reference}: {exc}")
 
-    if path.is_dir():
-        return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
-
-    if stat.st_size > max_bytes:
+    if stat.st_size > max_bytes or len(data) > max_bytes:
         return AttachmentWarning(
             reference,
             f"file is too large to attach ({stat.st_size} bytes): {reference}",
         )
-
-    try:
-        data = path.read_bytes()
-    except PermissionError:
-        return AttachmentWarning(reference, f"permission denied: {reference}")
-    except OSError as exc:
-        return AttachmentWarning(reference, f"could not read {reference}: {exc}")
 
     if b"\x00" in data:
         return AttachmentWarning(reference, f"binary file cannot be attached: {reference}")
@@ -146,6 +138,28 @@ def _preview(s: str, max_len: int = 40) -> str:
     return s[:max_len] + "..." if len(s) > max_len else s
 
 
+def _is_regular_file(mode: int) -> bool:
+    return stat_module.S_ISREG(mode)
+
+
+def _safe_read_regular_bytes(path: Path, max_bytes: int) -> tuple[bytes, os.stat_result]:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+
+    fd = os.open(path, flags)
+    try:
+        stat = os.fstat(fd)
+        if not _is_regular_file(stat.st_mode):
+            raise OSError(f"not a regular file: {path}")
+        with os.fdopen(fd, "rb") as handle:
+            fd = -1
+            return handle.read(max_bytes + 1), stat
+    finally:
+        if fd != -1:
+            os.close(fd)
+
+
 def _collect_dir_entries(
     path: Path,
     current_depth: int,
@@ -180,6 +194,13 @@ async def read_file(path: str, start_line: int = 1, end_line: int | None = None)
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
     try:
+        stat = p.stat()
+        if not _is_regular_file(stat.st_mode):
+            return FileReadResult(
+                status=ToolStatus.ERROR,
+                error=f"not a regular file: {path}",
+                path=path,
+            )
         raw = p.read_text(encoding="utf-8")
     except FileNotFoundError:
         return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
@@ -236,6 +257,13 @@ setattr(write_file, "approval", ToolApprovalMeta(
 
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    if old_string == "":
+        return FileEditResult(
+            status=ToolStatus.ERROR,
+            error="old_string must not be empty",
+            path=path,
+        )
+
     p = Path(path)
     try:
         content = p.read_text(encoding="utf-8")
@@ -343,7 +371,11 @@ async def grep_files(
     total_matches = 0
 
     for filepath in sorted(glob_fn(file_glob)):
-        if not filepath.is_file():
+        try:
+            stat = filepath.stat()
+        except OSError:
+            continue
+        if not _is_regular_file(stat.st_mode):
             continue
         searched += 1
         try:
