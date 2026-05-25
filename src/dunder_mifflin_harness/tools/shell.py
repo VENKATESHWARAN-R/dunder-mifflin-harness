@@ -32,11 +32,7 @@ def truncate_output(text: str, max_chars: int) -> str:
         return text[:max_chars]
     half = (max_chars - 80) // 2
     omitted = len(text) - (half * 2)
-    return (
-        f"{text[:half]}\n"
-        f"... truncated {omitted} characters ...\n"
-        f"{text[-half:]}"
-    )
+    return f"{text[:half]}\n... truncated {omitted} characters ...\n{text[-half:]}"
 
 
 @dataclass
@@ -256,7 +252,9 @@ async def run_shell(
     return ShellToolResult(
         status=status,
         warnings=["output was truncated"] if truncated else [],
-        error=f"exited with code {process.returncode}" if status == ToolStatus.ERROR else None,
+        error=f"exited with code {process.returncode}"
+        if status == ToolStatus.ERROR
+        else None,
         stdout=stdout_raw,
         stderr=stderr_raw,
         exit_code=process.returncode if process.returncode is not None else -1,
@@ -268,14 +266,18 @@ async def run_shell(
     )
 
 
-setattr(run_shell, "approval", ToolApprovalMeta(
-    category="shell",
-    risk_level=RiskLevel.HIGH,
-    reversible=False,
-    description_fn=lambda command, cwd=None, **_: (
-        f"Run `{command}`" + (f" in `{cwd}`" if cwd else "")
+setattr(
+    run_shell,
+    "approval",
+    ToolApprovalMeta(
+        category="shell",
+        risk_level=RiskLevel.HIGH,
+        reversible=False,
+        description_fn=lambda command, cwd=None, **_: (
+            f"Run `{command}`" + (f" in `{cwd}`" if cwd else "")
+        ),
     ),
-))
+)
 
 
 async def run_shell_background(
@@ -287,10 +289,14 @@ async def run_shell_background(
     process_id = uuid.uuid4().hex[:8]
 
     stdout_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stdout", mode="w",
+        delete=False,
+        suffix=f".{process_id}.stdout",
+        mode="w",
     )
     stderr_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stderr", mode="w",
+        delete=False,
+        suffix=f".{process_id}.stderr",
+        mode="w",
     )
 
     try:
@@ -333,14 +339,18 @@ async def run_shell_background(
     )
 
 
-setattr(run_shell_background, "approval", ToolApprovalMeta(
-    category="shell",
-    risk_level=RiskLevel.HIGH,
-    reversible=False,
-    description_fn=lambda command, cwd=None, **_: (
-        f"Start background: `{command}`" + (f" in `{cwd}`" if cwd else "")
+setattr(
+    run_shell_background,
+    "approval",
+    ToolApprovalMeta(
+        category="shell",
+        risk_level=RiskLevel.HIGH,
+        reversible=False,
+        description_fn=lambda command, cwd=None, **_: (
+            f"Start background: `{command}`" + (f" in `{cwd}`" if cwd else "")
+        ),
     ),
-))
+)
 
 
 async def list_processes() -> ProcessListResult:
@@ -358,12 +368,16 @@ async def list_processes() -> ProcessListResult:
     return ProcessListResult(processes=entries)
 
 
-setattr(list_processes, "approval", ToolApprovalMeta(
-    category="shell",
-    risk_level=RiskLevel.READ_ONLY,
-    reversible=True,
-    description_fn=lambda **_: "List background processes",
-))
+setattr(
+    list_processes,
+    "approval",
+    ToolApprovalMeta(
+        category="shell",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda **_: "List background processes",
+    ),
+)
 
 
 async def read_process_output(
@@ -390,7 +404,9 @@ async def read_process_output(
             max_output_chars,
         )
     except OSError as exc:
-        return ProcessOutputResult(status=ToolStatus.ERROR, error=str(exc), running=running)
+        return ProcessOutputResult(
+            status=ToolStatus.ERROR, error=str(exc), running=running
+        )
 
     truncated = stdout_truncated or stderr_truncated
     return ProcessOutputResult(
@@ -402,9 +418,15 @@ async def read_process_output(
     )
 
 
-setattr(read_process_output, "approval", ToolApprovalMeta(
-    category="shell",
-    risk_level=RiskLevel.READ_ONLY,
-    reversible=True,
-    description_fn=lambda process_id="", **_: f"Read output of process `{process_id}`",
-))
+setattr(
+    read_process_output,
+    "approval",
+    ToolApprovalMeta(
+        category="shell",
+        risk_level=RiskLevel.READ_ONLY,
+        reversible=True,
+        description_fn=lambda process_id="", **_: (
+            f"Read output of process `{process_id}`"
+        ),
+    ),
+)

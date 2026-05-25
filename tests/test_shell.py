@@ -11,9 +11,7 @@ from dunder_mifflin_harness.tools.types import ToolStatus
 
 
 def test_run_shell_captures_output(tmp_path: Path) -> None:
-    result = asyncio.run(
-        run_shell(command="printf hello", cwd=str(tmp_path))
-    )
+    result = asyncio.run(run_shell(command="printf hello", cwd=str(tmp_path)))
 
     assert result.status == ToolStatus.OK
     assert result.stdout == "hello"
@@ -23,9 +21,7 @@ def test_run_shell_captures_output(tmp_path: Path) -> None:
 
 
 def test_run_shell_nonzero_exit_sets_error_status(tmp_path: Path) -> None:
-    result = asyncio.run(
-        run_shell(command="exit 1", cwd=str(tmp_path))
-    )
+    result = asyncio.run(run_shell(command="exit 1", cwd=str(tmp_path)))
 
     assert result.status == ToolStatus.ERROR
     assert result.exit_code == 1
@@ -43,9 +39,9 @@ def test_run_shell_timeout(tmp_path: Path) -> None:
 
 def test_run_shell_timeout_kills_child_process_holding_pipe(tmp_path: Path) -> None:
     command = (
-        f"{sys.executable} -c \"import subprocess, time; "
+        f'{sys.executable} -c "import subprocess, time; '
         "subprocess.Popen(['sh', '-c', 'sleep 5; echo late']); "
-        "time.sleep(10)\""
+        'time.sleep(10)"'
     )
 
     result = asyncio.run(
