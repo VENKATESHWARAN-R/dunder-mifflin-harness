@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import tempfile
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +52,76 @@ class _ProcessInfo:
 # In-memory registry of background processes — lives for the duration of the harness session.
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
+_READ_CHUNK_SIZE = 4096
+_PROCESS_CLEANUP_TIMEOUT_SECONDS = 1.0
+
+
+async def _read_stream_limited(
+    stream: asyncio.StreamReader | None,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Drain a stream while keeping only a bounded amount in memory."""
+    if stream is None:
+        return b"", False
+
+    chunks: list[bytes] = []
+    captured = 0
+    truncated = False
+
+    while True:
+        chunk = await stream.read(_READ_CHUNK_SIZE)
+        if not chunk:
+            break
+
+        remaining = max(0, max_bytes - captured)
+        if remaining:
+            chunks.append(chunk[:remaining])
+            captured += min(len(chunk), remaining)
+        if len(chunk) > remaining:
+            truncated = True
+
+    return b"".join(chunks), truncated
+
+
+def _subprocess_kwargs() -> dict[str, bool]:
+    """Start a new process group when the platform supports it."""
+    return {"start_new_session": True} if os.name != "nt" else {}
+
+
+def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    """Terminate the shell and children that inherited its process group."""
+    if process.returncode is not None:
+        return
+
+    if os.name != "nt":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+        except OSError:
+            pass
+
+    with suppress(ProcessLookupError):
+        process.kill()
+
+
+async def _wait_for_process_exit(process: asyncio.subprocess.Process) -> None:
+    with suppress(TimeoutError):
+        await asyncio.wait_for(process.wait(), timeout=_PROCESS_CLEANUP_TIMEOUT_SECONDS)
+
+
+async def _finish_stream_task(
+    task: asyncio.Task[tuple[bytes, bool]],
+) -> tuple[bytes, bool]:
+    try:
+        return await asyncio.wait_for(task, timeout=_PROCESS_CLEANUP_TIMEOUT_SECONDS)
+    except TimeoutError:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+        return b"", True
+
 
 # ---------------------------------------------------------------------------
 # Agent tools
@@ -65,27 +138,48 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            **_subprocess_kwargs(),
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
+
+    max_output_bytes = max(0, max_output_chars)
+    stdout_task = asyncio.create_task(_read_stream_limited(process.stdout, max_output_bytes))
+    stderr_task = asyncio.create_task(_read_stream_limited(process.stderr, max_output_bytes))
 
     timed_out = False
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_tree(process)
+        await _wait_for_process_exit(process)
+
+    if timed_out:
+        stdout_bytes, stdout_truncated = await _finish_stream_task(stdout_task)
+        stderr_bytes, stderr_truncated = await _finish_stream_task(stderr_task)
+    else:
+        stdout_bytes, stdout_truncated = await stdout_task
+        stderr_bytes, stderr_truncated = await stderr_task
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
     stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = stdout_truncated or stderr_truncated
 
     if timed_out:
         status = ToolStatus.TIMEOUT
