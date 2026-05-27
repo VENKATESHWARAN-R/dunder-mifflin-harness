@@ -173,7 +173,8 @@ class ChatApp:
         while not self._should_exit:
             raw = await self.input.read()
             if raw is None:
-                continue
+                self._should_exit = True
+                break
             await self.handle_input(raw)
 
     async def handle_input(self, raw: str) -> None:
@@ -204,9 +205,14 @@ class ChatApp:
             await self._handle_shell(parsed.shell_command or "")
             return
 
-        await self.coordinator.submit_message(
-            UserMessage(text=parsed.text, attachments=parsed.attachments)
-        )
+        try:
+            await self.coordinator.submit_message(
+                UserMessage(text=parsed.text, attachments=parsed.attachments)
+            )
+        except Exception:
+            # The coordinator already emitted RunFailed; keep interactive chat alive
+            # so a single backend/model failure does not terminate the session.
+            return
 
     async def _handle_shell(self, command: str) -> None:
         if not command:
