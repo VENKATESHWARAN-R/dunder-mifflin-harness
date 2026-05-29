@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -50,6 +53,108 @@ class _ProcessInfo:
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 
+@dataclass(frozen=True)
+class _CapturedOutput:
+    text: str
+    truncated: bool
+
+
+_STREAM_CHUNK_BYTES = 8192
+
+
+def _output_byte_budget(max_output_chars: int) -> int:
+    """Translate the public character cap into a safe byte cap for UTF-8 output."""
+    return max(0, max_output_chars) * 4
+
+
+def _split_capture_budget(max_output_chars: int) -> tuple[int, int]:
+    byte_budget = _output_byte_budget(max_output_chars)
+    if byte_budget == 0:
+        return 0, 0
+    if max_output_chars < 200:
+        return byte_budget, 0
+
+    head_budget = max(1, (byte_budget - 320) // 2)
+    tail_budget = max(1, byte_budget - head_budget)
+    return head_budget, tail_budget
+
+
+def _format_captured_bytes(
+    head: bytes,
+    tail: bytes,
+    total_bytes: int,
+    max_output_chars: int,
+) -> _CapturedOutput:
+    captured_bytes = len(head) + len(tail)
+    byte_truncated = total_bytes > captured_bytes
+
+    if byte_truncated and tail:
+        omitted = total_bytes - captured_bytes
+        text = (
+            f"{head.decode('utf-8', errors='replace')}\n"
+            f"... truncated at least {omitted} bytes ...\n"
+            f"{tail.decode('utf-8', errors='replace')}"
+        )
+    else:
+        text = (head + tail).decode("utf-8", errors="replace")
+
+    char_truncated = len(text) > max_output_chars
+    return _CapturedOutput(
+        text=truncate_output(text, max_output_chars),
+        truncated=byte_truncated or char_truncated,
+    )
+
+
+async def _read_stream_bounded(
+    stream: asyncio.StreamReader | None,
+    max_output_chars: int,
+) -> _CapturedOutput:
+    if stream is None:
+        return _CapturedOutput(text="", truncated=False)
+
+    head_budget, tail_budget = _split_capture_budget(max_output_chars)
+    head = bytearray()
+    tail = bytearray()
+    total_bytes = 0
+
+    while chunk := await stream.read(_STREAM_CHUNK_BYTES):
+        total_bytes += len(chunk)
+        remaining_head = max(0, head_budget - len(head))
+        if remaining_head:
+            head.extend(chunk[:remaining_head])
+            chunk = chunk[remaining_head:]
+        if tail_budget and chunk:
+            tail.extend(chunk)
+            if len(tail) > tail_budget:
+                del tail[: len(tail) - tail_budget]
+
+    return _format_captured_bytes(bytes(head), bytes(tail), total_bytes, max_output_chars)
+
+
+def _read_file_bounded(path: str, max_output_chars: int) -> _CapturedOutput:
+    head_budget, tail_budget = _split_capture_budget(max_output_chars)
+    file_size = Path(path).stat().st_size
+
+    with Path(path).open("rb") as handle:
+        head = handle.read(head_budget)
+        tail = b""
+        if tail_budget and file_size > len(head):
+            handle.seek(max(len(head), file_size - tail_budget))
+            tail = handle.read(tail_budget)
+
+    return _format_captured_bytes(head, tail, file_size, max_output_chars)
+
+
+def _signal_process_group(process: asyncio.subprocess.Process, sig: signal.Signals) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, sig)
+
+
+async def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+    _signal_process_group(process, signal.SIGKILL)
+    await process.wait()
+
+
 # ---------------------------------------------------------------------------
 # Agent tools
 # ---------------------------------------------------------------------------
@@ -65,27 +170,38 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=f"failed to start command: {exc}",
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    stdout_task = asyncio.create_task(_read_stream_bounded(process.stdout, max_output_chars))
+    stderr_task = asyncio.create_task(_read_stream_bounded(process.stderr, max_output_chars))
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        await _terminate_process_group(process)
+
+    stdout_capture, stderr_capture = await asyncio.gather(stdout_task, stderr_task)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
-    stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
-    stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = stdout_capture.truncated or stderr_capture.truncated
 
     if timed_out:
         status = ToolStatus.TIMEOUT
@@ -98,8 +214,8 @@ async def run_shell(
         status=status,
         warnings=["output was truncated"] if truncated else [],
         error=f"exited with code {process.returncode}" if status == ToolStatus.ERROR else None,
-        stdout=truncate_output(stdout_raw, max_output_chars),
-        stderr=truncate_output(stderr_raw, max_output_chars),
+        stdout=stdout_capture.text,
+        stderr=stderr_capture.text,
         exit_code=process.returncode if process.returncode is not None else -1,
         command=command,
         cwd=str(resolved_cwd),
@@ -134,12 +250,25 @@ async def run_shell_background(
         delete=False, suffix=f".{process_id}.stderr", mode="w",
     )
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=stdout_file,
-        stderr=stderr_file,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=stdout_file,
+            stderr=stderr_file,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        stdout_file.close()
+        stderr_file.close()
+        Path(stdout_file.name).unlink(missing_ok=True)
+        Path(stderr_file.name).unlink(missing_ok=True)
+        return BackgroundProcessResult(
+            status=ToolStatus.ERROR,
+            error=f"failed to start command: {exc}",
+            command=command,
+            cwd=str(resolved_cwd),
+        )
     stdout_file.close()
     stderr_file.close()
 
@@ -206,16 +335,16 @@ async def read_process_output(
 
     running = info.process.returncode is None
     try:
-        stdout_raw = Path(info.stdout_path).read_text(encoding="utf-8", errors="replace")
-        stderr_raw = Path(info.stderr_path).read_text(encoding="utf-8", errors="replace")
+        stdout_capture = _read_file_bounded(info.stdout_path, max_output_chars)
+        stderr_capture = _read_file_bounded(info.stderr_path, max_output_chars)
     except OSError as exc:
         return ProcessOutputResult(status=ToolStatus.ERROR, error=str(exc), running=running)
 
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = stdout_capture.truncated or stderr_capture.truncated
     return ProcessOutputResult(
         warnings=["output was truncated"] if truncated else [],
-        stdout=truncate_output(stdout_raw, max_output_chars),
-        stderr=truncate_output(stderr_raw, max_output_chars),
+        stdout=stdout_capture.text,
+        stderr=stderr_capture.text,
         running=running,
         exit_code=info.process.returncode,
     )
