@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re as _re
+import stat as _stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,6 +27,9 @@ from dunder_mifflin_harness.tools.types import (
 # ---------------------------------------------------------------------------
 # CLI attachment helpers — used by cli/parser.py
 # ---------------------------------------------------------------------------
+
+_MAX_AGENT_FILE_BYTES = 1_000_000
+_MAX_SEARCH_RESULTS = 10_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,30 +66,52 @@ def load_file_attachment(
 ) -> FileAttachment | AttachmentWarning:
     """Load a text file attachment or return a visible warning."""
     path = resolve_user_path(reference, cwd)
+    fd: int | None = None
     try:
-        stat = path.stat()
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+        stat = os.fstat(fd)
     except FileNotFoundError:
         return AttachmentWarning(reference, f"file not found: {reference}")
     except PermissionError:
         return AttachmentWarning(reference, f"permission denied: {reference}")
     except OSError as exc:
-        return AttachmentWarning(reference, f"could not inspect {reference}: {exc}")
+        return AttachmentWarning(reference, f"could not open {reference}: {exc}")
 
-    if path.is_dir():
-        return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+    if not _stat.S_ISREG(stat.st_mode):
+        if fd is not None:
+            os.close(fd)
+        return AttachmentWarning(reference, f"only regular files can be attached: {reference}")
 
     if stat.st_size > max_bytes:
+        os.close(fd)
         return AttachmentWarning(
             reference,
             f"file is too large to attach ({stat.st_size} bytes): {reference}",
         )
 
     try:
-        data = path.read_bytes()
+        chunks: list[bytes] = []
+        total = 0
+        while total <= max_bytes:
+            chunk = os.read(fd, min(8192, max_bytes + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        data = b"".join(chunks)
     except PermissionError:
         return AttachmentWarning(reference, f"permission denied: {reference}")
     except OSError as exc:
         return AttachmentWarning(reference, f"could not read {reference}: {exc}")
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+    if len(data) > max_bytes:
+        return AttachmentWarning(
+            reference,
+            f"file is too large to attach (>{max_bytes} bytes): {reference}",
+        )
 
     if b"\x00" in data:
         return AttachmentWarning(reference, f"binary file cannot be attached: {reference}")
@@ -107,7 +134,7 @@ def load_file_attachment(
         path=path,
         display_path=display_path,
         content=content,
-        size=stat.st_size,
+        size=len(data),
         mime_type=mime_type,
     )
 
@@ -146,6 +173,20 @@ def _preview(s: str, max_len: int = 40) -> str:
     return s[:max_len] + "..." if len(s) > max_len else s
 
 
+def _regular_file_size(path: Path) -> tuple[int | None, ToolStatus | None, str | None]:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None, ToolStatus.NOT_FOUND, f"file not found: {path}"
+    except PermissionError:
+        return None, ToolStatus.PERMISSION_DENIED, f"permission denied: {path}"
+    except OSError as exc:
+        return None, ToolStatus.ERROR, str(exc)
+    if not _stat.S_ISREG(stat.st_mode):
+        return None, ToolStatus.ERROR, f"not a regular file: {path}"
+    return stat.st_size, None, None
+
+
 def _collect_dir_entries(
     path: Path,
     current_depth: int,
@@ -179,26 +220,54 @@ def _collect_dir_entries(
 async def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> FileReadResult:
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
+    size, error_status, error = _regular_file_size(p)
+    if error_status is not None:
+        return FileReadResult(status=error_status, error=error, path=path)
+    if end_line is None and size is not None and size > _MAX_AGENT_FILE_BYTES:
+        return FileReadResult(
+            status=ToolStatus.ERROR,
+            error=f"file is too large to read safely ({size} bytes): {path}",
+            path=path,
+        )
+
+    start_idx = max(1, start_line)
+    stop_line = end_line if end_line is None or end_line >= start_idx else start_idx - 1
+    lines: list[str] = []
+    lines_seen = 0
+    bytes_seen = 0
+    truncated = False
     try:
-        raw = p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
-    except PermissionError:
-        return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+        with p.open("r", encoding="utf-8") as file:
+            while True:
+                remaining = _MAX_AGENT_FILE_BYTES - bytes_seen
+                if remaining < 0:
+                    truncated = True
+                    break
+                line = file.readline(remaining + 1)
+                if line == "":
+                    break
+                lines_seen += 1
+                bytes_seen += len(line.encode("utf-8"))
+                if bytes_seen > _MAX_AGENT_FILE_BYTES:
+                    truncated = True
+                    break
+                if lines_seen >= start_idx and (stop_line is None or lines_seen <= stop_line):
+                    lines.append(line)
+                if stop_line is not None and lines_seen >= stop_line:
+                    truncated = file.readline() != ""
+                    break
+    except UnicodeDecodeError:
+        return FileReadResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
     except OSError as exc:
         return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
-    lines = raw.splitlines(keepends=True)
-    total = len(lines)
-    start_idx = max(0, start_line - 1)
-    # end_line is 1-indexed inclusive; Python slice end_line excludes index end_line-1 → use end_line directly
-    sliced = lines[start_idx:end_line]
-    truncated = len(sliced) < total
+    status = ToolStatus.TRUNCATED if truncated and end_line is None else ToolStatus.OK
     return FileReadResult(
+        status=status,
         path=path,
-        content="".join(sliced),
-        lines_total=total,
-        lines_returned=len(sliced),
+        content="".join(lines),
+        lines_total=lines_seen,
+        lines_returned=len(lines),
         truncated=truncated,
         warnings=["reading partial file; use start_line/end_line to navigate"] if truncated else [],
     )
@@ -216,6 +285,10 @@ async def write_file(path: str, content: str) -> FileWriteResult:
     """Write content to a file, creating parent directories as needed."""
     p = Path(path)
     created = not p.exists()
+    if not created:
+        _size, error_status, error = _regular_file_size(p)
+        if error_status is not None:
+            return FileWriteResult(status=error_status, error=error, path=path)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
@@ -237,12 +310,21 @@ setattr(write_file, "approval", ToolApprovalMeta(
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
     p = Path(path)
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+    size, error_status, error = _regular_file_size(p)
+    if error_status is not None:
+        return FileEditResult(status=error_status, error=error, path=path)
+    if size is not None and size > _MAX_AGENT_FILE_BYTES:
+        return FileEditResult(
+            status=ToolStatus.ERROR,
+            error=f"file is too large to edit safely ({size} bytes): {path}",
+            path=path,
+        )
     try:
         content = p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
-    except PermissionError:
-        return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except UnicodeDecodeError:
+        return FileEditResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
@@ -306,7 +388,16 @@ async def search_files(root: str, pattern: str) -> SearchResult:
     p = Path(root)
     if not p.exists():
         return SearchResult(status=ToolStatus.NOT_FOUND, error=f"root not found: {root}", root=root, pattern=pattern)
-    matches = [str(m) for m in sorted(p.rglob(pattern))]
+    matches: list[str] = []
+    for match in sorted(p.rglob(pattern)):
+        matches.append(str(match))
+        if len(matches) >= _MAX_SEARCH_RESULTS:
+            return SearchResult(
+                root=root,
+                pattern=pattern,
+                matches=matches,
+                warnings=[f"results capped at {_MAX_SEARCH_RESULTS}; refine your pattern"],
+            )
     return SearchResult(root=root, pattern=pattern, matches=matches)
 
 
@@ -341,9 +432,17 @@ async def grep_files(
     matches: list[GrepMatch] = []
     searched = 0
     total_matches = 0
+    warnings: list[str] = []
 
     for filepath in sorted(glob_fn(file_glob)):
-        if not filepath.is_file():
+        try:
+            stat = filepath.stat()
+        except OSError:
+            continue
+        if not _stat.S_ISREG(stat.st_mode):
+            continue
+        if stat.st_size > _MAX_AGENT_FILE_BYTES:
+            warnings.append(f"skipped large file: {filepath}")
             continue
         searched += 1
         try:
@@ -366,8 +465,17 @@ async def grep_files(
                     context_before=before,
                     context_after=after,
                 ))
+            if len(matches) >= max_matches:
+                warnings.append(
+                    f"results capped at {max_matches}; refine your pattern"
+                )
+                return GrepResult(
+                    matches=matches,
+                    searched_files=searched,
+                    total_matches=total_matches,
+                    warnings=warnings,
+                )
 
-    warnings: list[str] = []
     if total_matches > max_matches:
         warnings.append(
             f"results capped at {max_matches}; {total_matches} total matches found — refine your pattern"

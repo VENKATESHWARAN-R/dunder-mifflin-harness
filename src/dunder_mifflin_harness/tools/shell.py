@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -44,10 +46,95 @@ class _ProcessInfo:
     stdout_path: str
     stderr_path: str
     started_at: str
+    stdout_task: asyncio.Task[bool] | None = None
+    stderr_task: asyncio.Task[bool] | None = None
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 # In-memory registry of background processes — lives for the duration of the harness session.
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
+
+_READ_CHUNK_BYTES = 8192
+_BACKGROUND_OUTPUT_LIMIT_BYTES = 1_000_000
+
+
+async def _read_stream_limited(
+    stream: asyncio.StreamReader | None,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Drain a subprocess stream while retaining only a bounded prefix."""
+    if stream is None:
+        return b"", False
+
+    chunks: list[bytes] = []
+    captured = 0
+    truncated = False
+    limit = max(0, max_bytes)
+    while True:
+        chunk = await stream.read(_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        remaining = limit - captured
+        if remaining > 0:
+            chunks.append(chunk[:remaining])
+            captured += min(len(chunk), remaining)
+            truncated = truncated or len(chunk) > remaining
+        else:
+            truncated = True
+    return b"".join(chunks), truncated
+
+
+async def _drain_stream_to_capped_file(
+    stream: asyncio.StreamReader | None,
+    path: str,
+    max_bytes: int = _BACKGROUND_OUTPUT_LIMIT_BYTES,
+) -> bool:
+    """Drain a background stream while keeping only a capped output file."""
+    if stream is None:
+        return False
+
+    written = 0
+    truncated = False
+    limit = max(0, max_bytes)
+    with Path(path).open("ab") as output:
+        while True:
+            chunk = await stream.read(_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            remaining = limit - written
+            if remaining > 0:
+                output.write(chunk[:remaining])
+                written += min(len(chunk), remaining)
+                truncated = truncated or len(chunk) > remaining
+            else:
+                truncated = True
+    return truncated
+
+
+def _kill_process_group(process: asyncio.subprocess.Process) -> None:
+    """Best-effort termination for a shell and any children it spawned."""
+    pid = process.pid
+    if pid is None:
+        return
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            return
+
+
+def _read_text_prefix(path: str, max_chars: int) -> tuple[str, bool]:
+    """Read at most max_chars plus one byte from a process output file."""
+    limit = max(0, max_chars)
+    with Path(path).open("rb") as output:
+        data = output.read(limit + 1)
+    truncated = len(data) > limit
+    return data[:limit].decode("utf-8", errors="replace"), truncated
 
 
 # ---------------------------------------------------------------------------
@@ -65,27 +152,43 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    max_output_bytes = max(0, max_output_chars)
+    stdout_task = asyncio.create_task(_read_stream_limited(process.stdout, max_output_bytes))
+    stderr_task = asyncio.create_task(_read_stream_limited(process.stderr, max_output_bytes))
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_group(process)
+        await process.wait()
+
+    stdout_bytes, stdout_truncated = await stdout_task
+    stderr_bytes, stderr_truncated = await stderr_task
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
     stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = stdout_truncated or stderr_truncated
 
     if timed_out:
         status = ToolStatus.TIMEOUT
@@ -128,27 +231,45 @@ async def run_shell_background(
     process_id = uuid.uuid4().hex[:8]
 
     stdout_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stdout", mode="w",
+        delete=False, suffix=f".{process_id}.stdout", mode="wb",
     )
     stderr_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stderr", mode="w",
+        delete=False, suffix=f".{process_id}.stderr", mode="wb",
     )
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=stdout_file,
-        stderr=stderr_file,
-    )
+    stdout_path = stdout_file.name
+    stderr_path = stderr_file.name
     stdout_file.close()
     stderr_file.close()
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        Path(stdout_path).unlink(missing_ok=True)
+        Path(stderr_path).unlink(missing_ok=True)
+        return BackgroundProcessResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            command=command,
+            cwd=str(resolved_cwd),
+        )
+
+    stdout_task = asyncio.create_task(_drain_stream_to_capped_file(process.stdout, stdout_path))
+    stderr_task = asyncio.create_task(_drain_stream_to_capped_file(process.stderr, stderr_path))
 
     PROCESS_REGISTRY[process_id] = _ProcessInfo(
         process=process,
         command=command,
-        stdout_path=stdout_file.name,
-        stderr_path=stderr_file.name,
+        stdout_path=stdout_path,
+        stderr_path=stderr_path,
         started_at=datetime.now(timezone.utc).isoformat(),
+        stdout_task=stdout_task,
+        stderr_task=stderr_task,
     )
 
     return BackgroundProcessResult(
@@ -205,13 +326,25 @@ async def read_process_output(
         )
 
     running = info.process.returncode is None
+    if not running:
+        if info.stdout_task is not None:
+            info.stdout_truncated = await info.stdout_task
+            info.stdout_task = None
+        if info.stderr_task is not None:
+            info.stderr_truncated = await info.stderr_task
+            info.stderr_task = None
     try:
-        stdout_raw = Path(info.stdout_path).read_text(encoding="utf-8", errors="replace")
-        stderr_raw = Path(info.stderr_path).read_text(encoding="utf-8", errors="replace")
+        stdout_raw, stdout_truncated = _read_text_prefix(info.stdout_path, max_output_chars)
+        stderr_raw, stderr_truncated = _read_text_prefix(info.stderr_path, max_output_chars)
     except OSError as exc:
         return ProcessOutputResult(status=ToolStatus.ERROR, error=str(exc), running=running)
 
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = (
+        stdout_truncated
+        or stderr_truncated
+        or info.stdout_truncated
+        or info.stderr_truncated
+    )
     return ProcessOutputResult(
         warnings=["output was truncated"] if truncated else [],
         stdout=truncate_output(stdout_raw, max_output_chars),
