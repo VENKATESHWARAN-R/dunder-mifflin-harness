@@ -110,7 +110,7 @@ def test_run_shell_background_spawn_failure_returns_error(tmp_path: Path) -> Non
 def test_read_process_output_is_bounded(tmp_path: Path) -> None:
     async def run() -> tuple[ToolStatus, bool, str]:
         started = await run_shell_background(
-            command="python -c 'import sys; sys.stdout.write(\"x\" * 20000)'",
+            command="python3 -c 'import sys; sys.stdout.write(\"x\" * 20000)'",
             cwd=str(tmp_path),
         )
         output = await read_process_output(started.process_id, max_output_chars=1000)
