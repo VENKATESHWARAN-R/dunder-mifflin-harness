@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re as _re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,6 +22,9 @@ from dunder_mifflin_harness.tools.types import (
     ToolApprovalMeta,
     ToolStatus,
 )
+
+_DEFAULT_MAX_FILE_READ_BYTES = 1_000_000
+_DEFAULT_MAX_FILE_EDIT_BYTES = 1_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -46,12 +51,42 @@ class AttachmentWarning:
     message: str
 
 
+@dataclass(frozen=True, slots=True)
+class _BoundedFileBytes:
+    data: bytes
+    size: int
+    truncated: bool
+
+
 def resolve_user_path(reference: str, cwd: Path) -> Path:
     """Resolve a user-provided path against the session cwd."""
     path = Path(reference).expanduser()
     if not path.is_absolute():
         path = cwd / path
     return path.resolve()
+
+
+def _read_regular_file_bytes(path: Path, max_bytes: int) -> _BoundedFileBytes:
+    """Read at most max_bytes from a regular file, after opening it safely."""
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    fd = os.open(path, flags)
+    try:
+        stat_result = os.fstat(fd)
+        if not stat.S_ISREG(stat_result.st_mode):
+            raise ValueError(f"not a regular file: {path}")
+        with os.fdopen(fd, "rb", closefd=True) as file_obj:
+            fd = -1
+            data = file_obj.read(max_bytes + 1)
+    finally:
+        if fd != -1:
+            os.close(fd)
+
+    truncated = len(data) > max_bytes
+    return _BoundedFileBytes(
+        data=data[:max_bytes],
+        size=stat_result.st_size,
+        truncated=truncated,
+    )
 
 
 def load_file_attachment(
@@ -80,12 +115,23 @@ def load_file_attachment(
         )
 
     try:
-        data = path.read_bytes()
+        bounded = _read_regular_file_bytes(path, max_bytes)
+    except ValueError:
+        return AttachmentWarning(reference, f"not a regular file: {reference}")
+    except FileNotFoundError:
+        return AttachmentWarning(reference, f"file not found: {reference}")
     except PermissionError:
         return AttachmentWarning(reference, f"permission denied: {reference}")
     except OSError as exc:
         return AttachmentWarning(reference, f"could not read {reference}: {exc}")
 
+    if bounded.truncated:
+        return AttachmentWarning(
+            reference,
+            f"file is too large to attach (more than {max_bytes} bytes): {reference}",
+        )
+
+    data = bounded.data
     if b"\x00" in data:
         return AttachmentWarning(reference, f"binary file cannot be attached: {reference}")
 
@@ -107,7 +153,7 @@ def load_file_attachment(
         path=path,
         display_path=display_path,
         content=content,
-        size=stat.st_size,
+        size=bounded.size,
         mime_type=mime_type,
     )
 
@@ -180,27 +226,41 @@ async def read_file(path: str, start_line: int = 1, end_line: int | None = None)
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
     try:
-        raw = p.read_text(encoding="utf-8")
+        bounded = _read_regular_file_bytes(p, _DEFAULT_MAX_FILE_READ_BYTES)
     except FileNotFoundError:
         return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except ValueError:
+        return FileReadResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
     except OSError as exc:
         return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
+
+    try:
+        raw = bounded.data.decode("utf-8")
+    except UnicodeDecodeError:
+        return FileReadResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
 
     lines = raw.splitlines(keepends=True)
     total = len(lines)
     start_idx = max(0, start_line - 1)
     # end_line is 1-indexed inclusive; Python slice end_line excludes index end_line-1 → use end_line directly
     sliced = lines[start_idx:end_line]
-    truncated = len(sliced) < total
+    truncated = bounded.truncated or len(sliced) < total
+    warnings: list[str] = []
+    if bounded.truncated:
+        warnings.append(
+            f"file content was truncated at {_DEFAULT_MAX_FILE_READ_BYTES:,} bytes"
+        )
+    elif truncated:
+        warnings.append("reading partial file; use start_line/end_line to navigate")
     return FileReadResult(
         path=path,
         content="".join(sliced),
         lines_total=total,
         lines_returned=len(sliced),
         truncated=truncated,
-        warnings=["reading partial file; use start_line/end_line to navigate"] if truncated else [],
+        warnings=warnings,
     )
 
 
@@ -236,15 +296,32 @@ setattr(write_file, "approval", ToolApprovalMeta(
 
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     p = Path(path)
     try:
-        content = p.read_text(encoding="utf-8")
+        bounded = _read_regular_file_bytes(p, _DEFAULT_MAX_FILE_EDIT_BYTES)
     except FileNotFoundError:
         return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except ValueError:
+        return FileEditResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
+
+    if bounded.truncated:
+        return FileEditResult(
+            status=ToolStatus.ERROR,
+            error=f"file is too large to edit safely: {path}",
+            path=path,
+        )
+
+    try:
+        content = bounded.data.decode("utf-8")
+    except UnicodeDecodeError:
+        return FileEditResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
 
     count = content.count(old_string)
     if count == 0:
