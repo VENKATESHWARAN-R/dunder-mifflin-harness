@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -20,6 +22,16 @@ from dunder_mifflin_harness.tools.types import (
     ToolApprovalMeta,
     ToolStatus,
 )
+
+_STREAM_CHUNK_SIZE = 8192
+_PIPE_DRAIN_GRACE_SECONDS = 0.5
+_TERMINATE_GRACE_SECONDS = 1.0
+
+
+@dataclass
+class _StreamCapture:
+    data: bytearray
+    truncated: bool = False
 
 
 def truncate_output(text: str, max_chars: int) -> str:
@@ -55,6 +67,66 @@ PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 # ---------------------------------------------------------------------------
 
 
+def _max_capture_bytes(max_output_chars: int) -> int:
+    """Capture enough bytes for max UTF-8 chars without buffering unbounded output."""
+    return max(0, (max_output_chars * 4) + 1)
+
+
+async def _drain_stream(
+    stream: asyncio.StreamReader | None,
+    capture: _StreamCapture,
+    max_bytes: int,
+) -> None:
+    """Drain a subprocess pipe while retaining only a bounded prefix."""
+    if stream is None:
+        return
+    while True:
+        chunk = await stream.read(_STREAM_CHUNK_SIZE)
+        if not chunk:
+            return
+        remaining = max_bytes - len(capture.data)
+        if remaining > 0:
+            capture.data.extend(chunk[:remaining])
+        if len(chunk) > remaining:
+            capture.truncated = True
+
+
+async def _cancel_tasks(tasks: list[asyncio.Task[None]]) -> None:
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _signal_process_group(process: asyncio.subprocess.Process, sig: int) -> None:
+    """Signal the process group when available, falling back to the direct child."""
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        return
+    except OSError:
+        if process.returncode is None:
+            if sig == signal.SIGKILL:
+                process.kill()
+            else:
+                process.terminate()
+
+
+async def _terminate_process_group(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+
+    _signal_process_group(process, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(process.wait(), timeout=_TERMINATE_GRACE_SECONDS)
+    except TimeoutError:
+        _signal_process_group(process, signal.SIGKILL)
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_TERMINATE_GRACE_SECONDS)
+        except TimeoutError:
+            return
+
+
 async def run_shell(
     command: str,
     cwd: str | None = None,
@@ -65,27 +137,57 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
+
+    max_capture_bytes = _max_capture_bytes(max_output_chars)
+    stdout_capture = _StreamCapture(bytearray())
+    stderr_capture = _StreamCapture(bytearray())
+    drain_tasks = [
+        asyncio.create_task(_drain_stream(process.stdout, stdout_capture, max_capture_bytes)),
+        asyncio.create_task(_drain_stream(process.stderr, stderr_capture, max_capture_bytes)),
+    ]
 
     timed_out = False
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        await _terminate_process_group(process)
+
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*drain_tasks),
+            timeout=_PIPE_DRAIN_GRACE_SECONDS,
+        )
+    except TimeoutError:
+        await _cancel_tasks(drain_tasks)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
-    stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
-    stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    stdout_raw = bytes(stdout_capture.data).decode("utf-8", errors="replace")
+    stderr_raw = bytes(stderr_capture.data).decode("utf-8", errors="replace")
+    truncated = (
+        stdout_capture.truncated
+        or stderr_capture.truncated
+        or len(stdout_raw) > max_output_chars
+        or len(stderr_raw) > max_output_chars
+    )
 
     if timed_out:
         status = ToolStatus.TIMEOUT
