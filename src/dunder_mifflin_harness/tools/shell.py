@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -50,6 +53,53 @@ class _ProcessInfo:
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 
+async def _read_stream_limited(
+    stream: asyncio.StreamReader | None,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Drain a subprocess pipe while keeping only a bounded prefix in memory."""
+    if stream is None:
+        return b"", False
+
+    limit = max(0, max_bytes)
+    chunks: list[bytes] = []
+    captured = 0
+    truncated = False
+
+    while True:
+        chunk = await stream.read(8192)
+        if not chunk:
+            break
+
+        remaining = limit - captured
+        if remaining > 0:
+            chunks.append(chunk[:remaining])
+            captured += min(len(chunk), remaining)
+        if len(chunk) > remaining:
+            truncated = True
+
+    return b"".join(chunks), truncated
+
+
+async def _finish_reader(task: asyncio.Task[tuple[bytes, bool]]) -> tuple[bytes, bool]:
+    with contextlib.suppress(asyncio.CancelledError):
+        return await task
+    return b"", False
+
+
+def _kill_process_group(process: asyncio.subprocess.Process) -> None:
+    """Terminate the shell and descendants created in its process group."""
+    if process.returncode is not None:
+        return
+
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        process.kill()
+
+
 # ---------------------------------------------------------------------------
 # Agent tools
 # ---------------------------------------------------------------------------
@@ -65,27 +115,49 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    capture_limit = max(0, max_output_chars) + 1
+    stdout_task = asyncio.create_task(_read_stream_limited(process.stdout, capture_limit))
+    stderr_task = asyncio.create_task(_read_stream_limited(process.stderr, capture_limit))
+
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_group(process)
+        await process.wait()
+
+    stdout_bytes, stdout_truncated = await _finish_reader(stdout_task)
+    stderr_bytes, stderr_truncated = await _finish_reader(stderr_task)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
     stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = (
+        stdout_truncated
+        or stderr_truncated
+        or len(stdout_raw) > max_output_chars
+        or len(stderr_raw) > max_output_chars
+    )
 
     if timed_out:
         status = ToolStatus.TIMEOUT
