@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -50,6 +53,54 @@ class _ProcessInfo:
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 
+@dataclass(frozen=True)
+class _CapturedOutput:
+    text: str
+    truncated: bool
+
+
+async def _read_bounded_stream(
+    stream: asyncio.StreamReader | None,
+    max_output_chars: int,
+) -> _CapturedOutput:
+    """Drain a subprocess stream while keeping memory bounded."""
+    if stream is None:
+        return _CapturedOutput(text="", truncated=False)
+
+    max_bytes = max(1, max_output_chars)
+    buffer = bytearray()
+    truncated = False
+
+    while True:
+        chunk = await stream.read(4096)
+        if not chunk:
+            break
+
+        remaining = max_bytes - len(buffer)
+        if remaining > 0:
+            buffer.extend(chunk[:remaining])
+        if len(chunk) > remaining:
+            truncated = True
+
+    text = bytes(buffer).decode("utf-8", errors="replace")
+    if truncated and max_output_chars >= 200:
+        text += "\n... output truncated ..."
+    return _CapturedOutput(text=text, truncated=truncated)
+
+
+def _kill_process_group(process: asyncio.subprocess.Process) -> None:
+    """Terminate the shell and any child processes it spawned."""
+    if process.returncode is not None:
+        return
+
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+        return
+
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+
+
 # ---------------------------------------------------------------------------
 # Agent tools
 # ---------------------------------------------------------------------------
@@ -65,27 +116,41 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=f"failed to start command: {exc}",
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    stdout_task = asyncio.create_task(_read_bounded_stream(process.stdout, max_output_chars))
+    stderr_task = asyncio.create_task(_read_bounded_stream(process.stderr, max_output_chars))
+
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_group(process)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+
+    stdout, stderr = await asyncio.gather(stdout_task, stderr_task)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
-    stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
-    stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = stdout.truncated or stderr.truncated
 
     if timed_out:
         status = ToolStatus.TIMEOUT
@@ -98,8 +163,8 @@ async def run_shell(
         status=status,
         warnings=["output was truncated"] if truncated else [],
         error=f"exited with code {process.returncode}" if status == ToolStatus.ERROR else None,
-        stdout=truncate_output(stdout_raw, max_output_chars),
-        stderr=truncate_output(stderr_raw, max_output_chars),
+        stdout=stdout.text,
+        stderr=stderr.text,
         exit_code=process.returncode if process.returncode is not None else -1,
         command=command,
         cwd=str(resolved_cwd),
