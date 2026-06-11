@@ -1,4 +1,7 @@
 import asyncio
+import shlex
+import sys
+import time
 from pathlib import Path
 
 from dunder_mifflin_harness.tools.shell import run_shell, truncate_output
@@ -34,6 +37,23 @@ def test_run_shell_timeout(tmp_path: Path) -> None:
 
     assert result.status == ToolStatus.TIMEOUT
     assert result.timed_out
+
+
+def test_run_shell_timeout_kills_child_processes_holding_pipes(tmp_path: Path) -> None:
+    child_code = "import time; time.sleep(5)"
+    command = f"{shlex.quote(sys.executable)} -c {shlex.quote(child_code)} ; true"
+    started = time.monotonic()
+
+    result = asyncio.run(
+        asyncio.wait_for(
+            run_shell(command=command, cwd=str(tmp_path), timeout_seconds=0.1),
+            timeout=1.5,
+        )
+    )
+
+    assert result.status == ToolStatus.TIMEOUT
+    assert result.timed_out
+    assert time.monotonic() - started < 1.5
 
 
 def test_truncate_output_preserves_head_and_tail() -> None:

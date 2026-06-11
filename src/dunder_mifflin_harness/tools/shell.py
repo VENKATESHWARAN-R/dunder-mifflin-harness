@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -49,6 +52,44 @@ class _ProcessInfo:
 # In-memory registry of background processes — lives for the duration of the harness session.
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
+_TIMEOUT_CLEANUP_SECONDS = 1.0
+
+
+def _shell_spawn_kwargs() -> dict[str, bool]:
+    """Return subprocess kwargs that isolate shell children for timeout cleanup."""
+    if os.name == "posix":
+        return {"start_new_session": True}
+    return {}
+
+
+def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    """Terminate the shell and any children that inherited its process group."""
+    if process.returncode is not None:
+        return
+    if os.name == "posix":
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        return
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+
+
+async def _communicate_after_timeout(
+    process: asyncio.subprocess.Process,
+) -> tuple[bytes, bytes]:
+    _kill_process_tree(process)
+    try:
+        return await asyncio.wait_for(
+            process.communicate(),
+            timeout=_TIMEOUT_CLEANUP_SECONDS,
+        )
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=_TIMEOUT_CLEANUP_SECONDS)
+        return b"", b""
+
 
 # ---------------------------------------------------------------------------
 # Agent tools
@@ -70,6 +111,7 @@ async def run_shell(
         cwd=str(resolved_cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        **_shell_spawn_kwargs(),
     )
 
     timed_out = False
@@ -79,8 +121,7 @@ async def run_shell(
         )
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        stdout_bytes, stderr_bytes = await _communicate_after_timeout(process)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
