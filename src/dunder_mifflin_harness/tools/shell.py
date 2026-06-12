@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -50,6 +53,50 @@ class _ProcessInfo:
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 
+class _BoundedStreamCapture:
+    """Drain a stream fully while retaining only a bounded prefix in memory."""
+
+    def __init__(self, max_bytes: int) -> None:
+        self._max_bytes = max(0, max_bytes)
+        self._buffer = bytearray()
+        self.truncated = False
+
+    @property
+    def data(self) -> bytes:
+        return bytes(self._buffer)
+
+    async def drain(self, stream: asyncio.StreamReader | None) -> None:
+        if stream is None:
+            return
+        while chunk := await stream.read(8192):
+            remaining = self._max_bytes - len(self._buffer)
+            if remaining > 0:
+                self._buffer.extend(chunk[:remaining])
+            if len(chunk) > remaining:
+                self.truncated = True
+
+
+async def _finish_stream_tasks(tasks: list[asyncio.Task[None]], timeout: float = 2.0) -> None:
+    try:
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout)
+    except TimeoutError:
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (AttributeError, ProcessLookupError):
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+
+
 # ---------------------------------------------------------------------------
 # Agent tools
 # ---------------------------------------------------------------------------
@@ -65,27 +112,55 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    subprocess_kwargs = {}
+    if hasattr(os, "setsid"):
+        subprocess_kwargs["start_new_session"] = True
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            **subprocess_kwargs,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    capture_limit = max(0, max_output_chars) + 1
+    stdout_capture = _BoundedStreamCapture(capture_limit)
+    stderr_capture = _BoundedStreamCapture(capture_limit)
+    stream_tasks = [
+        asyncio.create_task(stdout_capture.drain(process.stdout)),
+        asyncio.create_task(stderr_capture.drain(process.stderr)),
+    ]
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_tree(process)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(process.wait(), timeout=2.0)
+    finally:
+        await _finish_stream_tasks(stream_tasks)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
-    stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
-    stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    stdout_raw = stdout_capture.data.decode("utf-8", errors="replace")
+    stderr_raw = stderr_capture.data.decode("utf-8", errors="replace")
+    truncated = (
+        stdout_capture.truncated
+        or stderr_capture.truncated
+        or len(stdout_raw) > max_output_chars
+        or len(stderr_raw) > max_output_chars
+    )
 
     if timed_out:
         status = ToolStatus.TIMEOUT
