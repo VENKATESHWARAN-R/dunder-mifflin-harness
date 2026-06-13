@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 import re as _re
+import stat as _stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,6 +74,9 @@ def load_file_attachment(
     if path.is_dir():
         return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
 
+    if not _is_regular_file(stat.st_mode):
+        return AttachmentWarning(reference, f"not a regular file: {reference}")
+
     if stat.st_size > max_bytes:
         return AttachmentWarning(
             reference,
@@ -141,9 +145,16 @@ _DEFAULT_IGNORE: frozenset[str] = frozenset({
     ".DS_Store",
 })
 
+_MAX_TEXT_FILE_BYTES = 1_000_000
+_MAX_GREP_FILE_BYTES = 1_000_000
+
 
 def _preview(s: str, max_len: int = 40) -> str:
     return s[:max_len] + "..." if len(s) > max_len else s
+
+
+def _is_regular_file(mode: int) -> bool:
+    return _stat.S_ISREG(mode)
 
 
 def _collect_dir_entries(
@@ -157,7 +168,7 @@ def _collect_dir_entries(
     entries: list[DirEntry] = []
     try:
         children = sorted(path.iterdir())
-    except PermissionError:
+    except OSError:
         return entries
 
     for child in children:
@@ -165,11 +176,12 @@ def _collect_dir_entries(
             continue
         if child.name in ignore:
             continue
-        is_dir = child.is_dir()
         try:
-            size = child.stat().st_size if not is_dir else 0
+            child_stat = child.stat()
         except OSError:
-            size = 0
+            child_stat = None
+        is_dir = bool(child_stat and _stat.S_ISDIR(child_stat.st_mode) and not child.is_symlink())
+        size = 0 if is_dir or child_stat is None else child_stat.st_size
         entries.append(DirEntry(name=child.name, path=str(child), is_dir=is_dir, size=size))
         if is_dir and current_depth < max_depth - 1:
             entries.extend(_collect_dir_entries(child, current_depth + 1, max_depth, ignore, show_hidden))
@@ -180,11 +192,22 @@ async def read_file(path: str, start_line: int = 1, end_line: int | None = None)
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
     try:
+        file_stat = p.stat()
+        if not _is_regular_file(file_stat.st_mode):
+            return FileReadResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
+        if file_stat.st_size > _MAX_TEXT_FILE_BYTES:
+            return FileReadResult(
+                status=ToolStatus.ERROR,
+                error=f"file is too large to read safely ({file_stat.st_size} bytes): {path}",
+                path=path,
+            )
         raw = p.read_text(encoding="utf-8")
     except FileNotFoundError:
         return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except UnicodeDecodeError:
+        return FileReadResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
     except OSError as exc:
         return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
@@ -236,13 +259,27 @@ setattr(write_file, "approval", ToolApprovalMeta(
 
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     p = Path(path)
     try:
+        file_stat = p.stat()
+        if not _is_regular_file(file_stat.st_mode):
+            return FileEditResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
+        if file_stat.st_size > _MAX_TEXT_FILE_BYTES:
+            return FileEditResult(
+                status=ToolStatus.ERROR,
+                error=f"file is too large to edit safely ({file_stat.st_size} bytes): {path}",
+                path=path,
+            )
         content = p.read_text(encoding="utf-8")
     except FileNotFoundError:
         return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except UnicodeDecodeError:
+        return FileEditResult(status=ToolStatus.ERROR, error=f"file is not valid UTF-8 text: {path}", path=path)
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
@@ -343,7 +380,11 @@ async def grep_files(
     total_matches = 0
 
     for filepath in sorted(glob_fn(file_glob)):
-        if not filepath.is_file():
+        try:
+            file_stat = filepath.stat()
+        except OSError:
+            continue
+        if not _is_regular_file(file_stat.st_mode) or file_stat.st_size > _MAX_GREP_FILE_BYTES:
             continue
         searched += 1
         try:
