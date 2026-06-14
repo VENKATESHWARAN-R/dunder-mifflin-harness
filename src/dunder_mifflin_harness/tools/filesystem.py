@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import re as _re
+import stat as stat_module
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,27 +64,18 @@ def load_file_attachment(
     """Load a text file attachment or return a visible warning."""
     path = resolve_user_path(reference, cwd)
     try:
-        stat = path.stat()
+        data, size = _read_regular_bytes(path, max_bytes)
     except FileNotFoundError:
         return AttachmentWarning(reference, f"file not found: {reference}")
     except PermissionError:
         return AttachmentWarning(reference, f"permission denied: {reference}")
-    except OSError as exc:
-        return AttachmentWarning(reference, f"could not inspect {reference}: {exc}")
-
-    if path.is_dir():
-        return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
-
-    if stat.st_size > max_bytes:
+    except _NonRegularFileError:
+        return AttachmentWarning(reference, f"not a regular text file: {reference}")
+    except _FileTooLargeError as exc:
         return AttachmentWarning(
             reference,
-            f"file is too large to attach ({stat.st_size} bytes): {reference}",
+            f"file is too large to attach ({exc.size} bytes): {reference}",
         )
-
-    try:
-        data = path.read_bytes()
-    except PermissionError:
-        return AttachmentWarning(reference, f"permission denied: {reference}")
     except OSError as exc:
         return AttachmentWarning(reference, f"could not read {reference}: {exc}")
 
@@ -90,8 +83,8 @@ def load_file_attachment(
         return AttachmentWarning(reference, f"binary file cannot be attached: {reference}")
 
     try:
-        content = data.decode("utf-8")
-    except UnicodeDecodeError:
+        content = _decode_utf8(data, reference)
+    except ValueError:
         return AttachmentWarning(
             reference,
             f"file is not valid UTF-8 text: {reference}",
@@ -107,7 +100,7 @@ def load_file_attachment(
         path=path,
         display_path=display_path,
         content=content,
-        size=stat.st_size,
+        size=size,
         mime_type=mime_type,
     )
 
@@ -140,10 +133,62 @@ _DEFAULT_IGNORE: frozenset[str] = frozenset({
     "dist", "build", ".build",
     ".DS_Store",
 })
+_FILE_READ_CHUNK_BYTES = 8192
+_MAX_TOOL_FILE_BYTES = 1_000_000
+
+
+class _NonRegularFileError(OSError):
+    """Raised when a path resolves to a directory, FIFO, device, or socket."""
+
+
+class _FileTooLargeError(OSError):
+    """Raised when bounded tool reads would exceed the configured limit."""
+
+    def __init__(self, size: int, max_bytes: int) -> None:
+        super().__init__(f"file is too large ({size} bytes; limit {max_bytes} bytes)")
+        self.size = size
+        self.max_bytes = max_bytes
 
 
 def _preview(s: str, max_len: int = 40) -> str:
     return s[:max_len] + "..." if len(s) > max_len else s
+
+
+def _read_regular_bytes(path: Path, max_bytes: int) -> tuple[bytes, int]:
+    """Read at most max_bytes from a regular file, rejecting special files."""
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NONBLOCK"):
+        flags |= os.O_NONBLOCK
+
+    fd = os.open(path, flags)
+    try:
+        file_stat = os.fstat(fd)
+        if not stat_module.S_ISREG(file_stat.st_mode):
+            raise _NonRegularFileError(f"not a regular file: {path}")
+        if file_stat.st_size > max_bytes:
+            raise _FileTooLargeError(file_stat.st_size, max_bytes)
+
+        chunks: list[bytes] = []
+        total = 0
+        while total <= max_bytes:
+            chunk = os.read(fd, min(_FILE_READ_CHUNK_BYTES, max_bytes + 1 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+
+        if total > max_bytes:
+            raise _FileTooLargeError(total, max_bytes)
+        return b"".join(chunks), file_stat.st_size
+    finally:
+        os.close(fd)
+
+
+def _decode_utf8(data: bytes, path: str) -> str:
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"file is not valid UTF-8 text: {path}") from exc
 
 
 def _collect_dir_entries(
@@ -180,11 +225,14 @@ async def read_file(path: str, start_line: int = 1, end_line: int | None = None)
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
     try:
-        raw = p.read_text(encoding="utf-8")
+        data, _size = _read_regular_bytes(p, _MAX_TOOL_FILE_BYTES)
+        raw = _decode_utf8(data, path)
     except FileNotFoundError:
         return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except (_NonRegularFileError, _FileTooLargeError, ValueError) as exc:
+        return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
     except OSError as exc:
         return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
@@ -217,6 +265,8 @@ async def write_file(path: str, content: str) -> FileWriteResult:
     p = Path(path)
     created = not p.exists()
     try:
+        if not created and not stat_module.S_ISREG(p.stat().st_mode):
+            return FileWriteResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
     except PermissionError:
@@ -236,13 +286,19 @@ setattr(write_file, "approval", ToolApprovalMeta(
 
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     p = Path(path)
     try:
-        content = p.read_text(encoding="utf-8")
+        data, _size = _read_regular_bytes(p, _MAX_TOOL_FILE_BYTES)
+        content = _decode_utf8(data, path)
     except FileNotFoundError:
         return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except (_NonRegularFileError, _FileTooLargeError, ValueError) as exc:
+        return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
@@ -347,8 +403,9 @@ async def grep_files(
             continue
         searched += 1
         try:
-            text = filepath.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            data, _size = _read_regular_bytes(filepath, _MAX_TOOL_FILE_BYTES)
+            text = _decode_utf8(data, str(filepath))
+        except (OSError, ValueError):
             continue
 
         file_lines = text.splitlines()
