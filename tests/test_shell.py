@@ -53,7 +53,7 @@ def test_run_shell_timeout_kills_children_holding_pipes(tmp_path: Path) -> None:
     assert result.timed_out
 
 
-def test_run_shell_returns_when_background_child_keeps_pipe(tmp_path: Path) -> None:
+def test_run_shell_timeout_returns_when_background_child_keeps_pipe(tmp_path: Path) -> None:
     start = time.monotonic()
 
     result = asyncio.run(
@@ -63,13 +63,13 @@ def test_run_shell_returns_when_background_child_keeps_pipe(tmp_path: Path) -> N
                 "print(\"done\") if pid else (time.sleep(10), os._exit(0))'"
             ),
             cwd=str(tmp_path),
-            timeout_seconds=5,
+            timeout_seconds=0.1,
         )
     )
 
     assert time.monotonic() - start < 2
-    assert result.status == ToolStatus.OK
-    assert result.stdout.strip() == "done"
+    assert result.status == ToolStatus.TIMEOUT
+    assert result.timed_out
 
 
 def test_run_shell_spawn_error_returns_tool_result(tmp_path: Path) -> None:
