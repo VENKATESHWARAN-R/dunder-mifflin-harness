@@ -58,14 +58,18 @@ def test_run_shell_returns_when_background_child_keeps_pipe(tmp_path: Path) -> N
 
     result = asyncio.run(
         run_shell(
-            command="sh -c 'sleep 10 &'",
+            command=(
+                "python3 -c 'import subprocess; "
+                "subprocess.Popen([\"sleep\", \"10\"]); print(\"done\")'"
+            ),
             cwd=str(tmp_path),
-            timeout_seconds=2,
+            timeout_seconds=5,
         )
     )
 
     assert time.monotonic() - start < 2
     assert result.status == ToolStatus.OK
+    assert result.stdout.strip() == "done"
 
 
 def test_run_shell_spawn_error_returns_tool_result(tmp_path: Path) -> None:
