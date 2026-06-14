@@ -59,8 +59,8 @@ def test_run_shell_returns_when_background_child_keeps_pipe(tmp_path: Path) -> N
     result = asyncio.run(
         run_shell(
             command=(
-                "python3 -c 'import subprocess; "
-                "subprocess.Popen([\"sleep\", \"10\"]); print(\"done\")'"
+                "python3 -c 'import os, time; pid = os.fork(); "
+                "print(\"done\") if pid else (time.sleep(10), os._exit(0))'"
             ),
             cwd=str(tmp_path),
             timeout_seconds=5,
