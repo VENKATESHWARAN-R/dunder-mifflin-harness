@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -46,8 +48,32 @@ class _ProcessInfo:
     started_at: str
 
 
+@dataclass
+class _BoundedCapture:
+    max_bytes: int
+    chunks: list[bytes]
+    total_bytes: int = 0
+    truncated: bool = False
+
+    async def read_from(self, stream: asyncio.StreamReader | None) -> None:
+        if stream is None:
+            return
+
+        while chunk := await stream.read(8192):
+            self.total_bytes += len(chunk)
+            remaining = self.max_bytes - sum(len(item) for item in self.chunks)
+            if remaining > 0:
+                self.chunks.append(chunk[:remaining])
+            if self.total_bytes > self.max_bytes:
+                self.truncated = True
+
+    def output(self) -> bytes:
+        return b"".join(self.chunks)
+
+
 # In-memory registry of background processes — lives for the duration of the harness session.
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
+_PROCESS_CLEANUP_SECONDS = 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -65,27 +91,60 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
-    try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
-    except TimeoutError:
+    stdout_capture = _BoundedCapture(max_bytes=max_output_chars, chunks=[])
+    stderr_capture = _BoundedCapture(max_bytes=max_output_chars, chunks=[])
+    wait_task = asyncio.create_task(process.wait())
+    stdout_task = asyncio.create_task(stdout_capture.read_from(process.stdout))
+    stderr_task = asyncio.create_task(stderr_capture.read_from(process.stderr))
+    tasks = {wait_task, stdout_task, stderr_task}
+
+    _done, pending = await asyncio.wait(tasks, timeout=timeout_seconds)
+    if pending:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
+            process.kill()
+
+        _done, pending = await asyncio.wait(pending, timeout=_PROCESS_CLEANUP_SECONDS)
+        for task in pending:
+            task.cancel()
+
+    await asyncio.gather(*tasks, return_exceptions=True)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
+    stdout_bytes = stdout_capture.output()
+    stderr_bytes = stderr_capture.output()
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
     stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = (
+        stdout_capture.truncated
+        or stderr_capture.truncated
+        or len(stdout_raw) > max_output_chars
+        or len(stderr_raw) > max_output_chars
+    )
 
     if timed_out:
         status = ToolStatus.TIMEOUT

@@ -246,6 +246,9 @@ async def edit_file(path: str, old_string: str, new_string: str, replace_all: bo
     except OSError as exc:
         return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
 
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     count = content.count(old_string)
     if count == 0:
         return FileEditResult(status=ToolStatus.ERROR, error=f"old_string not found in `{path}`", path=path)
