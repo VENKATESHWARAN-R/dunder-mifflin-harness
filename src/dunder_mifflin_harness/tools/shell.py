@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -50,6 +52,47 @@ class _ProcessInfo:
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 
+async def _read_stream_limited(
+    stream: asyncio.StreamReader | None,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Drain a subprocess stream while retaining only a bounded prefix."""
+    if stream is None:
+        return b"", False
+
+    chunks: list[bytes] = []
+    captured = 0
+    truncated = False
+    while True:
+        chunk = await stream.read(8192)
+        if not chunk:
+            break
+        remaining = max_bytes - captured
+        if remaining > 0:
+            chunks.append(chunk[:remaining])
+            captured += min(len(chunk), remaining)
+            truncated = truncated or len(chunk) > remaining
+        else:
+            truncated = True
+    return b"".join(chunks), truncated
+
+
+def _kill_process_group(process: asyncio.subprocess.Process) -> None:
+    """Best-effort termination for a shell and any children it spawned."""
+    pid = process.pid
+    if pid is None:
+        return
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            return
+
+
 # ---------------------------------------------------------------------------
 # Agent tools
 # ---------------------------------------------------------------------------
@@ -65,27 +108,48 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    max_output_bytes = max(0, max_output_chars)
+    stdout_task = asyncio.create_task(_read_stream_limited(process.stdout, max_output_bytes))
+    stderr_task = asyncio.create_task(_read_stream_limited(process.stderr, max_output_bytes))
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_group(process)
+        await process.wait()
+
+    stdout_bytes, stdout_truncated = await stdout_task
+    stderr_bytes, stderr_truncated = await stderr_task
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
     stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = (
+        stdout_truncated
+        or stderr_truncated
+        or len(stdout_raw) > max_output_chars
+        or len(stderr_raw) > max_output_chars
+    )
 
     if timed_out:
         status = ToolStatus.TIMEOUT
@@ -94,13 +158,18 @@ async def run_shell(
     else:
         status = ToolStatus.OK
 
+    if timed_out and process.returncode is None:
+        exit_code = -1
+    else:
+        exit_code = process.returncode if process.returncode is not None else -1
+
     return ShellToolResult(
         status=status,
         warnings=["output was truncated"] if truncated else [],
         error=f"exited with code {process.returncode}" if status == ToolStatus.ERROR else None,
         stdout=truncate_output(stdout_raw, max_output_chars),
         stderr=truncate_output(stderr_raw, max_output_chars),
-        exit_code=process.returncode if process.returncode is not None else -1,
+        exit_code=exit_code,
         command=command,
         cwd=str(resolved_cwd),
         timed_out=timed_out,
@@ -128,20 +197,38 @@ async def run_shell_background(
     process_id = uuid.uuid4().hex[:8]
 
     stdout_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stdout", mode="w",
+        delete=False, suffix=f".{process_id}.stdout", mode="wb",
     )
     stderr_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stderr", mode="w",
+        delete=False, suffix=f".{process_id}.stderr", mode="wb",
     )
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=stdout_file,
-        stderr=stderr_file,
-    )
-    stdout_file.close()
-    stderr_file.close()
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=stdout_file,
+            stderr=stderr_file,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        stdout_path = stdout_file.name
+        stderr_path = stderr_file.name
+        stdout_file.close()
+        stderr_file.close()
+        Path(stdout_path).unlink(missing_ok=True)
+        Path(stderr_path).unlink(missing_ok=True)
+        return BackgroundProcessResult(
+            status=ToolStatus.ERROR,
+            error=str(exc),
+            command=command,
+            cwd=str(resolved_cwd),
+        )
+    finally:
+        if not stdout_file.closed:
+            stdout_file.close()
+        if not stderr_file.closed:
+            stderr_file.close()
 
     PROCESS_REGISTRY[process_id] = _ProcessInfo(
         process=process,
