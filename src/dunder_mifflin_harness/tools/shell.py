@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -20,6 +23,10 @@ from dunder_mifflin_harness.tools.types import (
     ToolApprovalMeta,
     ToolStatus,
 )
+
+_STREAM_READ_CHUNK_BYTES = 8192
+_PROCESS_CLEANUP_TIMEOUT_SECONDS = 2.0
+_BACKGROUND_OUTPUT_MAX_BYTES = 1_000_000
 
 
 def truncate_output(text: str, max_chars: int) -> str:
@@ -50,6 +57,85 @@ class _ProcessInfo:
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
 
 
+async def _read_bounded_stream(
+    stream: asyncio.StreamReader | None,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Drain a subprocess stream while keeping only a bounded prefix in memory."""
+    if stream is None:
+        return b"", False
+
+    captured = bytearray()
+    truncated = False
+    limit = max(0, max_bytes)
+    while True:
+        chunk = await stream.read(_STREAM_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        if len(captured) < limit:
+            remaining = limit - len(captured)
+            captured.extend(chunk[:remaining])
+            if len(chunk) > remaining:
+                truncated = True
+        else:
+            truncated = True
+    return bytes(captured), truncated
+
+
+async def _finish_stream_task(
+    task: asyncio.Task[tuple[bytes, bool]],
+) -> tuple[bytes, bool]:
+    try:
+        return await asyncio.wait_for(task, timeout=_PROCESS_CLEANUP_TIMEOUT_SECONDS)
+    except TimeoutError:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return b"", True
+
+
+def _kill_process_group(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        with contextlib.suppress(ProcessLookupError, OSError):
+            process.kill()
+
+
+async def _drain_stream_to_file(
+    stream: asyncio.StreamReader | None,
+    path: str,
+    max_bytes: int,
+) -> None:
+    """Drain background process output to disk without allowing unbounded growth."""
+    if stream is None:
+        return
+
+    written = 0
+    truncated = False
+    with Path(path).open("wb") as output:
+        while True:
+            chunk = await stream.read(_STREAM_READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            if written < max_bytes:
+                remaining = max_bytes - written
+                output.write(chunk[:remaining])
+                written += min(len(chunk), remaining)
+                if len(chunk) > remaining:
+                    truncated = True
+            else:
+                truncated = True
+        if truncated:
+            output.write(
+                f"\n... output truncated after {max_bytes} bytes ...\n".encode("utf-8")
+            )
+
+
 # ---------------------------------------------------------------------------
 # Agent tools
 # ---------------------------------------------------------------------------
@@ -65,27 +151,55 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=f"failed to start command: {exc}",
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    stdout_task = asyncio.create_task(
+        _read_bounded_stream(process.stdout, max_output_chars)
+    )
+    stderr_task = asyncio.create_task(
+        _read_bounded_stream(process.stderr, max_output_chars)
+    )
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_group(process)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(
+                process.wait(),
+                timeout=_PROCESS_CLEANUP_TIMEOUT_SECONDS,
+            )
+
+    stdout_bytes, stdout_stream_truncated = await _finish_stream_task(stdout_task)
+    stderr_bytes, stderr_stream_truncated = await _finish_stream_task(stderr_task)
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
     stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = (
+        stdout_stream_truncated
+        or stderr_stream_truncated
+        or len(stdout_raw) > max_output_chars
+        or len(stderr_raw) > max_output_chars
+    )
 
     if timed_out:
         status = ToolStatus.TIMEOUT
@@ -127,21 +241,43 @@ async def run_shell_background(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     process_id = uuid.uuid4().hex[:8]
 
-    stdout_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stdout", mode="w",
-    )
-    stderr_file = tempfile.NamedTemporaryFile(
-        delete=False, suffix=f".{process_id}.stderr", mode="w",
-    )
-
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=stdout_file,
-        stderr=stderr_file,
-    )
+    stdout_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{process_id}.stdout")
+    stderr_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{process_id}.stderr")
     stdout_file.close()
     stderr_file.close()
+
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        Path(stdout_file.name).unlink(missing_ok=True)
+        Path(stderr_file.name).unlink(missing_ok=True)
+        return BackgroundProcessResult(
+            status=ToolStatus.ERROR,
+            error=f"failed to start command: {exc}",
+            command=command,
+            cwd=str(resolved_cwd),
+        )
+
+    asyncio.create_task(
+        _drain_stream_to_file(
+            process.stdout,
+            stdout_file.name,
+            _BACKGROUND_OUTPUT_MAX_BYTES,
+        )
+    )
+    asyncio.create_task(
+        _drain_stream_to_file(
+            process.stderr,
+            stderr_file.name,
+            _BACKGROUND_OUTPUT_MAX_BYTES,
+        )
+    )
 
     PROCESS_REGISTRY[process_id] = _ProcessInfo(
         process=process,
