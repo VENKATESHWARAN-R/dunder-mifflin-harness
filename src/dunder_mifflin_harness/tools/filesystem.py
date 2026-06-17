@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 import re as _re
+import stat as _stat
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -72,6 +73,9 @@ def load_file_attachment(
 
     if path.is_dir():
         return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+
+    if not _stat.S_ISREG(stat.st_mode):
+        return AttachmentWarning(reference, f"not a regular file: {reference}")
 
     if stat.st_size > max_bytes:
         return AttachmentWarning(
@@ -180,6 +184,18 @@ async def read_file(path: str, start_line: int = 1, end_line: int | None = None)
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
     try:
+        file_stat = p.stat()
+    except FileNotFoundError:
+        return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
+    except PermissionError:
+        return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except OSError as exc:
+        return FileReadResult(status=ToolStatus.ERROR, error=str(exc), path=path)
+
+    if not _stat.S_ISREG(file_stat.st_mode):
+        return FileReadResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
+
+    try:
         raw = p.read_text(encoding="utf-8")
     except FileNotFoundError:
         return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
@@ -217,6 +233,8 @@ async def write_file(path: str, content: str) -> FileWriteResult:
     p = Path(path)
     created = not p.exists()
     try:
+        if not created and not _stat.S_ISREG(p.stat().st_mode):
+            return FileWriteResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
     except PermissionError:
@@ -236,7 +254,22 @@ setattr(write_file, "approval", ToolApprovalMeta(
 
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     p = Path(path)
+    try:
+        file_stat = p.stat()
+    except FileNotFoundError:
+        return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
+    except PermissionError:
+        return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
+    except OSError as exc:
+        return FileEditResult(status=ToolStatus.ERROR, error=str(exc), path=path)
+
+    if not _stat.S_ISREG(file_stat.st_mode):
+        return FileEditResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
+
     try:
         content = p.read_text(encoding="utf-8")
     except FileNotFoundError:
