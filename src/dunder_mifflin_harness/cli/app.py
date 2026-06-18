@@ -142,6 +142,12 @@ class ChatApp:
             if key not in {"temperature", "max_tokens"}:
                 self.renderer.print_error("Supported params: temperature, max_tokens")
                 return
+            if key == "temperature":
+                try:
+                    float(value)
+                except ValueError:
+                    self.renderer.print_error("Temperature must be a number.")
+                    return
             self.session.config.model_params[key] = value
             self.coordinator.reset_agent()
             self.renderer.print_info(f"Parameter set: {key}={value}")
@@ -173,7 +179,7 @@ class ChatApp:
         while not self._should_exit:
             raw = await self.input.read()
             if raw is None:
-                continue
+                break
             await self.handle_input(raw)
 
     async def handle_input(self, raw: str) -> None:
@@ -204,9 +210,13 @@ class ChatApp:
             await self._handle_shell(parsed.shell_command or "")
             return
 
-        await self.coordinator.submit_message(
-            UserMessage(text=parsed.text, attachments=parsed.attachments)
-        )
+        try:
+            await self.coordinator.submit_message(
+                UserMessage(text=parsed.text, attachments=parsed.attachments)
+            )
+        except Exception:
+            # RunCoordinator already emitted RunFailed; keep the chat session alive.
+            return
 
     async def _handle_shell(self, command: str) -> None:
         if not command:
