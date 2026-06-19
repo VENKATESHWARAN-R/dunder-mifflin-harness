@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 import re as _re
+import stat as stat_module
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -62,7 +63,7 @@ def load_file_attachment(
     """Load a text file attachment or return a visible warning."""
     path = resolve_user_path(reference, cwd)
     try:
-        stat = path.stat()
+        file_stat = path.stat()
     except FileNotFoundError:
         return AttachmentWarning(reference, f"file not found: {reference}")
     except PermissionError:
@@ -70,13 +71,13 @@ def load_file_attachment(
     except OSError as exc:
         return AttachmentWarning(reference, f"could not inspect {reference}: {exc}")
 
-    if path.is_dir():
-        return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+    if not stat_module.S_ISREG(file_stat.st_mode):
+        return AttachmentWarning(reference, f"not a regular file: {reference}")
 
-    if stat.st_size > max_bytes:
+    if file_stat.st_size > max_bytes:
         return AttachmentWarning(
             reference,
-            f"file is too large to attach ({stat.st_size} bytes): {reference}",
+            f"file is too large to attach ({file_stat.st_size} bytes): {reference}",
         )
 
     try:
@@ -107,7 +108,7 @@ def load_file_attachment(
         path=path,
         display_path=display_path,
         content=content,
-        size=stat.st_size,
+        size=file_stat.st_size,
         mime_type=mime_type,
     )
 
@@ -179,10 +180,12 @@ def _collect_dir_entries(
 async def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> FileReadResult:
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
+    if not p.exists():
+        return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
+    if not p.is_file():
+        return FileReadResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
     try:
         raw = p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return FileReadResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileReadResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
     except OSError as exc:
@@ -216,6 +219,8 @@ async def write_file(path: str, content: str) -> FileWriteResult:
     """Write content to a file, creating parent directories as needed."""
     p = Path(path)
     created = not p.exists()
+    if p.exists() and not p.is_file():
+        return FileWriteResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
@@ -237,10 +242,14 @@ setattr(write_file, "approval", ToolApprovalMeta(
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
     p = Path(path)
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+    if not p.exists():
+        return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
+    if not p.is_file():
+        return FileEditResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
     try:
         content = p.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return FileEditResult(status=ToolStatus.NOT_FOUND, error=f"file not found: {path}", path=path)
     except PermissionError:
         return FileEditResult(status=ToolStatus.PERMISSION_DENIED, error=f"permission denied: {path}", path=path)
     except OSError as exc:
