@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import os
+import signal
 import tempfile
 import time
 import uuid
@@ -48,6 +51,45 @@ class _ProcessInfo:
 
 # In-memory registry of background processes — lives for the duration of the harness session.
 PROCESS_REGISTRY: dict[str, _ProcessInfo] = {}
+_STREAM_READ_CHUNK_BYTES = 8192
+_PROCESS_CLEANUP_TIMEOUT_SECONDS = 1.0
+
+
+async def _read_stream_limited(
+    stream: asyncio.StreamReader | None,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Drain a subprocess stream while retaining only a bounded prefix."""
+    if stream is None:
+        return b"", False
+
+    chunks: list[bytes] = []
+    seen = 0
+    retained = 0
+    truncated = False
+    while True:
+        chunk = await stream.read(_STREAM_READ_CHUNK_BYTES)
+        if not chunk:
+            break
+        seen += len(chunk)
+        if retained < max_bytes:
+            keep = chunk[: max_bytes - retained]
+            chunks.append(keep)
+            retained += len(keep)
+        if seen > max_bytes:
+            truncated = True
+    return b"".join(chunks), truncated
+
+
+def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    """Terminate the process group created for a shell command."""
+    if process.returncode is not None:
+        return
+    if os.name == "posix":
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+    else:
+        process.kill()
 
 
 # ---------------------------------------------------------------------------
@@ -65,27 +107,62 @@ async def run_shell(
     resolved_cwd = Path(cwd) if cwd else Path.cwd()
     started_at = time.monotonic()
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        cwd=str(resolved_cwd),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            cwd=str(resolved_cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=os.name == "posix",
+        )
+    except OSError as exc:
+        duration_ms = int((time.monotonic() - started_at) * 1000)
+        return ShellToolResult(
+            status=ToolStatus.ERROR,
+            error=f"failed to start command: {exc}",
+            exit_code=-1,
+            command=command,
+            cwd=str(resolved_cwd),
+            duration_ms=duration_ms,
+        )
 
     timed_out = False
+    max_output_bytes = max(0, max_output_chars)
+    stdout_task = asyncio.create_task(_read_stream_limited(process.stdout, max_output_bytes))
+    stderr_task = asyncio.create_task(_read_stream_limited(process.stderr, max_output_bytes))
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            process.communicate(), timeout=timeout_seconds,
-        )
+        await asyncio.wait_for(process.wait(), timeout=timeout_seconds)
     except TimeoutError:
         timed_out = True
-        process.kill()
-        stdout_bytes, stderr_bytes = await process.communicate()
+        _kill_process_tree(process)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(
+                process.wait(),
+                timeout=_PROCESS_CLEANUP_TIMEOUT_SECONDS,
+            )
+
+    try:
+        (stdout_bytes, stdout_truncated), (stderr_bytes, stderr_truncated) = await asyncio.wait_for(
+            asyncio.gather(stdout_task, stderr_task),
+            timeout=_PROCESS_CLEANUP_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        for task in (stdout_task, stderr_task):
+            task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.gather(stdout_task, stderr_task)
+        stdout_bytes, stderr_bytes = b"", b""
+        stdout_truncated = stderr_truncated = True
 
     duration_ms = int((time.monotonic() - started_at) * 1000)
     stdout_raw = stdout_bytes.decode("utf-8", errors="replace")
     stderr_raw = stderr_bytes.decode("utf-8", errors="replace")
-    truncated = len(stdout_raw) > max_output_chars or len(stderr_raw) > max_output_chars
+    truncated = (
+        stdout_truncated
+        or stderr_truncated
+        or len(stdout_raw) > max_output_chars
+        or len(stderr_raw) > max_output_chars
+    )
 
     if timed_out:
         status = ToolStatus.TIMEOUT
