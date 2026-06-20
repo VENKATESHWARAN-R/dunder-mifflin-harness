@@ -72,6 +72,8 @@ def load_file_attachment(
 
     if path.is_dir():
         return AttachmentWarning(reference, f"directories are not attachable yet: {reference}")
+    if not path.is_file():
+        return AttachmentWarning(reference, f"not a regular file: {reference}")
 
     if stat.st_size > max_bytes:
         return AttachmentWarning(
@@ -179,6 +181,8 @@ def _collect_dir_entries(
 async def read_file(path: str, start_line: int = 1, end_line: int | None = None) -> FileReadResult:
     """Read a text file. start_line and end_line are 1-indexed and inclusive."""
     p = Path(path)
+    if p.exists() and not p.is_file():
+        return FileReadResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
     try:
         raw = p.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -215,6 +219,8 @@ setattr(read_file, "approval", ToolApprovalMeta(
 async def write_file(path: str, content: str) -> FileWriteResult:
     """Write content to a file, creating parent directories as needed."""
     p = Path(path)
+    if p.exists() and not p.is_file():
+        return FileWriteResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
     created = not p.exists()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -236,7 +242,12 @@ setattr(write_file, "approval", ToolApprovalMeta(
 
 async def edit_file(path: str, old_string: str, new_string: str, replace_all: bool = False) -> FileEditResult:
     """Replace an exact string in a file. Fails if old_string matches more than once and replace_all is False."""
+    if old_string == "":
+        return FileEditResult(status=ToolStatus.ERROR, error="old_string must not be empty", path=path)
+
     p = Path(path)
+    if p.exists() and not p.is_file():
+        return FileEditResult(status=ToolStatus.ERROR, error=f"not a regular file: {path}", path=path)
     try:
         content = p.read_text(encoding="utf-8")
     except FileNotFoundError:
